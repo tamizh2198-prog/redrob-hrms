@@ -1,6 +1,7 @@
 import { Route, Routes, Navigate } from 'react-router-dom'
 
-import { EmployeePage } from '@/modules/employee'
+import { EmployeePage, EmployeeDetailPage, ChangeRequestsPage } from '@/modules/employee'
+import { RequireRole } from '@/shared/routes/RequireRole'
 import { AttendancePage } from '@/modules/attendance'
 import { LeavePage } from '@/modules/leave'
 import { ShiftPage } from '@/modules/shift'
@@ -44,7 +45,17 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/employee" replace />} />
-      {MODULE_NAV.map(({ path, Component }) => (
+      <Route path="/employee" element={<EmployeePage />} />
+      <Route path="/employee/:id" element={<EmployeeDetailPage />} />
+      <Route
+        path="/employee/change-requests"
+        element={
+          <RequireRole roles={['HR_ADMIN', 'SUPER_ADMIN']}>
+            <ChangeRequestsPage />
+          </RequireRole>
+        }
+      />
+      {MODULE_NAV.filter(({ path }) => path !== '/employee').map(({ path, Component }) => (
         <Route key={path} path={path} element={<Component />} />
       ))}
     </Routes>

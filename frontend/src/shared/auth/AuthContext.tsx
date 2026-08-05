@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  type ReactNode,
+} from 'react'
+import { api } from '@/lib/api'
 import type { Role } from './role'
 
 export interface AuthUser {
@@ -7,20 +13,45 @@ export interface AuthUser {
   role: Role
 }
 
+interface DevLoginResponse {
+  accessToken: string
+  user: AuthUser
+}
+
 interface AuthContextValue {
   user: AuthUser | null
-  setUser: (user: AuthUser | null) => void
+  login: (employeeCode: string) => Promise<void>
+  logout: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+function restoreUser(): AuthUser | null {
+  const raw = localStorage.getItem('authUser')
+  return raw ? (JSON.parse(raw) as AuthUser) : null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // TODO: replace with real session state once the Auth module (Section 10,
-  // OIDC/JWT) is wired up; every module reads the current user through here.
-  const [user, setUser] = useState<AuthUser | null>(null)
+  const [user, setUser] = useState<AuthUser | null>(restoreUser)
+
+  async function login(employeeCode: string) {
+    const res = await api<DevLoginResponse>('/auth/dev-login', {
+      method: 'POST',
+      body: { employeeCode },
+    })
+    localStorage.setItem('accessToken', res.accessToken)
+    localStorage.setItem('authUser', JSON.stringify(res.user))
+    setUser(res.user)
+  }
+
+  function logout() {
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('authUser')
+    setUser(null)
+  }
 
   return (
-    <AuthContext.Provider value={{ user, setUser }}>
+    <AuthContext.Provider value={{ user, login, logout }}>
       {children}
     </AuthContext.Provider>
   )

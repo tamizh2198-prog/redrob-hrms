@@ -1,0 +1,175 @@
+import { api } from '@/lib/api'
+
+export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY'
+export type EmploymentType = 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN'
+export type EmployeeStatus =
+  | 'ACTIVE'
+  | 'ACTIVE_PROBATION'
+  | 'ON_LEAVE'
+  | 'INACTIVE'
+  | 'TERMINATED'
+
+export interface Employee {
+  id: string
+  employeeCode: string
+  firstName: string
+  lastName: string
+  dob: string | null
+  gender: Gender | null
+  personalEmail: string | null
+  workEmail: string | null
+  phone: string | null
+  departmentId: string | null
+  designationId: string | null
+  gradeId: string | null
+  locationId: string | null
+  reportingManagerId: string | null
+  dateOfJoining: string | null
+  employmentType: EmploymentType | null
+  status: EmployeeStatus
+  pan: string | null
+  aadhaar: string | null
+  bankAccountNumber: string | null
+  emergencyContactName: string | null
+  emergencyContactPhone: string | null
+}
+
+export interface EmployeeListResponse {
+  items: Employee[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface OrgChartEntry {
+  id: string
+  employeeCode: string
+  firstName: string
+  lastName: string
+  designationId: string | null
+}
+
+export interface OrgChartResponse {
+  employee: OrgChartEntry
+  managers: OrgChartEntry[]
+  directReports: OrgChartEntry[]
+}
+
+export interface ChangeRequest {
+  id: string
+  employeeId: string
+  fieldName: string
+  oldValue: string | null
+  newValue: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  requestedAt: string
+  employee: Employee
+}
+
+export interface BulkImportRowResult {
+  row: number
+  success: boolean
+  employeeId?: string
+  errors?: string[]
+}
+
+export interface BulkImportResult {
+  totalRows: number
+  successCount: number
+  failureCount: number
+  dryRun: boolean
+  results: BulkImportRowResult[]
+}
+
+export interface ReferenceOption {
+  id: string
+  name: string
+  code: string
+}
+
+export interface ManagerOption {
+  id: string
+  employeeCode: string
+  firstName: string
+  lastName: string
+}
+
+export interface ReferenceData {
+  departments: ReferenceOption[]
+  designations: ReferenceOption[]
+  grades: ReferenceOption[]
+  locations: ReferenceOption[]
+  managers: ManagerOption[]
+}
+
+export function getReferenceData() {
+  return api<ReferenceData>('/employees/reference-data')
+}
+
+export function listEmployees(params: {
+  departmentId?: string
+  locationId?: string
+  status?: EmployeeStatus
+  page?: number
+  pageSize?: number
+}) {
+  return api<EmployeeListResponse>('/employees', {
+    params: {
+      departmentId: params.departmentId,
+      locationId: params.locationId,
+      status: params.status,
+      page: params.page?.toString(),
+      pageSize: params.pageSize?.toString(),
+    },
+  })
+}
+
+export function getEmployee(id: string) {
+  return api<Employee>(`/employees/${id}`)
+}
+
+export function createEmployee(data: Partial<Employee>) {
+  return api<Employee>('/employees', { method: 'POST', body: data })
+}
+
+export function updateEmployee(id: string, data: Partial<Employee>) {
+  return api<Employee | { changeRequestsCreated: number }>(`/employees/${id}`, {
+    method: 'PATCH',
+    body: data,
+  })
+}
+
+export function getOrgChart(id: string) {
+  return api<OrgChartResponse>(`/employees/${id}/org-chart`)
+}
+
+export function revealSensitiveFields(id: string) {
+  return api<{ pan: string | null; aadhaar: string | null; bankAccountNumber: string | null }>(
+    `/employees/${id}/reveal`,
+    { method: 'POST' },
+  )
+}
+
+export function listChangeRequests(status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
+  return api<ChangeRequest[]>('/employees/change-requests', {
+    params: { status },
+  })
+}
+
+export function approveChangeRequest(id: string) {
+  return api<void>(`/employees/change-requests/${id}/approve`, { method: 'POST' })
+}
+
+export function rejectChangeRequest(id: string, reason?: string) {
+  return api<void>(`/employees/change-requests/${id}/reject`, {
+    method: 'POST',
+    body: { reason },
+  })
+}
+
+export function bulkImportEmployees(rows: Partial<Employee>[], dryRun: boolean) {
+  return api<BulkImportResult>('/employees/bulk-import', {
+    method: 'POST',
+    body: { rows, dryRun },
+  })
+}

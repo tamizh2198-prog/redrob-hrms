@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,4 +10,210 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Models start with the Employee Management module (Section 7.1) in Step 1.
+// ---------------------------------------------------------------------------
+// Employee Management (Section 7.1)
+// company_id is carried on every table from day one so multi-company support
+// later is a filtering change, not a schema migration (Section 10).
+// ---------------------------------------------------------------------------
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+  HR_ADMIN
+  SUPER_ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ACTIVE_PROBATION
+  ON_LEAVE
+  INACTIVE
+  TERMINATED
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Company {
+  id   String @id @default(uuid())
+  name String
+
+  employees    Employee[]
+  departments  Department[]
+  designations Designation[]
+  grades       Grade[]
+  locations    Location[]
+}
+
+model Department {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  name      String
+  code      String
+  parentId  String?
+  parent    Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children  Department[] @relation("DepartmentHierarchy")
+  isActive  Boolean      @default(true)
+
+  employees Employee[]
+
+  @@unique([companyId, code])
+}
+
+model Designation {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  name      String
+  code      String
+  isActive  Boolean @default(true)
+
+  employees Employee[]
+
+  @@unique([companyId, code])
+}
+
+model Grade {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  name      String
+  code      String
+  isActive  Boolean @default(true)
+
+  employees Employee[]
+
+  @@unique([companyId, code])
+}
+
+model Location {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  name      String
+  code      String
+  isActive  Boolean @default(true)
+
+  employees Employee[]
+
+  @@unique([companyId, code])
+}
+
+model Employee {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  // Employee Code is system-generated, unique, immutable once assigned
+  // (Section 7.1 Business Rules) — application layer enforces immutability.
+  employeeCode String @unique
+
+  firstName     String
+  lastName      String
+  dob           DateTime?
+  gender        Gender?
+  personalEmail String?
+  workEmail     String?   @unique
+  phone         String?
+
+  departmentId       String?
+  department         Department?  @relation(fields: [departmentId], references: [id])
+  designationId      String?
+  designation        Designation? @relation(fields: [designationId], references: [id])
+  gradeId            String?
+  grade              Grade?       @relation(fields: [gradeId], references: [id])
+  locationId         String?
+  location           Location?    @relation(fields: [locationId], references: [id])
+  reportingManagerId String?
+  reportingManager   Employee?    @relation("ManagerReports", fields: [reportingManagerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  directReports      Employee[]   @relation("ManagerReports")
+
+  dateOfJoining  DateTime?
+  employmentType EmploymentType?
+  status         EmployeeStatus  @default(ACTIVE_PROBATION)
+
+  // System role for RBAC (Section 6) — every employee is also a system user.
+  role Role @default(EMPLOYEE)
+
+  // Statutory / sensitive fields — masked in API responses per Section 7.1
+  // Business Rules unless the requester is HR Admin, Super Admin, or self.
+  pan               String?
+  aadhaar           String?
+  bankAccountNumber String?
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  documents      EmployeeDocument[]
+  historyEntries EmployeeHistory[]
+  changeRequests ProfileChangeRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([reportingManagerId])
+}
+
+model EmployeeDocument {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  docType    String
+  fileRef    String
+  expiryDate DateTime?
+  uploadedBy String
+  uploadedAt DateTime  @default(now())
+
+  @@index([employeeId])
+}
+
+model EmployeeHistory {
+  id            String    @id @default(uuid())
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+  fieldChanged  String
+  oldValue      String?
+  newValue      String?
+  changedBy     String
+  changedAt     DateTime  @default(now())
+  effectiveDate DateTime?
+
+  @@index([employeeId])
+}
+
+// Employee-submitted profile changes never write directly to the master
+// record (Section 7.1 Business Rules) — they land here for HR Admin review.
+model ProfileChangeRequest {
+  id              String              @id @default(uuid())
+  employeeId      String
+  employee        Employee            @relation(fields: [employeeId], references: [id])
+  fieldName       String
+  oldValue        String?
+  newValue        String
+  status          ChangeRequestStatus @default(PENDING)
+  requestedAt     DateTime            @default(now())
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+
+  @@index([employeeId])
+}

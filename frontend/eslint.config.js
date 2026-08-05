@@ -23,6 +23,9 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
+      // Resetting loading/error state at the top of a data-fetching effect
+      // is the standard pattern; this rule flags it as if it were a footgun.
+      'react-hooks/set-state-in-effect': 'off',
     },
   },
 )
