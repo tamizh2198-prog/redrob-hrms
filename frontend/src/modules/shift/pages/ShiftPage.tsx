@@ -111,6 +111,8 @@ export function ShiftPage() {
         workMode: assignWorkMode === 'AUTO' ? undefined : assignWorkMode,
       })
       setMessage(`Assigned ${res.successCount}/${dates.length} date(s).`)
+      setAssignDates('')
+      refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to assign roster')
     }
@@ -134,6 +136,7 @@ export function ShiftPage() {
         officeWeekdays: wfoWeekdays,
       })
       setMessage(`Updated ${res.daysUpdated} day(s) for this employee.`)
+      refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to update WFO days')
     }
