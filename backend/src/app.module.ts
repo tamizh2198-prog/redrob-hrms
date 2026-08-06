@@ -10,6 +10,7 @@ import { RbacModule } from './shared/rbac/rbac.module';
 import { AuditModule } from './shared/audit/audit.module';
 import { NotificationModule } from './shared/notifications/notification.module';
 import { WorkflowEngineModule } from './shared/workflow/workflow-engine.module';
+import { CalendarModule } from './shared/calendar/calendar.module';
 
 import { EmployeeModule } from './modules/employee/employee.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
@@ -42,6 +43,7 @@ import { AuditModule as AuditFeatureModule } from './modules/audit/audit.module'
     AuditModule,
     NotificationModule,
     WorkflowEngineModule,
+    CalendarModule,
 
     // Feature modules (Section 7)
     EmployeeModule,

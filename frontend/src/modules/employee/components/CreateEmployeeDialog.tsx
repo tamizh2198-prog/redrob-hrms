@@ -108,7 +108,11 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
             <Label>Department</Label>
             <Select value={form.departmentId} onValueChange={(v) => update('departmentId', v)}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select department" />
+                <SelectValue placeholder="Select department">
+                  {(value: string) =>
+                    reference?.departments.find((d) => d.id === value)?.name ?? 'Select department'
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {reference?.departments.map((d) => (
@@ -123,7 +127,11 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
             <Label>Designation</Label>
             <Select value={form.designationId} onValueChange={(v) => update('designationId', v)}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select designation" />
+                <SelectValue placeholder="Select designation">
+                  {(value: string) =>
+                    reference?.designations.find((d) => d.id === value)?.name ?? 'Select designation'
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {reference?.designations.map((d) => (
@@ -142,7 +150,12 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
               onValueChange={(v) => update('reportingManagerId', v)}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select manager" />
+                <SelectValue placeholder="Select manager">
+                  {(value: string) => {
+                    const m = reference?.managers.find((mgr) => mgr.id === value)
+                    return m ? `${m.firstName} ${m.lastName} (${m.employeeCode})` : 'Select manager'
+                  }}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {reference?.managers.map((m) => (

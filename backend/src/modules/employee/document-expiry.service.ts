@@ -5,10 +5,13 @@ import { NotificationService } from '../../shared/notifications/notification.ser
 
 const REMINDER_WINDOWS_DAYS = [30, 15, 7];
 
+// UTC-normalized: document expiryDate values come from date-only input,
+// which parses as UTC — a local boundary here would drift the reminder
+// window off by a day outside UTC+0 servers (see calendar.service.ts).
 function startOfDayOffset(days: number): Date {
   const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + days);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + days);
   return date;
 }
 

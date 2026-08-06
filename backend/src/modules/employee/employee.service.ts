@@ -133,10 +133,13 @@ export class EmployeeService {
     return created.id;
   }
 
-  private async generateEmployeeCode(companyId: string): Promise<string> {
+  private async generateEmployeeCode(): Promise<string> {
+    // employeeCode is globally unique (not scoped per company), so the
+    // sequence count must be too — counting per-company here would keep
+    // recomputing the same already-taken code for every new company.
     const year = new Date().getFullYear();
     const count = await this.prisma.employee.count({
-      where: { companyId, employeeCode: { startsWith: `EMP-${year}-` } },
+      where: { employeeCode: { startsWith: `EMP-${year}-` } },
     });
     const seq = (count + 1).toString().padStart(4, '0');
     return `EMP-${year}-${seq}`;
@@ -194,7 +197,7 @@ export class EmployeeService {
     let employee: Employee | undefined;
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const employeeCode = await this.generateEmployeeCode(companyId);
+      const employeeCode = await this.generateEmployeeCode();
       try {
         employee = await this.prisma.employee.create({
           data: this.toCreateData(dto, companyId, employeeCode, status),

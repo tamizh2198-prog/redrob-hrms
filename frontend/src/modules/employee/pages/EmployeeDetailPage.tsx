@@ -48,7 +48,13 @@ export function EmployeeDetailPage() {
         setEmployee(e)
         setForm(e)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 403) {
+          setError("You don't have permission to view this employee's full profile.")
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load')
+        }
+      })
     getOrgChart(id)
       .then(setOrgChart)
       .catch(() => setOrgChart(null))
@@ -90,7 +96,14 @@ export function EmployeeDetailPage() {
   }
 
   if (error && !employee) {
-    return <div className="p-6 text-destructive">{error}</div>
+    return (
+      <div className="flex flex-col gap-4 p-6">
+        <Link to="/employee" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+          ← Back to directory
+        </Link>
+        <p className="text-destructive">{error}</p>
+      </div>
+    )
   }
   if (!employee) {
     return <div className="p-6 text-muted-foreground">Loading…</div>
