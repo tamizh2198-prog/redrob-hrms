@@ -139,14 +139,6 @@ export function OnboardingPage() {
     }
   }
 
-  if (!isHrAdmin) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground">
-        Onboarding administration is available to HR Admins.
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Onboarding</h1>
@@ -154,32 +146,42 @@ export function OnboardingPage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Start Onboarding for a New Hire</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <Select value={initEmployeeId} onValueChange={setInitEmployeeId}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Select employee">
-                {(v: string) => {
-                  const p = people.find((m) => m.id === v)
-                  return p ? `${p.firstName} ${p.lastName}` : 'Select employee'
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {people.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.firstName} {p.lastName} ({p.employeeCode})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={handleInitChecklist}>
-            Create Checklist
-          </Button>
-        </div>
-      </div>
+      {!isHrAdmin && (
+        <p className="text-sm text-muted-foreground">
+          Onboarding administration (starting checklists, managing templates) is available to HR
+          Admins. You can still see progress on checklists you own tasks in.
+        </p>
+      )}
 
+      {isHrAdmin && (
+        <div className="rounded-md border p-4">
+          <h2 className="mb-2 font-medium">Start Onboarding for a New Hire</h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <Select value={initEmployeeId} onValueChange={setInitEmployeeId}>
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder="Select employee">
+                  {(v: string) => {
+                    const p = people.find((m) => m.id === v)
+                    return p ? `${p.firstName} ${p.lastName}` : 'Select employee'
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {people.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.firstName} {p.lastName} ({p.employeeCode})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={handleInitChecklist}>
+              Create Checklist
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isHrAdmin && (
       <div className="rounded-md border p-4">
         <h2 className="mb-2 font-medium">Active Checklists</h2>
         <div className="flex flex-col gap-3">
@@ -229,7 +231,9 @@ export function OnboardingPage() {
           )}
         </div>
       </div>
+      )}
 
+      {isHrAdmin && (
       <div className="rounded-md border p-4">
         <h2 className="mb-2 font-medium">Onboarding Checklist Templates</h2>
         <ul className="mb-4 flex flex-col gap-1 text-sm">
@@ -309,6 +313,7 @@ export function OnboardingPage() {
           </Button>
         </div>
       </div>
+      )}
     </div>
   )
 }
