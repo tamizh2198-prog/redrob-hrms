@@ -3,6 +3,7 @@ import { api } from '@/lib/api'
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY'
 export type EmploymentType = 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN'
 export type EmployeeStatus =
+  | 'PREBOARDING'
   | 'ACTIVE'
   | 'ACTIVE_PROBATION'
   | 'ON_LEAVE'

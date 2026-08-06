@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthController } from './auth.controller';
+import { MagicLinkService } from './magic-link.service';
 
 @Module({
   imports: [
@@ -19,7 +20,11 @@ import { AuthController } from './auth.controller';
     }),
   ],
   controllers: [AuthController],
-  providers: [JwtStrategy, { provide: APP_GUARD, useClass: JwtAuthGuard }],
-  exports: [JwtModule],
+  providers: [
+    JwtStrategy,
+    MagicLinkService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
+  exports: [JwtModule, MagicLinkService],
 })
 export class AuthModule {}

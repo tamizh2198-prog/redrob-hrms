@@ -6,5 +6,6 @@ import { DocumentExpiryService } from './document-expiry.service';
 @Module({
   controllers: [EmployeeController],
   providers: [EmployeeService, DocumentExpiryService],
+  exports: [EmployeeService],
 })
 export class EmployeeModule {}

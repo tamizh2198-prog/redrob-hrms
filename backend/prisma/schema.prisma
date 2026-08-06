@@ -38,6 +38,10 @@ enum EmploymentType {
 }
 
 enum EmployeeStatus {
+  // Pre-Day-1 state from offer-accept through Preboarding portal completion
+  // (Section 7.7) — precedes ACTIVE_PROBATION, which starts once onboarding
+  // is done and the employee is actually working.
+  PREBOARDING
   ACTIVE
   ACTIVE_PROBATION
   ON_LEAVE
@@ -62,12 +66,15 @@ model Company {
   locations    Location[]
   shifts       Shift[]
   leaveTypes   LeaveType[]
+
+  jobRequisitions     JobRequisition[]
+  onboardingTemplates OnboardingChecklistTemplate[]
 }
 
 model Department {
-  id        String  @id @default(uuid())
+  id        String       @id @default(uuid())
   companyId String
-  company   Company @relation(fields: [companyId], references: [id])
+  company   Company      @relation(fields: [companyId], references: [id])
   name      String
   code      String
   parentId  String?
@@ -76,6 +83,9 @@ model Department {
   isActive  Boolean      @default(true)
 
   employees Employee[]
+
+  jobRequisitions     JobRequisition[]
+  onboardingTemplates OnboardingChecklistTemplate[]
 
   @@unique([companyId, code])
 }
@@ -169,15 +179,20 @@ model Employee {
   historyEntries EmployeeHistory[]
   changeRequests ProfileChangeRequest[]
 
-  rosterEntries               RosterEntry[]
-  hybridSchedules              EmployeeHybridSchedule[]
-  shiftSwapRequestsRequested  ShiftSwapRequest[]         @relation("SwapRequester")
-  shiftSwapRequestsReceived   ShiftSwapRequest[]         @relation("SwapCounterpart")
-  attendanceRecords           AttendanceRecord[]
-  regularizationRequests      RegularizationRequest[]
-  leaveBalances                LeaveBalance[]
-  leaveApplications            LeaveApplication[]
-  optionalHolidaySelections    OptionalHolidaySelection[]
+  rosterEntries              RosterEntry[]
+  hybridSchedules            EmployeeHybridSchedule[]
+  shiftSwapRequestsRequested ShiftSwapRequest[]         @relation("SwapRequester")
+  shiftSwapRequestsReceived  ShiftSwapRequest[]         @relation("SwapCounterpart")
+  attendanceRecords          AttendanceRecord[]
+  regularizationRequests     RegularizationRequest[]
+  leaveBalances              LeaveBalance[]
+  leaveApplications          LeaveApplication[]
+  optionalHolidaySelections  OptionalHolidaySelection[]
+
+  requisitionsAsHiringManager  JobRequisition[]        @relation("RequisitionHiringManager")
+  interviewRoundsAsInterviewer InterviewRound[]        @relation("InterviewerRounds")
+  onboardingChecklist          OnboardingChecklist?
+  preboardingSubmissions       PreboardingSubmission[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -380,17 +395,17 @@ model AttendanceRecord {
 }
 
 model RegularizationRequest {
-  id              String                @id @default(uuid())
+  id              String               @id @default(uuid())
   employeeId      String
-  employee        Employee              @relation(fields: [employeeId], references: [id])
+  employee        Employee             @relation(fields: [employeeId], references: [id])
   date            DateTime
   requestedStatus AttendanceStatus
   reason          String
   evidenceRef     String?
   approverId      String?
-  status          RegularizationStatus  @default(PENDING)
+  status          RegularizationStatus @default(PENDING)
   decidedAt       DateTime?
-  createdAt       DateTime              @default(now())
+  createdAt       DateTime             @default(now())
 
   @@index([employeeId])
 }
@@ -455,16 +470,16 @@ model LeaveBalance {
 }
 
 model LeaveApplication {
-  id                String                  @id @default(uuid())
+  id                String                 @id @default(uuid())
   employeeId        String
-  employee          Employee                @relation(fields: [employeeId], references: [id])
+  employee          Employee               @relation(fields: [employeeId], references: [id])
   leaveTypeId       String
-  leaveType         LeaveType               @relation(fields: [leaveTypeId], references: [id])
+  leaveType         LeaveType              @relation(fields: [leaveTypeId], references: [id])
   startDate         DateTime
   endDate           DateTime
   daysCount         Float
   reason            String?
-  status            LeaveApplicationStatus  @default(PENDING)
+  status            LeaveApplicationStatus @default(PENDING)
   currentApproverId String?
 
   approvalSteps LeaveApprovalStep[]
@@ -483,4 +498,209 @@ model LeaveApprovalStep {
   decision      ApprovalDecision @default(PENDING)
   decidedAt     DateTime?
   comment       String?
+}
+
+// ---------------------------------------------------------------------------
+// Recruitment & Applicant Tracking System (Section 7.6)
+// ---------------------------------------------------------------------------
+
+enum RequisitionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  PUBLISHED
+  ON_HOLD
+  FILLED
+  CLOSED
+}
+
+enum CandidateStage {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum OfferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model JobRequisition {
+  id              String            @id @default(uuid())
+  companyId       String
+  company         Company           @relation(fields: [companyId], references: [id])
+  title           String
+  departmentId    String
+  department      Department        @relation(fields: [departmentId], references: [id])
+  hiringManagerId String
+  hiringManager   Employee          @relation("RequisitionHiringManager", fields: [hiringManagerId], references: [id])
+  headcount       Int               @default(1)
+  status          RequisitionStatus @default(PENDING_APPROVAL)
+  approvedBy      String?
+  approvedAt      DateTime?
+  budgetCtc       Float?
+  createdAt       DateTime          @default(now())
+
+  candidates Candidate[]
+
+  @@index([companyId])
+}
+
+// Duplicate detection (Section 7.6 Business Rules: "same email/phone within
+// 12 months are flagged, not silently created") self-links to the earlier
+// record rather than blocking creation.
+model Candidate {
+  id            String         @id @default(uuid())
+  requisitionId String
+  requisition   JobRequisition @relation(fields: [requisitionId], references: [id])
+  name          String
+  email         String
+  phone         String?
+  resumeRef     String?
+  source        String?
+  currentStage  CandidateStage @default(APPLIED)
+  duplicateOfId String?
+  duplicateOf   Candidate?     @relation("CandidateDuplicate", fields: [duplicateOfId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  duplicates    Candidate[]    @relation("CandidateDuplicate")
+  appliedAt     DateTime       @default(now())
+
+  interviewRounds InterviewRound[]
+  offers          Offer[]
+
+  @@index([requisitionId])
+  @@index([email])
+}
+
+model InterviewRound {
+  id             String    @id @default(uuid())
+  candidateId    String
+  candidate      Candidate @relation(fields: [candidateId], references: [id])
+  interviewerId  String
+  interviewer    Employee  @relation("InterviewerRounds", fields: [interviewerId], references: [id])
+  scheduledAt    DateTime
+  scorecardJson  Json?
+  recommendation String?
+  completedAt    DateTime?
+
+  @@index([candidateId])
+}
+
+model Offer {
+  id             String      @id @default(uuid())
+  candidateId    String
+  candidate      Candidate   @relation(fields: [candidateId], references: [id])
+  ctcBreakupJson Json
+  status         OfferStatus @default(DRAFT)
+
+  // Business Rule: "requires sign-off from Hiring Manager + HR Admin before
+  // the letter is generated/sent" — two independent approvals, not a chain.
+  hiringManagerApprovedBy String?
+  hiringManagerApprovedAt DateTime?
+  hrApprovedBy            String?
+  hrApprovedAt            DateTime?
+
+  sentAt            DateTime?
+  acceptedAt        DateTime?
+  docRef            String?
+  createdEmployeeId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([candidateId])
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding & Preboarding (Section 7.7)
+// ---------------------------------------------------------------------------
+
+enum ChecklistStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ChecklistTaskStatus {
+  PENDING
+  COMPLETED
+}
+
+enum ChecklistOwnerRole {
+  HR
+  IT
+  MANAGER
+  NEW_HIRE
+}
+
+// Versioned per Section 7.7 Business Rules ("changing a template doesn't
+// retroactively alter checklists already in progress") — OnboardingChecklist
+// snapshots templateId at creation and is never re-pointed at a newer version.
+model OnboardingChecklistTemplate {
+  id           String      @id @default(uuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id])
+  name         String
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  version      Int         @default(1)
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+
+  taskTemplates ChecklistTaskTemplate[]
+  checklists    OnboardingChecklist[]
+}
+
+model ChecklistTaskTemplate {
+  id            String                      @id @default(uuid())
+  templateId    String
+  template      OnboardingChecklistTemplate @relation(fields: [templateId], references: [id])
+  ownerRole     ChecklistOwnerRole
+  description   String
+  dueOffsetDays Int                         @default(0)
+
+  @@index([templateId])
+}
+
+model OnboardingChecklist {
+  id         String                      @id @default(uuid())
+  employeeId String                      @unique
+  employee   Employee                    @relation(fields: [employeeId], references: [id])
+  templateId String
+  template   OnboardingChecklistTemplate @relation(fields: [templateId], references: [id])
+  status     ChecklistStatus             @default(NOT_STARTED)
+  createdAt  DateTime                    @default(now())
+
+  tasks ChecklistTask[]
+}
+
+model ChecklistTask {
+  id          String              @id @default(uuid())
+  checklistId String
+  checklist   OnboardingChecklist @relation(fields: [checklistId], references: [id])
+  ownerRole   ChecklistOwnerRole
+  description String
+  dueDate     DateTime?
+  status      ChecklistTaskStatus @default(PENDING)
+  completedBy String?
+  completedAt DateTime?
+
+  @@index([checklistId])
+}
+
+model PreboardingSubmission {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  fieldType   String
+  valueRef    String
+  verifiedBy  String?
+  verifiedAt  DateTime?
+  submittedAt DateTime  @default(now())
+
+  @@index([employeeId])
 }
