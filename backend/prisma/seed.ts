@@ -55,6 +55,19 @@ async function main() {
     },
   });
 
+  // Section 7.4: a default shift template so Assign Roster has something to
+  // pick from immediately, instead of an empty dropdown until HR creates one.
+  await prisma.shift.upsert({
+    where: { companyId_name: { companyId: company.id, name: 'General Shift' } },
+    update: {},
+    create: {
+      companyId: company.id,
+      name: 'General Shift',
+      startTime: '09:00',
+      endTime: '18:00',
+    },
+  });
+
   const department = await prisma.department.upsert({
     where: { companyId_code: { companyId: company.id, code: 'ENG' } },
     update: {},

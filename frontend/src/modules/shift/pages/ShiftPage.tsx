@@ -305,11 +305,17 @@ export function ShiftPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {shifts.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
+                    {shifts.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No shifts yet — create one above
+                      </div>
+                    ) : (
+                      shifts.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
