@@ -14,9 +14,9 @@ function createMockPrisma() {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
-    company: {
-      findUnique: jest.fn().mockResolvedValue({ hybridOfficeWeekdays: [2, 4] }),
-      update: jest.fn(),
+    employeeHybridSchedule: {
+      upsert: jest.fn().mockResolvedValue({}),
+      findUnique: jest.fn(),
     },
     employee: { findUnique: jest.fn() },
     shiftSwapRequest: {
@@ -154,15 +154,15 @@ describe('ShiftService', () => {
     });
   });
 
-  describe('Hybrid work culture: 2 days in office', () => {
-    it('auto-derives OFFICE on a configured office weekday', async () => {
+  describe('assignRoster: workMode is never assumed from a shared policy', () => {
+    it('defaults a brand-new roster entry to OFFICE when workMode is not given', async () => {
       prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
-      // 2026-08-04 is a Tuesday, and Tue/Thu are the default office days.
       await service.assignRoster({
         employeeIds: ['emp-1'],
         dates: ['2026-08-04'],
+        shiftId: undefined,
       });
 
       expect(prisma.rosterEntry.upsert).toHaveBeenCalledWith(
@@ -172,63 +172,141 @@ describe('ShiftService', () => {
       );
     });
 
-    it('auto-derives WORK_FROM_HOME on a non-office weekday', async () => {
+    it('does not touch workMode on update when none is given, so reassigning a shift never clobbers an existing WFO/WFH day', async () => {
+      prisma.shift.findUnique.mockResolvedValue({ id: 'shift-1' });
       prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
-      // 2026-08-05 is a Wednesday — not in the default [Tue, Thu] policy.
       await service.assignRoster({
         employeeIds: ['emp-1'],
-        dates: ['2026-08-05'],
+        dates: ['2026-08-04'],
+        shiftId: 'shift-1',
       });
 
-      expect(prisma.rosterEntry.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          create: expect.objectContaining({ workMode: 'WORK_FROM_HOME' }),
-        }),
-      );
+      const call = prisma.rosterEntry.upsert.mock.calls[0][0];
+      expect(call.update).not.toHaveProperty('workMode');
     });
 
-    it('lets an explicit workMode override the auto-derived value', async () => {
+    it('lets an explicit workMode be set on both create and update', async () => {
       prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
       await service.assignRoster({
         employeeIds: ['emp-1'],
-        dates: ['2026-08-04'], // would auto-derive OFFICE
+        dates: ['2026-08-04'],
         workMode: 'WORK_FROM_HOME',
       });
 
-      expect(prisma.rosterEntry.upsert).toHaveBeenCalledWith(
+      const call = prisma.rosterEntry.upsert.mock.calls[0][0];
+      expect(call.create.workMode).toBe('WORK_FROM_HOME');
+      expect(call.update.workMode).toBe('WORK_FROM_HOME');
+    });
+  });
+
+  describe('Hybrid work culture: HR assigns each employee their own WFO weekdays', () => {
+    it('stores the schedule and marks every day of the month accordingly', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await service.setEmployeeHybridSchedule({
+        employeeId: 'emp-1',
+        year: 2026,
+        month: 8,
+        officeWeekdays: [2, 4], // Tue, Thu
+      });
+
+      expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          create: expect.objectContaining({ workMode: 'WORK_FROM_HOME' }),
+          update: { officeWeekdays: [2, 4] },
         }),
       );
+      expect(result.daysUpdated).toBe(31); // August has 31 days
+
+      const calls = prisma.rosterEntry.upsert.mock.calls;
+      const aug4 = calls.find(
+        (c) => c[0].create.date.toISOString().slice(0, 10) === '2026-08-04',
+      ); // Tuesday
+      const aug5 = calls.find(
+        (c) => c[0].create.date.toISOString().slice(0, 10) === '2026-08-05',
+      ); // Wednesday
+      expect(aug4[0].update.workMode).toBe('OFFICE');
+      expect(aug5[0].update.workMode).toBe('WORK_FROM_HOME');
     });
 
-    it('returns the configured office weekdays', async () => {
-      prisma.company.findUnique.mockResolvedValue({
-        hybridOfficeWeekdays: [1, 3],
-      });
+    it('gives two employees different office weekdays for the same month', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp' });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
 
-      await expect(service.getHybridPolicy()).resolves.toEqual({
-        officeWeekdays: [1, 3],
+      await service.setEmployeeHybridSchedule({
+        employeeId: 'emp-1',
+        year: 2026,
+        month: 8,
+        officeWeekdays: [1, 3], // Mon, Wed
       });
+      const emp1Aug4 = prisma.rosterEntry.upsert.mock.calls.find(
+        (c) => c[0].create.date.toISOString().slice(0, 10) === '2026-08-04',
+      );
+
+      prisma.rosterEntry.upsert.mockClear();
+      await service.setEmployeeHybridSchedule({
+        employeeId: 'emp-2',
+        year: 2026,
+        month: 8,
+        officeWeekdays: [2, 4], // Tue, Thu
+      });
+      const emp2Aug4 = prisma.rosterEntry.upsert.mock.calls.find(
+        (c) => c[0].create.date.toISOString().slice(0, 10) === '2026-08-04',
+      );
+
+      // 2026-08-04 is a Tuesday: WFH under emp-1's Mon/Wed policy,
+      // OFFICE under emp-2's Tue/Thu policy — same date, different result.
+      expect(emp1Aug4[0].update.workMode).toBe('WORK_FROM_HOME');
+      expect(emp2Aug4[0].update.workMode).toBe('OFFICE');
     });
 
-    it('dedupes and persists updated office weekdays', async () => {
-      prisma.company.update.mockResolvedValue({
-        hybridOfficeWeekdays: [2, 4],
-      });
+    it('dedupes office weekdays before storing', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
 
-      const result = await service.updateHybridPolicy({
+      const result = await service.setEmployeeHybridSchedule({
+        employeeId: 'emp-1',
+        year: 2026,
+        month: 8,
         officeWeekdays: [2, 4, 2],
       });
 
-      expect(prisma.company.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { hybridOfficeWeekdays: [2, 4] } }),
-      );
-      expect(result).toEqual({ officeWeekdays: [2, 4] });
+      expect(result.officeWeekdays).toEqual([2, 4]);
+    });
+
+    it('rejects a schedule for an employee who does not exist', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.setEmployeeHybridSchedule({
+          employeeId: 'ghost',
+          year: 2026,
+          month: 8,
+          officeWeekdays: [2, 4],
+        }),
+      ).rejects.toThrow('Employee not found');
+    });
+
+    it('returns the stored office weekdays for an employee/month', async () => {
+      prisma.employeeHybridSchedule.findUnique.mockResolvedValue({
+        officeWeekdays: [1, 5],
+      });
+
+      await expect(
+        service.getEmployeeHybridSchedule('emp-1', 2026, 8),
+      ).resolves.toEqual({ officeWeekdays: [1, 5] });
+    });
+
+    it('returns an empty schedule when none has been set yet', async () => {
+      prisma.employeeHybridSchedule.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.getEmployeeHybridSchedule('emp-1', 2026, 8),
+      ).resolves.toEqual({ officeWeekdays: [] });
     });
   });
 

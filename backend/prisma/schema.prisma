@@ -55,11 +55,6 @@ model Company {
   id   String @id @default(uuid())
   name String
 
-  // Hybrid work culture (Section 7.4): weekdays employees are expected in
-  // the office (0=Sun..6=Sat). Roster assignment auto-derives WFH for any
-  // working day not in this list. Default is Tue/Thu — 2 days in office.
-  hybridOfficeWeekdays Int[] @default([2, 4])
-
   employees    Employee[]
   departments  Department[]
   designations Designation[]
@@ -175,6 +170,7 @@ model Employee {
   changeRequests ProfileChangeRequest[]
 
   rosterEntries               RosterEntry[]
+  hybridSchedules              EmployeeHybridSchedule[]
   shiftSwapRequestsRequested  ShiftSwapRequest[]         @relation("SwapRequester")
   shiftSwapRequestsReceived   ShiftSwapRequest[]         @relation("SwapCounterpart")
   attendanceRecords           AttendanceRecord[]
@@ -279,6 +275,20 @@ model RosterEntry {
 
   @@unique([employeeId, date])
   @@index([employeeId])
+}
+
+// Hybrid work culture (Section 7.4): each employee has their own office
+// weekdays, assigned by HR per month — not a single company-wide pattern,
+// since different employees/teams come in on different days.
+model EmployeeHybridSchedule {
+  id             String   @id @default(uuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id])
+  year           Int
+  month          Int
+  officeWeekdays Int[]
+
+  @@unique([employeeId, year, month])
 }
 
 model ShiftSwapRequest {

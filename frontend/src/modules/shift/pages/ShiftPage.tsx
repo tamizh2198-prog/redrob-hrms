@@ -21,8 +21,8 @@ import {
   requestSwap,
   listSwaps,
   decideSwap,
-  getHybridPolicy,
-  updateHybridPolicy,
+  getHybridSchedule,
+  setHybridSchedule,
   type Shift,
   type RosterEntry,
   type ShiftSwapRequest,
@@ -51,7 +51,9 @@ export function ShiftPage() {
   const [swapCounterpartId, setSwapCounterpartId] = useState('')
   const [swapDate, setSwapDate] = useState('')
 
-  const [officeWeekdays, setOfficeWeekdays] = useState<number[]>([])
+  const [wfoEmployeeId, setWfoEmployeeId] = useState('')
+  const [wfoMonth, setWfoMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [wfoWeekdays, setWfoWeekdays] = useState<number[]>([])
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +61,6 @@ export function ShiftPage() {
   function refresh() {
     listShifts().then(setShifts).catch(() => setShifts([]))
     getReferenceData().then((r) => setEmployees(r.managers)).catch(() => setEmployees([]))
-    getHybridPolicy().then((p) => setOfficeWeekdays(p.officeWeekdays)).catch(() => setOfficeWeekdays([]))
     if (user) {
       const from = new Date()
       const to = new Date()
@@ -75,6 +76,17 @@ export function ShiftPage() {
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
+
+  useEffect(() => {
+    if (!wfoEmployeeId || !wfoMonth) {
+      setWfoWeekdays([])
+      return
+    }
+    const [year, month] = wfoMonth.split('-').map(Number)
+    getHybridSchedule(wfoEmployeeId, year, month)
+      .then((s) => setWfoWeekdays(s.officeWeekdays))
+      .catch(() => setWfoWeekdays([]))
+  }, [wfoEmployeeId, wfoMonth])
 
   async function handleCreateShift() {
     setError(null)
@@ -104,20 +116,26 @@ export function ShiftPage() {
     }
   }
 
-  function toggleOfficeDay(day: number) {
-    setOfficeWeekdays((days) =>
+  function toggleWfoDay(day: number) {
+    setWfoWeekdays((days) =>
       days.includes(day) ? days.filter((d) => d !== day) : [...days, day].sort(),
     )
   }
 
-  async function handleSaveHybridPolicy() {
+  async function handleSaveWfoSchedule() {
     setError(null)
     setMessage(null)
     try {
-      await updateHybridPolicy(officeWeekdays)
-      setMessage('Hybrid work policy updated.')
+      const [year, month] = wfoMonth.split('-').map(Number)
+      const res = await setHybridSchedule({
+        employeeId: wfoEmployeeId,
+        year,
+        month,
+        officeWeekdays: wfoWeekdays,
+      })
+      setMessage(`Updated ${res.daysUpdated} day(s) for this employee.`)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update hybrid policy')
+      setError(err instanceof ApiError ? err.message : 'Failed to update WFO days')
     }
   }
 
@@ -301,12 +319,12 @@ export function ShiftPage() {
                   <SelectTrigger className="w-36">
                     <SelectValue placeholder="Work mode">
                       {(value: string) =>
-                        value === 'AUTO' ? 'Auto (hybrid policy)' : value === 'OFFICE' ? 'Office' : 'WFH'
+                        value === 'AUTO' ? "Don't change" : value === 'OFFICE' ? 'Office' : 'WFH'
                       }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="AUTO">Auto (hybrid policy)</SelectItem>
+                    <SelectItem value="AUTO">Don't change</SelectItem>
                     <SelectItem value="OFFICE">Office</SelectItem>
                     <SelectItem value="WORK_FROM_HOME">WFH</SelectItem>
                   </SelectContent>
@@ -328,25 +346,63 @@ export function ShiftPage() {
           </div>
 
           <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Hybrid Work Policy (HR Admin)</h2>
+            <h2 className="mb-2 font-medium">Assign WFO Days (HR Admin)</h2>
             <p className="mb-2 text-sm text-muted-foreground">
-              Employees follow a hybrid work culture. Select which weekdays require office
-              attendance — roster assignments auto-mark the rest as WFH.
+              Employees follow a hybrid work culture, but office days aren't the same for
+              everyone. Pick an employee and a month, then choose which weekdays are their
+              office days that month — every other working day is auto-marked WFH.
             </p>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex flex-col gap-1">
+                <Label>Employee</Label>
+                <Select value={wfoEmployeeId} onValueChange={setWfoEmployeeId}>
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder="Select employee">
+                      {(value: string) => {
+                        const e = employees.find((emp) => emp.id === value)
+                        return e ? `${e.firstName} ${e.lastName}` : 'Select employee'
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.firstName} {e.lastName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Month</Label>
+                <Input
+                  type="month"
+                  className="w-40"
+                  value={wfoMonth}
+                  onChange={(e) => setWfoMonth(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3">
               {WEEKDAY_LABELS.map((label, day) => (
                 <label key={day} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={officeWeekdays.includes(day)}
-                    onChange={() => toggleOfficeDay(day)}
+                    disabled={!wfoEmployeeId}
+                    checked={wfoWeekdays.includes(day)}
+                    onChange={() => toggleWfoDay(day)}
                   />
                   {label}
                 </label>
               ))}
             </div>
-            <Button className="mt-3" variant="outline" onClick={handleSaveHybridPolicy}>
-              Save Policy
+            <Button
+              className="mt-3"
+              variant="outline"
+              disabled={!wfoEmployeeId}
+              onClick={handleSaveWfoSchedule}
+            >
+              Save WFO Days
             </Button>
           </div>
         </>

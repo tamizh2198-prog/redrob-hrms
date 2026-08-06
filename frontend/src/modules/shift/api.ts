@@ -19,7 +19,7 @@ export interface RosterEntry {
   shift: Shift | null
 }
 
-export interface HybridPolicy {
+export interface HybridSchedule {
   officeWeekdays: number[]
 }
 
@@ -59,14 +59,21 @@ export function getRoster(employeeId: string, from: string, to: string) {
   return api<RosterEntry[]>(`/roster/${employeeId}`, { params: { from, to } })
 }
 
-export function getHybridPolicy() {
-  return api<HybridPolicy>('/shifts/hybrid-policy')
+export function getHybridSchedule(employeeId: string, year: number, month: number) {
+  return api<HybridSchedule>('/roster/hybrid-schedule', {
+    params: { employeeId, year: String(year), month: String(month) },
+  })
 }
 
-export function updateHybridPolicy(officeWeekdays: number[]) {
-  return api<HybridPolicy>('/shifts/hybrid-policy', {
+export function setHybridSchedule(data: {
+  employeeId: string
+  year: number
+  month: number
+  officeWeekdays: number[]
+}) {
+  return api<HybridSchedule & { daysUpdated: number }>('/roster/hybrid-schedule', {
     method: 'POST',
-    body: { officeWeekdays },
+    body: data,
   })
 }
 

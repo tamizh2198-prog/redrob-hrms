@@ -5,6 +5,7 @@ import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { ShiftService } from './shift.service';
 import { AssignRosterDto } from './dto/assign-roster.dto';
 import { RequestShiftSwapDto } from './dto/request-shift-swap.dto';
+import { SetHybridScheduleDto } from './dto/set-hybrid-schedule.dto';
 
 @Controller('roster')
 export class RosterController {
@@ -22,6 +23,27 @@ export class RosterController {
     @Query('approverId') approverId?: string,
   ) {
     return this.shiftService.listSwaps({ employeeId, approverId });
+  }
+
+  // Registered before the ':employeeId' route below so the literal path
+  // segment isn't swallowed as an employee id (see roster/swap fix).
+  @Get('hybrid-schedule')
+  getHybridSchedule(
+    @Query('employeeId') employeeId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+  ) {
+    return this.shiftService.getEmployeeHybridSchedule(
+      employeeId,
+      Number(year),
+      Number(month),
+    );
+  }
+
+  @Post('hybrid-schedule')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  setHybridSchedule(@Body() dto: SetHybridScheduleDto) {
+    return this.shiftService.setEmployeeHybridSchedule(dto);
   }
 
   @Get(':employeeId')
