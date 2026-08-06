@@ -17,6 +17,10 @@ export class CreateLeaveTypeDto {
   name: string;
 
   @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
   @IsEnum(LeaveAccrualFrequency)
   accrualFrequency?: LeaveAccrualFrequency;
 

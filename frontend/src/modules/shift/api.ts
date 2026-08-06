@@ -15,7 +15,12 @@ export interface RosterEntry {
   employeeId: string
   date: string
   isWeekOff: boolean
+  workMode: 'OFFICE' | 'WORK_FROM_HOME'
   shift: Shift | null
+}
+
+export interface HybridPolicy {
+  officeWeekdays: number[]
 }
 
 export interface ShiftSwapRequest {
@@ -42,6 +47,7 @@ export function assignRoster(data: {
   dates: string[]
   shiftId?: string
   isWeekOff?: boolean
+  workMode?: 'OFFICE' | 'WORK_FROM_HOME'
 }) {
   return api<{ successCount: number; failureCount: number; results: unknown[] }>(
     '/roster/assign',
@@ -51,6 +57,17 @@ export function assignRoster(data: {
 
 export function getRoster(employeeId: string, from: string, to: string) {
   return api<RosterEntry[]>(`/roster/${employeeId}`, { params: { from, to } })
+}
+
+export function getHybridPolicy() {
+  return api<HybridPolicy>('/shifts/hybrid-policy')
+}
+
+export function updateHybridPolicy(officeWeekdays: number[]) {
+  return api<HybridPolicy>('/shifts/hybrid-policy', {
+    method: 'POST',
+    body: { officeWeekdays },
+  })
 }
 
 export function requestSwap(data: { counterpartId: string; date: string; override?: boolean }) {

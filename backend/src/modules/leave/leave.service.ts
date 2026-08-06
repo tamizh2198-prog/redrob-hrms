@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LeaveApplicationStatus, Role } from '@prisma/client';
+import {
+  LeaveAccrualFrequency,
+  LeaveApplicationStatus,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
@@ -57,6 +61,7 @@ export class LeaveService {
       data: {
         companyId,
         name: dto.name,
+        code: dto.code,
         accrualFrequency: dto.accrualFrequency,
         accrualRate: dto.accrualRate,
         maxCarryForward: dto.maxCarryForward,
@@ -101,10 +106,16 @@ export class LeaveService {
   }
 
   // Section 7.3 Acceptance Criteria: "Accrual engine correctly pro-rates for
-  // an employee joining mid-month."
+  // an employee joining mid-month." Quarterly-frequency types (e.g. Sick
+  // Leave, Care Leave) only accrue when `month` starts a quarter (Jan/Apr/
+  // Jul/Oct) and pro-rate against the full 3-month quarter, not the month.
   async runMonthlyAccrual(year: number, month: number) {
+    const isQuarterStart = (month - 1) % 3 === 0;
+    const frequencies: LeaveAccrualFrequency[] = isQuarterStart
+      ? [LeaveAccrualFrequency.MONTHLY, LeaveAccrualFrequency.QUARTERLY]
+      : [LeaveAccrualFrequency.MONTHLY];
     const leaveTypes = await this.prisma.leaveType.findMany({
-      where: { accrualFrequency: 'MONTHLY' },
+      where: { accrualFrequency: { in: frequencies } },
     });
     const employees = await this.prisma.employee.findMany({
       where: { status: { in: ['ACTIVE', 'ACTIVE_PROBATION'] } },
@@ -112,11 +123,19 @@ export class LeaveService {
 
     const monthStart = new Date(Date.UTC(year, month - 1, 1));
     const monthEnd = new Date(Date.UTC(year, month, 0));
-    const totalDaysInMonth = monthEnd.getUTCDate();
+    const quarterEnd = new Date(Date.UTC(year, month + 2, 0));
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
     let accrualsRun = 0;
-    for (const employee of employees) {
-      for (const leaveType of leaveTypes) {
+    for (const leaveType of leaveTypes) {
+      const periodStart = monthStart;
+      const periodEnd =
+        leaveType.accrualFrequency === 'QUARTERLY' ? quarterEnd : monthEnd;
+      const totalDaysInPeriod =
+        Math.round((periodEnd.getTime() - periodStart.getTime()) / MS_PER_DAY) +
+        1;
+
+      for (const employee of employees) {
         const balance = await this.getOrCreateBalance(
           employee.id,
           leaveType.id,
@@ -126,16 +145,19 @@ export class LeaveService {
         let accrualAmount = leaveType.accrualRate;
         if (
           employee.dateOfJoining &&
-          employee.dateOfJoining >= monthStart &&
-          employee.dateOfJoining <= monthEnd
+          employee.dateOfJoining >= periodStart &&
+          employee.dateOfJoining <= periodEnd
         ) {
           const daysWorked =
-            totalDaysInMonth - employee.dateOfJoining.getUTCDate() + 1;
+            Math.round(
+              (periodEnd.getTime() - employee.dateOfJoining.getTime()) /
+                MS_PER_DAY,
+            ) + 1;
           accrualAmount =
-            leaveType.accrualRate * (daysWorked / totalDaysInMonth);
+            leaveType.accrualRate * (daysWorked / totalDaysInPeriod);
         } else if (
           employee.dateOfJoining &&
-          employee.dateOfJoining > monthEnd
+          employee.dateOfJoining > periodEnd
         ) {
           continue;
         }

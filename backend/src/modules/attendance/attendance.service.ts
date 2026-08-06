@@ -208,9 +208,10 @@ export class AttendanceService {
         days.push({ date: key, status: existing.status });
         continue;
       }
-      const [isHoliday, isWeekOff] = await Promise.all([
+      const [isHoliday, isWeekOff, isWFH] = await Promise.all([
         this.calendar.isHoliday(employeeId, d),
         this.calendar.isWeekOff(employeeId, d),
+        this.calendar.isWFH(employeeId, d),
       ]);
       days.push({
         date: key,
@@ -218,7 +219,9 @@ export class AttendanceService {
           ? AttendanceStatus.HOLIDAY
           : isWeekOff
             ? AttendanceStatus.WEEK_OFF
-            : AttendanceStatus.ABSENT,
+            : isWFH
+              ? AttendanceStatus.WFH
+              : AttendanceStatus.ABSENT,
       });
     }
     return days;

@@ -3,7 +3,8 @@ import { api } from '@/lib/api'
 export interface LeaveType {
   id: string
   name: string
-  accrualFrequency: 'MONTHLY' | 'ANNUAL'
+  code: string | null
+  accrualFrequency: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
   accrualRate: number
   maxCarryForward: number
   isEncashable: boolean

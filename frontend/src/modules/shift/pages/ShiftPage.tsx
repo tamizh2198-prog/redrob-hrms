@@ -21,10 +21,14 @@ import {
   requestSwap,
   listSwaps,
   decideSwap,
+  getHybridPolicy,
+  updateHybridPolicy,
   type Shift,
   type RosterEntry,
   type ShiftSwapRequest,
 } from '../api'
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function ShiftPage() {
   const { user } = useAuth()
@@ -42,9 +46,12 @@ export function ShiftPage() {
   const [assignEmployeeId, setAssignEmployeeId] = useState('')
   const [assignDates, setAssignDates] = useState('')
   const [assignShiftId, setAssignShiftId] = useState('')
+  const [assignWorkMode, setAssignWorkMode] = useState<'AUTO' | 'OFFICE' | 'WORK_FROM_HOME'>('AUTO')
 
   const [swapCounterpartId, setSwapCounterpartId] = useState('')
   const [swapDate, setSwapDate] = useState('')
+
+  const [officeWeekdays, setOfficeWeekdays] = useState<number[]>([])
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,6 +59,7 @@ export function ShiftPage() {
   function refresh() {
     listShifts().then(setShifts).catch(() => setShifts([]))
     getReferenceData().then((r) => setEmployees(r.managers)).catch(() => setEmployees([]))
+    getHybridPolicy().then((p) => setOfficeWeekdays(p.officeWeekdays)).catch(() => setOfficeWeekdays([]))
     if (user) {
       const from = new Date()
       const to = new Date()
@@ -88,10 +96,28 @@ export function ShiftPage() {
         employeeIds: [assignEmployeeId],
         dates,
         shiftId: assignShiftId || undefined,
+        workMode: assignWorkMode === 'AUTO' ? undefined : assignWorkMode,
       })
       setMessage(`Assigned ${res.successCount}/${dates.length} date(s).`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to assign roster')
+    }
+  }
+
+  function toggleOfficeDay(day: number) {
+    setOfficeWeekdays((days) =>
+      days.includes(day) ? days.filter((d) => d !== day) : [...days, day].sort(),
+    )
+  }
+
+  async function handleSaveHybridPolicy() {
+    setError(null)
+    setMessage(null)
+    try {
+      await updateHybridPolicy(officeWeekdays)
+      setMessage('Hybrid work policy updated.')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update hybrid policy')
     }
   }
 
@@ -124,6 +150,11 @@ export function ShiftPage() {
           {myRoster.map((r) => (
             <li key={r.id} className="rounded-md bg-muted px-2 py-1">
               {r.date.slice(0, 10)}: {r.isWeekOff ? 'Week Off' : r.shift?.name ?? 'Unassigned'}
+              {!r.isWeekOff && (
+                <Badge className="ml-2" variant={r.workMode === 'WORK_FROM_HOME' ? 'outline' : 'default'}>
+                  {r.workMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'}
+                </Badge>
+              )}
             </li>
           ))}
           {myRoster.length === 0 && <p className="text-muted-foreground">No roster entries yet.</p>}
@@ -262,6 +293,26 @@ export function ShiftPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-1">
+                <Label>Work mode</Label>
+                <Select
+                  value={assignWorkMode}
+                  onValueChange={(v) => setAssignWorkMode(v as typeof assignWorkMode)}
+                >
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Work mode">
+                      {(value: string) =>
+                        value === 'AUTO' ? 'Auto (hybrid policy)' : value === 'OFFICE' ? 'Office' : 'WFH'
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="AUTO">Auto (hybrid policy)</SelectItem>
+                    <SelectItem value="OFFICE">Office</SelectItem>
+                    <SelectItem value="WORK_FROM_HOME">WFH</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
                 <Label>Dates (comma-separated)</Label>
                 <Input
                   className="w-64"
@@ -274,6 +325,29 @@ export function ShiftPage() {
                 Assign
               </Button>
             </div>
+          </div>
+
+          <div className="rounded-md border p-4">
+            <h2 className="mb-2 font-medium">Hybrid Work Policy (HR Admin)</h2>
+            <p className="mb-2 text-sm text-muted-foreground">
+              Employees follow a hybrid work culture. Select which weekdays require office
+              attendance — roster assignments auto-mark the rest as WFH.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              {WEEKDAY_LABELS.map((label, day) => (
+                <label key={day} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={officeWeekdays.includes(day)}
+                    onChange={() => toggleOfficeDay(day)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <Button className="mt-3" variant="outline" onClick={handleSaveHybridPolicy}>
+              Save Policy
+            </Button>
           </div>
         </>
       )}

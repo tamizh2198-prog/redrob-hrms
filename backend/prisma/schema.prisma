@@ -55,6 +55,11 @@ model Company {
   id   String @id @default(uuid())
   name String
 
+  // Hybrid work culture (Section 7.4): weekdays employees are expected in
+  // the office (0=Sun..6=Sat). Roster assignment auto-derives WFH for any
+  // working day not in this list. Default is Tue/Thu — 2 days in office.
+  hybridOfficeWeekdays Int[] @default([2, 4])
+
   employees    Employee[]
   departments  Department[]
   designations Designation[]
@@ -257,6 +262,11 @@ model Shift {
   @@unique([companyId, name])
 }
 
+enum WorkMode {
+  OFFICE
+  WORK_FROM_HOME
+}
+
 model RosterEntry {
   id         String   @id @default(uuid())
   employeeId String
@@ -265,6 +275,7 @@ model RosterEntry {
   shift      Shift?   @relation(fields: [shiftId], references: [id])
   date       DateTime
   isWeekOff  Boolean  @default(false)
+  workMode   WorkMode @default(OFFICE)
 
   @@unique([employeeId, date])
   @@index([employeeId])
@@ -380,6 +391,7 @@ model RegularizationRequest {
 
 enum LeaveAccrualFrequency {
   MONTHLY
+  QUARTERLY
   ANNUAL
 }
 
@@ -401,6 +413,9 @@ model LeaveType {
   companyId                 String
   company                   Company               @relation(fields: [companyId], references: [id])
   name                      String
+  // Short reference code (e.g. "EL", "SL", "CL") shown alongside the name,
+  // consistent with the code convention on Department/Designation/Grade.
+  code                      String?
   accrualFrequency          LeaveAccrualFrequency @default(MONTHLY)
   accrualRate               Float                 @default(0)
   maxCarryForward           Float                 @default(0)

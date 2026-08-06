@@ -1,4 +1,10 @@
-import { PrismaClient, Role, Gender, EmploymentType, EmployeeStatus } from '@prisma/client';
+import {
+  PrismaClient,
+  Role,
+  Gender,
+  EmploymentType,
+  EmployeeStatus,
+} from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -7,6 +13,46 @@ async function main() {
     where: { id: 'seed-company' },
     update: {},
     create: { id: 'seed-company', name: 'Redrob' },
+  });
+
+  // Section 7.3 leave types: EL accrues monthly, SL/CL accrue quarterly.
+  await prisma.leaveType.upsert({
+    where: { companyId_name: { companyId: company.id, name: 'Earned Leave' } },
+    update: {},
+    create: {
+      companyId: company.id,
+      name: 'Earned Leave',
+      code: 'EL',
+      accrualFrequency: 'MONTHLY',
+      accrualRate: 1,
+      maxCarryForward: 10,
+      isEncashable: true,
+    },
+  });
+
+  await prisma.leaveType.upsert({
+    where: { companyId_name: { companyId: company.id, name: 'Sick Leave' } },
+    update: {},
+    create: {
+      companyId: company.id,
+      name: 'Sick Leave',
+      code: 'SL',
+      accrualFrequency: 'QUARTERLY',
+      accrualRate: 1,
+      requiresDocumentAfterDays: 3,
+    },
+  });
+
+  await prisma.leaveType.upsert({
+    where: { companyId_name: { companyId: company.id, name: 'Care Leave' } },
+    update: {},
+    create: {
+      companyId: company.id,
+      name: 'Care Leave',
+      code: 'CL',
+      accrualFrequency: 'QUARTERLY',
+      accrualRate: 1,
+    },
   });
 
   const department = await prisma.department.upsert({

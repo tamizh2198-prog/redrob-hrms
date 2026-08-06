@@ -34,6 +34,7 @@ function createMockCalendar() {
     getActiveShift: jest.fn().mockResolvedValue(null),
     isHoliday: jest.fn().mockResolvedValue(false),
     isWeekOff: jest.fn().mockResolvedValue(false),
+    isWFH: jest.fn().mockResolvedValue(false),
     isNonWorkingDay: jest.fn().mockResolvedValue(false),
   };
 }
@@ -301,6 +302,18 @@ describe('AttendanceService', () => {
       const jan26 = days.find((d) => d.date === '2026-01-26');
 
       expect(jan26?.status).toBe(AttendanceStatus.HOLIDAY);
+    });
+  });
+
+  describe('Integration point: hybrid roster drives WFH status', () => {
+    it('reports WFH for a day with no attendance record on a WFH roster day', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+      calendar.isWFH.mockResolvedValue(true);
+
+      const days = await service.getCalendar('emp-1', 2026, 1);
+      const jan5 = days.find((d) => d.date === '2026-01-05');
+
+      expect(jan5?.status).toBe(AttendanceStatus.WFH);
     });
   });
 

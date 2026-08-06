@@ -41,9 +41,16 @@ export function LeavePage() {
   const [reason, setReason] = useState('')
 
   const [newTypeName, setNewTypeName] = useState('')
+  const [newTypeCode, setNewTypeCode] = useState('')
+  const [newTypeFrequency, setNewTypeFrequency] = useState<'MONTHLY' | 'QUARTERLY' | 'ANNUAL'>('MONTHLY')
+  const [newTypeRate, setNewTypeRate] = useState('1')
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  function leaveTypeLabel(lt: LeaveType) {
+    return lt.code ? `${lt.name} (${lt.code})` : lt.name
+  }
 
   function refresh() {
     if (!user) return
@@ -86,8 +93,15 @@ export function LeavePage() {
   async function handleCreateType() {
     setError(null)
     try {
-      await createLeaveType({ name: newTypeName })
+      await createLeaveType({
+        name: newTypeName,
+        code: newTypeCode || undefined,
+        accrualFrequency: newTypeFrequency,
+        accrualRate: Number(newTypeRate),
+      })
       setNewTypeName('')
+      setNewTypeCode('')
+      setNewTypeRate('1')
       refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create leave type')
@@ -106,7 +120,7 @@ export function LeavePage() {
         <div className="flex flex-wrap gap-4 text-sm">
           {balances.map((b) => (
             <div key={b.leaveType.id} className="rounded-md bg-muted px-3 py-2">
-              <div className="font-medium">{b.leaveType.name}</div>
+              <div className="font-medium">{leaveTypeLabel(b.leaveType)}</div>
               <div className="text-muted-foreground">{b.available} available</div>
             </div>
           ))}
@@ -122,15 +136,16 @@ export function LeavePage() {
             <Select value={leaveTypeId} onValueChange={setLeaveTypeId}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Select">
-                  {(value: string) =>
-                    leaveTypes.find((lt) => lt.id === value)?.name ?? 'Select'
-                  }
+                  {(value: string) => {
+                    const lt = leaveTypes.find((t) => t.id === value)
+                    return lt ? leaveTypeLabel(lt) : 'Select'
+                  }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {leaveTypes.map((lt) => (
                   <SelectItem key={lt.id} value={lt.id}>
-                    {lt.name}
+                    {leaveTypeLabel(lt)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -199,10 +214,46 @@ export function LeavePage() {
       {isHrAdmin && (
         <div className="rounded-md border p-4">
           <h2 className="mb-2 font-medium">Create Leave Type (HR Admin)</h2>
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <div className="flex flex-col gap-1">
               <Label>Name</Label>
               <Input value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Code</Label>
+              <Input
+                className="w-20"
+                placeholder="EL"
+                value={newTypeCode}
+                onChange={(e) => setNewTypeCode(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Accrual frequency</Label>
+              <Select
+                value={newTypeFrequency}
+                onValueChange={(v) => setNewTypeFrequency(v as typeof newTypeFrequency)}
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Frequency">
+                    {(value: string) => value.charAt(0) + value.slice(1).toLowerCase()}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MONTHLY">Monthly</SelectItem>
+                  <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                  <SelectItem value="ANNUAL">Annual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Accrual rate</Label>
+              <Input
+                className="w-20"
+                type="number"
+                value={newTypeRate}
+                onChange={(e) => setNewTypeRate(e.target.value)}
+              />
             </div>
             <Button variant="outline" onClick={handleCreateType}>
               Create

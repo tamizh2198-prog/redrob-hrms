@@ -4,13 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, WorkMode } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { AssignRosterDto } from './dto/assign-roster.dto';
 import { RequestShiftSwapDto } from './dto/request-shift-swap.dto';
+import { UpdateHybridPolicyDto } from './dto/update-hybrid-policy.dto';
 
 // Normalizes to UTC midnight, not local midnight — see calendar.service.ts
 // for why: date-only ISO strings parse as UTC, so a local boundary here
@@ -53,6 +54,38 @@ export class ShiftService {
     return this.prisma.shift.findMany({ orderBy: { name: 'asc' } });
   }
 
+  async getHybridPolicy() {
+    const companyId = await this.defaultCompany.getOrCreate();
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { hybridOfficeWeekdays: true },
+    });
+    return { officeWeekdays: company?.hybridOfficeWeekdays ?? [] };
+  }
+
+  async updateHybridPolicy(dto: UpdateHybridPolicyDto) {
+    const companyId = await this.defaultCompany.getOrCreate();
+    const company = await this.prisma.company.update({
+      where: { id: companyId },
+      data: { hybridOfficeWeekdays: [...new Set(dto.officeWeekdays)] },
+    });
+    return { officeWeekdays: company.hybridOfficeWeekdays };
+  }
+
+  // Auto-derives Office vs WFH from the company's hybrid policy (Section
+  // 7.4: "employees following the hybrid work culture, 2 days in office").
+  // An explicit dto.workMode always wins, e.g. to force an in-person day.
+  private resolveWorkMode(
+    explicit: WorkMode | undefined,
+    date: Date,
+    officeWeekdays: number[],
+  ): WorkMode {
+    if (explicit) return explicit;
+    return officeWeekdays.includes(date.getUTCDay())
+      ? WorkMode.OFFICE
+      : WorkMode.WORK_FROM_HOME;
+  }
+
   async assignRoster(dto: AssignRosterDto, actorRole?: Role) {
     if (dto.shiftId) {
       const shift = await this.prisma.shift.findUnique({
@@ -60,6 +93,8 @@ export class ShiftService {
       });
       if (!shift) throw new NotFoundException('Shift not found');
     }
+
+    const { officeWeekdays } = await this.getHybridPolicy();
 
     const results: Array<{
       employeeId: string;
@@ -81,14 +116,25 @@ export class ShiftService {
             );
           }
 
+          const workMode = this.resolveWorkMode(
+            dto.workMode,
+            date,
+            officeWeekdays,
+          );
+
           await this.prisma.rosterEntry.upsert({
             where: { employeeId_date: { employeeId, date } },
-            update: { shiftId: dto.shiftId, isWeekOff: dto.isWeekOff ?? false },
+            update: {
+              shiftId: dto.shiftId,
+              isWeekOff: dto.isWeekOff ?? false,
+              workMode,
+            },
             create: {
               employeeId,
               date,
               shiftId: dto.shiftId,
               isWeekOff: dto.isWeekOff ?? false,
+              workMode,
             },
           });
           results.push({ employeeId, date: dateStr, success: true });

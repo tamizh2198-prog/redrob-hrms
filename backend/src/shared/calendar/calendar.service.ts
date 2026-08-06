@@ -49,6 +49,11 @@ export class CalendarService {
     return entry?.isWeekOff ?? false;
   }
 
+  async isWFH(employeeId: string, date: Date): Promise<boolean> {
+    const entry = await this.getRosterEntry(employeeId, date);
+    return !entry?.isWeekOff && entry?.workMode === 'WORK_FROM_HOME';
+  }
+
   async getActiveShift(employeeId: string, date: Date): Promise<Shift | null> {
     const entry = await this.getRosterEntry(employeeId, date);
     return entry?.shift ?? null;

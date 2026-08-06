@@ -418,6 +418,69 @@ describe('LeaveService', () => {
     });
   });
 
+  describe('Quarterly accrual (Sick Leave / Care Leave)', () => {
+    it('accrues quarterly-frequency leave types on a quarter-start month', async () => {
+      prisma.leaveType.findMany.mockResolvedValue([
+        { id: 'lt-sl', accrualFrequency: 'QUARTERLY', accrualRate: 1 },
+      ]);
+      prisma.employee.findMany.mockResolvedValue([
+        { id: 'emp-1', dateOfJoining: new Date(Date.UTC(2020, 0, 1)) },
+      ]);
+      prisma.leaveBalance.findUnique.mockResolvedValue({
+        id: 'bal-1',
+        openingBalance: 0,
+        accrued: 0,
+        used: 0,
+        carriedForward: 0,
+      });
+
+      await service.runMonthlyAccrual(2026, 4); // April = quarter start
+
+      expect(prisma.leaveBalance.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { accrued: 1 } }),
+      );
+    });
+
+    it('does not accrue quarterly-frequency leave types on a non-quarter-start month', async () => {
+      prisma.leaveType.findMany.mockResolvedValue([]);
+      prisma.employee.findMany.mockResolvedValue([
+        { id: 'emp-1', dateOfJoining: new Date(Date.UTC(2020, 0, 1)) },
+      ]);
+
+      const result = await service.runMonthlyAccrual(2026, 5); // May, not a quarter start
+
+      expect(prisma.leaveType.findMany).toHaveBeenCalledWith({
+        where: { accrualFrequency: { in: ['MONTHLY'] } },
+      });
+      expect(result.accrualsRun).toBe(0);
+    });
+
+    it('prorates quarterly accrual for an employee joining mid-quarter', async () => {
+      prisma.leaveType.findMany.mockResolvedValue([
+        { id: 'lt-cl', accrualFrequency: 'QUARTERLY', accrualRate: 1 },
+      ]);
+      // Joins May 16 — 46 days worked out of the Apr 1..Jun 30 quarter (91 days)
+      prisma.employee.findMany.mockResolvedValue([
+        { id: 'emp-1', dateOfJoining: new Date(Date.UTC(2026, 4, 16)) },
+      ]);
+      prisma.leaveBalance.findUnique.mockResolvedValue(null);
+      prisma.leaveBalance.create.mockResolvedValue({
+        id: 'bal-1',
+        openingBalance: 0,
+        accrued: 0,
+        used: 0,
+        carriedForward: 0,
+      });
+
+      await service.runMonthlyAccrual(2026, 4);
+
+      const expectedAccrual = 1 * (46 / 91);
+      expect(prisma.leaveBalance.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { accrued: expectedAccrual } }),
+      );
+    });
+  });
+
   describe('Acceptance Criteria: carry-forward cap and auto-encashment/lapse at year-end close', () => {
     it('caps carry-forward and triggers encashment for the excess when encashable', async () => {
       prisma.leaveBalance.findMany.mockResolvedValue([
