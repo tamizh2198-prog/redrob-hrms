@@ -10,11 +10,30 @@ CREATE TYPE "ClearanceItemCategory" AS ENUM ('LEAD_VERIFICATION', 'EMPLOYEE_DECL
 -- DropIndex
 DROP INDEX "ClearanceItem_resignationId_department_key";
 
--- AlterTable
-ALTER TABLE "ClearanceItem" DROP COLUMN "department",
-ADD COLUMN     "category" "ClearanceItemCategory" NOT NULL,
-ADD COLUMN     "key" TEXT NOT NULL,
-ADD COLUMN     "label" TEXT NOT NULL;
+-- AlterTable: added as nullable first so this doesn't fail against any
+-- pre-existing rows (a plain "ADD COLUMN ... NOT NULL" would reject them
+-- outright, since Postgres has no value to backfill them with) — legacy
+-- rows are backfilled from their old department value below, then the
+-- columns are tightened to NOT NULL once every row has one.
+ALTER TABLE "ClearanceItem" ADD COLUMN     "category" "ClearanceItemCategory",
+ADD COLUMN     "key" TEXT,
+ADD COLUMN     "label" TEXT;
+
+-- Backfill: legacy department-based rows have no equivalent single item in
+-- the new checklist, so they're retagged under their old department name
+-- as a LEAD_VERIFICATION item — preserving their existing signoff status
+-- rather than silently dropping historical data.
+UPDATE "ClearanceItem"
+SET "key" = 'LEGACY_' || "department"::TEXT,
+    "label" = 'Legacy: ' || "department"::TEXT || ' clearance',
+    "category" = 'LEAD_VERIFICATION'
+WHERE "key" IS NULL;
+
+ALTER TABLE "ClearanceItem" ALTER COLUMN "category" SET NOT NULL,
+ALTER COLUMN "key" SET NOT NULL,
+ALTER COLUMN "label" SET NOT NULL;
+
+ALTER TABLE "ClearanceItem" DROP COLUMN "department";
 
 -- AlterTable
 ALTER TABLE "Resignation" ADD COLUMN     "certificateReleasedBy" TEXT,
