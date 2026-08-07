@@ -8,5 +8,6 @@ import { AttendanceModule } from '../attendance/attendance.module';
   imports: [AttendanceModule],
   controllers: [LeaveController],
   providers: [LeaveService, LeaveScheduleService],
+  exports: [LeaveService],
 })
 export class LeaveModule {}

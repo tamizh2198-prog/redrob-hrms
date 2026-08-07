@@ -47,6 +47,10 @@ enum EmployeeStatus {
   ON_LEAVE
   INACTIVE
   TERMINATED
+  // Section 7.10 Business Rule: set only once Full & Final settlement is
+  // marked paid — a minimal historical record kept for rehire-eligibility
+  // checks, not a full employee record anymore.
+  ARCHIVED
 }
 
 enum ChangeRequestStatus {
@@ -69,6 +73,9 @@ model Company {
 
   jobRequisitions     JobRequisition[]
   onboardingTemplates OnboardingChecklistTemplate[]
+
+  reviewCycles ReviewCycle[]
+  assets       Asset[]
 }
 
 model Department {
@@ -193,6 +200,15 @@ model Employee {
   interviewRoundsAsInterviewer InterviewRound[]        @relation("InterviewerRounds")
   onboardingChecklist          OnboardingChecklist?
   preboardingSubmissions       PreboardingSubmission[]
+
+  goals              Goal[]
+  reviews            Review[]
+  assetAssignments   AssetAssignment[]
+  assetRequestsMade  AssetRequest[]      @relation("AssetRequester")
+  assetRequestsOwned AssetRequest[]      @relation("AssetApprover")
+  resignation        Resignation?
+  exitInterview      ExitInterview?
+  finalSettlement    FinalSettlement?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -703,4 +719,284 @@ model PreboardingSubmission {
   submittedAt DateTime  @default(now())
 
   @@index([employeeId])
+}
+
+// ---------------------------------------------------------------------------
+// Performance Management & Goals/OKRs (Section 7.8)
+// ---------------------------------------------------------------------------
+
+enum ReviewCycleStatus {
+  DRAFT
+  OPEN
+  CALIBRATION
+  CLOSED
+}
+
+// Derived from whether self/manager sections are present — see
+// PerformanceService.deriveReviewStatus — so submission order never matters.
+enum ReviewStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY_FOR_CALIBRATION
+  FINALIZED
+}
+
+model ReviewCycle {
+  id          String            @id @default(uuid())
+  companyId   String
+  company     Company           @relation(fields: [companyId], references: [id])
+  name        String
+  periodStart DateTime
+  periodEnd   DateTime
+  status      ReviewCycleStatus @default(OPEN)
+  closedBy    String?
+  closedAt    DateTime?
+  createdAt   DateTime          @default(now())
+
+  goals   Goal[]
+  reviews Review[]
+}
+
+// Cascades company → department → team → individual via parentGoalId
+// (Section 7.8 Key Features).
+model Goal {
+  id            String   @id @default(uuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  cycleId       String
+  cycle         ReviewCycle @relation(fields: [cycleId], references: [id])
+  parentGoalId  String?
+  parentGoal    Goal?    @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childGoals    Goal[]   @relation("GoalHierarchy")
+  title         String
+  target        Float?
+  actual        Float    @default(0)
+  weightage     Float    @default(0)
+  createdAt     DateTime @default(now())
+
+  @@index([employeeId, cycleId])
+}
+
+model Review {
+  id                    String       @id @default(uuid())
+  cycleId               String
+  cycle                 ReviewCycle  @relation(fields: [cycleId], references: [id])
+  employeeId            String
+  employee              Employee     @relation(fields: [employeeId], references: [id])
+  selfAssessmentJson     Json?
+  managerAssessmentJson Json?
+  finalRating           Float?
+  status                ReviewStatus @default(NOT_STARTED)
+  version               Int          @default(1)
+  finalizedBy           String?
+  finalizedAt           DateTime?
+
+  corrections ReviewCorrection[]
+
+  @@unique([cycleId, employeeId])
+}
+
+// Section 7.8 Business Rule: "Ratings are locked ... once a cycle is closed;
+// further changes require a documented correction workflow" — this is that
+// documented trail, distinct from the generic audit log.
+model ReviewCorrection {
+  id             String   @id @default(uuid())
+  reviewId       String
+  review         Review   @relation(fields: [reviewId], references: [id])
+  previousRating Float?
+  newRating      Float
+  reason         String
+  correctedBy    String
+  correctedAt    DateTime @default(now())
+
+  @@index([reviewId])
+}
+
+// ---------------------------------------------------------------------------
+// Asset Management (Section 7.9)
+// ---------------------------------------------------------------------------
+
+enum AssetStatus {
+  AVAILABLE
+  PENDING_HANDOVER
+  ISSUED
+  IN_REPAIR
+  RETIRED
+}
+
+enum AssetRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+}
+
+model Asset {
+  id             String      @id @default(uuid())
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id])
+  category       String
+  make           String?
+  model          String?
+  serialNumber   String?     @unique
+  purchaseDate   DateTime?
+  cost           Float?
+  warrantyExpiry DateTime?
+  condition      String      @default("GOOD")
+  status         AssetStatus @default(AVAILABLE)
+  createdAt      DateTime    @default(now())
+
+  assignments AssetAssignment[]
+
+  @@index([companyId])
+}
+
+// Section 7.9 Business Rule: "An asset can only be assigned to one active
+// custodian at a time" — active means returnedAt IS NULL. Issuing to a new
+// employee auto-closes (sets returnedAt on) the prior open record.
+model AssetAssignment {
+  id              String    @id @default(uuid())
+  assetId         String
+  asset           Asset     @relation(fields: [assetId], references: [id])
+  employeeId      String
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+  issuedAt        DateTime  @default(now())
+  acknowledgedAt  DateTime?
+  returnedAt      DateTime?
+  returnCondition String?
+
+  @@index([assetId])
+  @@index([employeeId])
+}
+
+model AssetRequest {
+  id            String              @id @default(uuid())
+  employeeId    String
+  employee      Employee            @relation("AssetRequester", fields: [employeeId], references: [id])
+  assetCategory String
+  justification String?
+  status        AssetRequestStatus  @default(PENDING)
+  approverId    String?
+  approver      Employee?           @relation("AssetApprover", fields: [approverId], references: [id])
+  decidedAt     DateTime?
+  createdAt     DateTime            @default(now())
+
+  @@index([employeeId])
+}
+
+// ---------------------------------------------------------------------------
+// Offboarding — Resignation, Exit, Final Settlement (Section 7.10)
+// ---------------------------------------------------------------------------
+
+enum ResignationStatus {
+  SUBMITTED
+  CLEARANCE_IN_PROGRESS
+  CLEARED
+  SETTLED
+  ARCHIVED
+}
+
+enum ClearanceDepartment {
+  IT
+  FINANCE
+  ADMIN
+  HR
+}
+
+enum ClearanceStatus {
+  PENDING
+  SIGNED_OFF
+}
+
+enum SettlementStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+}
+
+model Resignation {
+  id               String            @id @default(uuid())
+  employeeId       String            @unique
+  employee         Employee          @relation(fields: [employeeId], references: [id])
+  submittedDate    DateTime          @default(now())
+  noticePeriodDays Int
+  lastWorkingDay   DateTime
+  status           ResignationStatus @default(SUBMITTED)
+  rehireEligible   Boolean           @default(true)
+  relievingLetterRef   String?
+  experienceLetterRef  String?
+  lettersGeneratedAt   DateTime?
+  createdAt        DateTime          @default(now())
+
+  clearanceItems  ClearanceItem[]
+  lwdAdjustments  LwdAdjustment[]
+  exitInterview   ExitInterview?
+  finalSettlement FinalSettlement?
+
+  @@index([employeeId])
+}
+
+// Section 7.10 Business Rule: "Last working day ... adjustable via mutual
+// negotiation with manager+HR Admin sign-off and audit trail" — this row is
+// that audit trail; Resignation.lastWorkingDay always reflects the latest.
+model LwdAdjustment {
+  id            String      @id @default(uuid())
+  resignationId String
+  resignation   Resignation @relation(fields: [resignationId], references: [id])
+  previousDate  DateTime
+  newDate       DateTime
+  reason        String
+  adjustedBy    String
+  adjustedAt    DateTime    @default(now())
+
+  @@index([resignationId])
+}
+
+model ClearanceItem {
+  id            String              @id @default(uuid())
+  resignationId String
+  resignation   Resignation         @relation(fields: [resignationId], references: [id])
+  department    ClearanceDepartment
+  status        ClearanceStatus     @default(PENDING)
+  signedOffBy   String?
+  signedOffAt   DateTime?
+  remarks       String?
+
+  @@unique([resignationId, department])
+}
+
+model ExitInterview {
+  id            String      @id @default(uuid())
+  resignationId String      @unique
+  resignation   Resignation @relation(fields: [resignationId], references: [id])
+  employeeId    String      @unique
+  employee      Employee    @relation(fields: [employeeId], references: [id])
+  responsesJson Json?
+  conductedBy   String?
+  submittedAt   DateTime?
+  createdAt     DateTime    @default(now())
+}
+
+// Section 7.10 Business Rule: "F&F settlement automatically pulls: unused
+// leave balance (Leave module) for encashment, unreturned/damaged asset cost
+// (Asset module), and any notice-period shortfall recovery — no manual
+// re-entry." OffboardingService.computeSettlement is the single place that
+// pulls all three; this row is the persisted, approvable snapshot of that.
+model FinalSettlement {
+  id              String           @id @default(uuid())
+  resignationId   String           @unique
+  resignation     Resignation      @relation(fields: [resignationId], references: [id])
+  employeeId      String           @unique
+  employee        Employee         @relation(fields: [employeeId], references: [id])
+  pendingSalary   Float            @default(0)
+  leaveEncashment Float            @default(0)
+  noticeRecovery  Float            @default(0)
+  assetRecovery   Float            @default(0)
+  netPayable      Float            @default(0)
+  status          SettlementStatus @default(DRAFT)
+  computedAt      DateTime         @default(now())
+  approvedBy      String?
+  approvedAt      DateTime?
+  paidAt          DateTime?
 }
