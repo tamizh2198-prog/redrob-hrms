@@ -203,6 +203,7 @@ model Employee {
 
   goals              Goal[]
   reviews            Review[]
+  monthlyEvaluations MonthlyEvaluation[]
   assetAssignments   AssetAssignment[]
   assetRequestsMade  AssetRequest[]      @relation("AssetRequester")
   assetRequestsOwned AssetRequest[]      @relation("AssetApprover")
@@ -812,6 +813,51 @@ model ReviewCorrection {
   @@index([reviewId])
 }
 
+// Performance Evaluation Policy 2026, Section 4 "KPI Score Mapping" — pure
+// function of kpiScore, see PerformanceService.computeGrade for the mapping.
+enum PerformanceGrade {
+  FEE // Far Exceeds Expectations (950-1000)
+  EE // Exceeds Expectations (850-949)
+  ME // Meets Expectations (700-849)
+  PME // Partially Meets Expectations (600-699)
+  DNME // Does Not Meet Expectations (<600)
+}
+
+// Policy Section 2 "KPI Scoring and Governance": scores are audited by the
+// Head of Finance and Company Compliance (mapped here to HR_ADMIN/SUPER_ADMIN
+// — there's no dedicated Finance/Compliance role in this system) before they
+// count as final; SENT_BACK means the manager must resubmit.
+enum EvaluationAuditStatus {
+  PENDING_AUDIT
+  APPROVED
+  SENT_BACK
+}
+
+// Policy Section 4 "Performance Evaluation Methodology" — monthly, not tied
+// to the (annual/adhoc) ReviewCycle above. Policy Section 7: "Exact KPI
+// scores will not be shared with employees ... only final performance grades
+// will be communicated" — enforced in PerformanceService, not at the schema
+// level, since HR/managers still need the raw score.
+model MonthlyEvaluation {
+  id            String                @id @default(uuid())
+  employeeId    String
+  employee      Employee              @relation(fields: [employeeId], references: [id])
+  period        DateTime // normalized to the 1st of the evaluated month
+  kpiScore      Int
+  grade         PerformanceGrade
+  justification String
+  submittedBy   String
+  submittedAt   DateTime              @default(now())
+  auditStatus   EvaluationAuditStatus @default(PENDING_AUDIT)
+  auditedBy     String?
+  auditedAt     DateTime?
+  auditNotes    String?
+  createdAt     DateTime              @default(now())
+
+  @@unique([employeeId, period])
+  @@index([employeeId])
+}
+
 // ---------------------------------------------------------------------------
 // Asset Management (Section 7.9)
 // ---------------------------------------------------------------------------
@@ -896,11 +942,12 @@ enum ResignationStatus {
   ARCHIVED
 }
 
-enum ClearanceDepartment {
-  IT
-  FINANCE
-  ADMIN
-  HR
+// Matches the two sections of the company's actual Separation Clearance
+// Checklist: items verified by the Community POC/Lead, vs. items the exiting
+// employee self-declares.
+enum ClearanceItemCategory {
+  LEAD_VERIFICATION
+  EMPLOYEE_DECLARATION
 }
 
 enum ClearanceStatus {
@@ -927,6 +974,10 @@ model Resignation {
   relievingLetterRef   String?
   experienceLetterRef  String?
   lettersGeneratedAt   DateTime?
+  // "To be filled by Human Resources only" section of the Separation
+  // Clearance Checklist — captured when the letters/certificate are released.
+  closingRemarks       String?
+  certificateReleasedBy String?
   createdAt        DateTime          @default(now())
 
   clearanceItems  ClearanceItem[]
@@ -953,17 +1004,23 @@ model LwdAdjustment {
   @@index([resignationId])
 }
 
+// One row per line item of the company's Separation Clearance Checklist
+// (e.g. "OFFICE_EQUIPMENT", "ID_CARD", "FORWARDING_ADDRESS") — `key` is the
+// stable machine identifier the app branches on (see OffboardingService's
+// asset-return gate), `label` is the human wording from the actual document.
 model ClearanceItem {
-  id            String              @id @default(uuid())
+  id            String                @id @default(uuid())
   resignationId String
-  resignation   Resignation         @relation(fields: [resignationId], references: [id])
-  department    ClearanceDepartment
-  status        ClearanceStatus     @default(PENDING)
+  resignation   Resignation           @relation(fields: [resignationId], references: [id])
+  key           String
+  label         String
+  category      ClearanceItemCategory
+  status        ClearanceStatus       @default(PENDING)
   signedOffBy   String?
   signedOffAt   DateTime?
   remarks       String?
 
-  @@unique([resignationId, department])
+  @@unique([resignationId, key])
 }
 
 model ExitInterview {

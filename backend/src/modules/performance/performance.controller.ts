@@ -17,6 +17,8 @@ import { OpenReviewCycleDto } from './dto/open-review-cycle.dto';
 import { SubmitSelfAssessmentDto } from './dto/submit-self-assessment.dto';
 import { SubmitManagerAssessmentDto } from './dto/submit-manager-assessment.dto';
 import { CorrectRatingDto } from './dto/correct-rating.dto';
+import { SubmitMonthlyEvaluationDto } from './dto/submit-monthly-evaluation.dto';
+import { AuditMonthlyEvaluationDto } from './dto/audit-monthly-evaluation.dto';
 
 @Controller('performance')
 export class PerformanceController {
@@ -118,5 +120,51 @@ export class PerformanceController {
     @Param('employeeId') employeeId: string,
   ) {
     return this.performanceService.getReview(cycleId, employeeId);
+  }
+
+  @Post('evaluations')
+  submitMonthlyEvaluation(
+    @Body() dto: SubmitMonthlyEvaluationDto,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.performanceService.submitMonthlyEvaluation(
+      dto,
+      user.userId,
+      user.role as Role,
+    );
+  }
+
+  @Get('evaluations')
+  listMonthlyEvaluations(
+    @Query('employeeId') employeeId: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.performanceService.listMonthlyEvaluations(
+      employeeId,
+      user.userId,
+      user.role as Role,
+    );
+  }
+
+  @Post('evaluations/:id/audit')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  auditMonthlyEvaluation(
+    @Param('id') id: string,
+    @Body() dto: AuditMonthlyEvaluationDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.performanceService.auditMonthlyEvaluation(id, dto, user.userId);
+  }
+
+  @Get('evaluations/:id')
+  getMonthlyEvaluation(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.performanceService.getMonthlyEvaluation(
+      id,
+      user.userId,
+      user.role as Role,
+    );
   }
 }

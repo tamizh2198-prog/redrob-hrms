@@ -25,10 +25,14 @@ import {
   submitManagerAssessment,
   correctRating,
   getReview,
+  submitMonthlyEvaluation,
+  listMonthlyEvaluations,
+  auditMonthlyEvaluation,
   type ReviewCycle,
   type Goal,
   type Review,
   type CalibrationView,
+  type MonthlyEvaluation,
 } from '../api'
 
 export function PerformancePage() {
@@ -60,6 +64,13 @@ export function PerformancePage() {
   const [calibration, setCalibration] = useState<CalibrationView | null>(null)
   const [myReview, setMyReview] = useState<Review | null>(null)
 
+  const [myEvaluations, setMyEvaluations] = useState<MonthlyEvaluation[]>([])
+  const [reportEvaluations, setReportEvaluations] = useState<MonthlyEvaluation[]>([])
+  const [evalPeriod, setEvalPeriod] = useState('')
+  const [evalKpiScore, setEvalKpiScore] = useState('')
+  const [evalJustification, setEvalJustification] = useState('')
+  const [auditNotesByEval, setAuditNotesByEval] = useState<Record<string, string>>({})
+
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,6 +79,7 @@ export function PerformancePage() {
   useEffect(() => {
     getReferenceData().then((r) => setPeople(r.managers))
     refreshCycles()
+    refreshMyEvaluations()
   }, [])
 
   useEffect(() => {
@@ -85,6 +97,18 @@ export function PerformancePage() {
   function refreshMyGoals(cycleId: string) {
     if (!user) return
     listGoals(user.id, cycleId).then(setMyGoals).catch(() => setMyGoals([]))
+  }
+
+  function refreshMyEvaluations() {
+    if (!user) return
+    listMonthlyEvaluations(user.id).then(setMyEvaluations).catch(() => setMyEvaluations([]))
+  }
+
+  function refreshReportEvaluations() {
+    if (!reportEmployeeId) return
+    listMonthlyEvaluations(reportEmployeeId)
+      .then(setReportEvaluations)
+      .catch(() => setReportEvaluations([]))
   }
 
   function personName(id: string) {
@@ -201,6 +225,53 @@ export function PerformancePage() {
     }
   }
 
+  async function handleSubmitEvaluation() {
+    if (!reportEmployeeId || !evalPeriod) return
+    setError(null)
+    setMessage(null)
+    try {
+      await submitMonthlyEvaluation({
+        employeeId: reportEmployeeId,
+        period: evalPeriod,
+        kpiScore: Number(evalKpiScore),
+        justification: evalJustification,
+      })
+      setMessage('Monthly evaluation submitted for audit.')
+      setEvalKpiScore('')
+      setEvalJustification('')
+      refreshReportEvaluations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to submit monthly evaluation')
+    }
+  }
+
+  async function handleAuditApprove(evaluationId: string) {
+    setError(null)
+    setMessage(null)
+    try {
+      await auditMonthlyEvaluation(evaluationId, { approve: true })
+      setMessage('Evaluation approved.')
+      refreshReportEvaluations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to approve evaluation')
+    }
+  }
+
+  async function handleAuditSendBack(evaluationId: string) {
+    setError(null)
+    setMessage(null)
+    try {
+      await auditMonthlyEvaluation(evaluationId, {
+        approve: false,
+        auditNotes: auditNotesByEval[evaluationId] ?? '',
+      })
+      setMessage('Evaluation sent back for clarification.')
+      refreshReportEvaluations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to send the evaluation back')
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Performance Management</h1>
@@ -272,6 +343,115 @@ export function PerformancePage() {
                 .map(([k, v]) => `${personName(k)}: ${v.average.toFixed(1)} avg (${v.count})`)
                 .join(', ') || '—'}
             </p>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-md border p-4">
+          <h2 className="mb-2 font-medium">My Monthly Evaluations</h2>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Per policy, only the final grade is shown here — not the underlying KPI score.
+          </p>
+          <ul className="flex flex-col gap-2 text-sm">
+            {myEvaluations.map((e) => (
+              <li key={e.id} className="flex items-center justify-between rounded border p-2">
+                <span>{e.period.slice(0, 7)}</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{e.grade}</Badge>
+                  <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
+                </div>
+              </li>
+            ))}
+            {myEvaluations.length === 0 && <p className="text-muted-foreground">No monthly evaluations yet.</p>}
+          </ul>
+        </div>
+
+        {(isManager || isHrAdmin) && (
+          <div className="rounded-md border p-4">
+            <h2 className="mb-2 font-medium">Monthly KPI Evaluation — Report</h2>
+            <div className="flex flex-col gap-2">
+              <Label>Employee</Label>
+              <Select
+                value={reportEmployeeId}
+                onValueChange={(v) => {
+                  setReportEmployeeId(v)
+                  setReportEvaluations([])
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select employee">{(v: string) => personName(v)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {people.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.firstName} {p.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button size="sm" variant="outline" onClick={refreshReportEvaluations} className="self-start">
+                Load Evaluation History
+              </Button>
+
+              <ul className="flex flex-col gap-2 text-sm">
+                {reportEvaluations.map((e) => (
+                  <li key={e.id} className="rounded border p-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{e.period.slice(0, 7)}</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{e.grade}</Badge>
+                        <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
+                      </div>
+                    </div>
+                    {e.kpiScore != null && (
+                      <p className="text-muted-foreground">
+                        Score: {e.kpiScore} — {e.justification}
+                      </p>
+                    )}
+                    {isHrAdmin && e.auditStatus === 'PENDING_AUDIT' && (
+                      <div className="mt-2 flex flex-wrap items-end gap-2">
+                        <Button size="sm" variant="outline" onClick={() => handleAuditApprove(e.id)}>
+                          Approve
+                        </Button>
+                        <Input
+                          placeholder="Notes for send-back"
+                          value={auditNotesByEval[e.id] ?? ''}
+                          onChange={(ev) =>
+                            setAuditNotesByEval((s) => ({ ...s, [e.id]: ev.target.value }))
+                          }
+                        />
+                        <Button size="sm" variant="outline" onClick={() => handleAuditSendBack(e.id)}>
+                          Send Back
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
+                <div className="flex flex-col gap-1">
+                  <Label>Month</Label>
+                  <Input type="date" value={evalPeriod} onChange={(e) => setEvalPeriod(e.target.value)} />
+                </div>
+                <Input
+                  placeholder="KPI Score (0-1000)"
+                  type="number"
+                  value={evalKpiScore}
+                  onChange={(e) => setEvalKpiScore(e.target.value)}
+                  className="w-40"
+                />
+                <Textarea
+                  placeholder="Justification"
+                  value={evalJustification}
+                  onChange={(e) => setEvalJustification(e.target.value)}
+                />
+                <Button size="sm" variant="outline" onClick={handleSubmitEvaluation}>
+                  Submit for Audit
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

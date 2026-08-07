@@ -177,6 +177,7 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       where: { review: { employeeId } },
     });
     await prisma.review.deleteMany({ where: { employeeId } });
+    await prisma.monthlyEvaluation.deleteMany({ where: { employeeId } });
     await prisma.goal.deleteMany({ where: { employeeId } });
     await prisma.reviewCycle.deleteMany({ where: { companyId } });
     await prisma.leaveBalance.deleteMany({ where: { employeeId } });
@@ -294,6 +295,162 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
     });
   });
 
+  describe('Performance: monthly KPI evaluation, audit workflow, and score confidentiality', () => {
+    let evaluationId: string;
+
+    it("rejects an unrelated manager submitting the employee's monthly evaluation", async () => {
+      const someoneElse = await prisma.employee.create({
+        data: {
+          ...baseFields,
+          companyId,
+          departmentId,
+          designationId,
+          employeeCode: `PAO-UNREL-MGR-${Date.now()}`,
+          firstName: 'PAO',
+          lastName: 'UnrelatedManager',
+          role: Role.MANAGER,
+        },
+      });
+      const token = await login(someoneElse.employeeCode);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/performance/evaluations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          employeeId,
+          period: '2026-08-01',
+          kpiScore: 900,
+          justification: 'Trying to score someone not on my team',
+        })
+        .expect(403);
+
+      await prisma.employee.delete({ where: { id: someoneElse.id } });
+    });
+
+    it("the manager submits the employee's monthly KPI score with justification", async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/performance/evaluations')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({
+          employeeId,
+          period: '2026-08-15', // any day in the month — normalized server-side
+          kpiScore: 920,
+          justification: 'Shipped the quarterly roadmap item early',
+        })
+        .expect(201);
+
+      evaluationId = res.body.id;
+      expect(res.body.grade).toBe('EE');
+      expect(res.body.auditStatus).toBe('PENDING_AUDIT');
+    });
+
+    it('Integration point: the employee sees only the grade, never the raw KPI score or justification', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/performance/evaluations?employeeId=${employeeId}`)
+        .set('Authorization', `Bearer ${employeeToken}`)
+        .expect(200);
+
+      expect(res.body[0].grade).toBe('EE');
+      expect(res.body[0].kpiScore).toBeUndefined();
+      expect(res.body[0].justification).toBeUndefined();
+      expect(res.body[0].submittedBy).toBeUndefined();
+    });
+
+    it('the manager and HR Admin can see the full record, including the raw score', async () => {
+      const asManager = await request(app.getHttpServer())
+        .get(`/api/v1/performance/evaluations/${evaluationId}`)
+        .set('Authorization', `Bearer ${managerToken}`)
+        .expect(200);
+      expect(asManager.body.kpiScore).toBe(920);
+
+      const asHr = await request(app.getHttpServer())
+        .get(`/api/v1/performance/evaluations/${evaluationId}`)
+        .set('Authorization', `Bearer ${hrAdminToken}`)
+        .expect(200);
+      expect(asHr.body.kpiScore).toBe(920);
+    });
+
+    it('rejects an unrelated employee viewing this evaluation', async () => {
+      const someoneElse = await prisma.employee.create({
+        data: {
+          ...baseFields,
+          companyId,
+          departmentId,
+          designationId,
+          employeeCode: `PAO-UNREL-EMP-${Date.now()}`,
+          firstName: 'PAO',
+          lastName: 'UnrelatedEmployee',
+          role: Role.EMPLOYEE,
+        },
+      });
+      const token = await login(someoneElse.employeeCode);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/performance/evaluations/${evaluationId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+
+      await prisma.employee.delete({ where: { id: someoneElse.id } });
+    });
+
+    it('requires auditNotes when HR sends the evaluation back for clarification', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/performance/evaluations/${evaluationId}/audit`)
+        .set('Authorization', `Bearer ${hrAdminToken}`)
+        .send({ approve: false })
+        .expect(400);
+    });
+
+    it('HR sends the evaluation back, and the manager resubmits it for audit', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/performance/evaluations/${evaluationId}/audit`)
+        .set('Authorization', `Bearer ${hrAdminToken}`)
+        .send({
+          approve: false,
+          auditNotes: 'Please attach supporting evidence',
+        })
+        .expect(201);
+
+      const sentBack = await request(app.getHttpServer())
+        .get(`/api/v1/performance/evaluations/${evaluationId}`)
+        .set('Authorization', `Bearer ${hrAdminToken}`)
+        .expect(200);
+      expect(sentBack.body.auditStatus).toBe('SENT_BACK');
+
+      const resubmitted = await request(app.getHttpServer())
+        .post('/api/v1/performance/evaluations')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({
+          employeeId,
+          period: '2026-08-01',
+          kpiScore: 930,
+          justification: 'Added the requested evidence links',
+        })
+        .expect(201);
+      expect(resubmitted.body.id).toBe(evaluationId);
+      expect(resubmitted.body.auditStatus).toBe('PENDING_AUDIT');
+    });
+
+    it('HR approves the evaluation, and it can no longer be resubmitted', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/performance/evaluations/${evaluationId}/audit`)
+        .set('Authorization', `Bearer ${hrAdminToken}`)
+        .send({ approve: true })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/performance/evaluations')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({
+          employeeId,
+          period: '2026-08-01',
+          kpiScore: 500,
+          justification: 'Trying to change an approved score',
+        })
+        .expect(400);
+    });
+  });
+
   describe('Assets: single active custodian and acknowledgement-gated Issued status', () => {
     let assetId: string;
     let assignmentId: string;
@@ -404,7 +561,7 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
 
   describe('Offboarding: resignation, LWD negotiation, and clearance', () => {
     let resignationId: string;
-    let itClearanceItemId: string;
+    let officeEquipmentItemId: string;
     let assetId: string;
 
     beforeAll(async () => {
@@ -425,7 +582,7 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
         .expect(403);
     });
 
-    it('submits a resignation and auto-computes the last working day + 4-department clearance checklist', async () => {
+    it('submits a resignation and auto-computes the last working day + the real Separation Clearance Checklist', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/offboarding/resign')
         .set('Authorization', `Bearer ${employeeToken}`)
@@ -433,11 +590,20 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
         .expect(201);
 
       resignationId = res.body.id;
-      expect(res.body.clearanceItems).toHaveLength(4);
-      const departments = res.body.clearanceItems.map(
-        (c: { department: string }) => c.department,
+      // Matches the company's actual Separation Clearance Checklist: a
+      // Lead/POC-verification section plus an employee self-declaration
+      // section — not asserting an exact count so this doesn't rot if the
+      // checklist gains/loses an item.
+      expect(res.body.clearanceItems.length).toBeGreaterThan(10);
+      const categories = new Set(
+        res.body.clearanceItems.map((c: { category: string }) => c.category),
       );
-      expect(departments.sort()).toEqual(['ADMIN', 'FINANCE', 'HR', 'IT']);
+      expect(categories).toEqual(
+        new Set(['LEAD_VERIFICATION', 'EMPLOYEE_DECLARATION']),
+      );
+      const keys = res.body.clearanceItems.map((c: { key: string }) => c.key);
+      expect(keys).toContain('OFFICE_EQUIPMENT');
+      expect(keys).toContain('FORWARDING_ADDRESS');
 
       const submitted = new Date(res.body.submittedDate);
       const lwd = new Date(res.body.lastWorkingDay);
@@ -446,8 +612,8 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       );
       expect(diffDays).toBe(30);
 
-      itClearanceItemId = res.body.clearanceItems.find(
-        (c: { department: string }) => c.department === 'IT',
+      officeEquipmentItemId = res.body.clearanceItems.find(
+        (c: { key: string }) => c.key === 'OFFICE_EQUIPMENT',
       ).id;
     });
 
@@ -495,14 +661,14 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       );
     });
 
-    it('Integration point: IT Clearance is blocked while the asset is unreturned', async () => {
+    it('Integration point: the OFFICE_EQUIPMENT checklist item is blocked while the asset is unreturned', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/offboarding/clearance/${itClearanceItemId}/signoff`)
+        .post(`/api/v1/offboarding/clearance/${officeEquipmentItemId}/signoff`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
         .expect(400);
     });
 
-    it('returning the asset unblocks IT Clearance, and signing off all four departments clears the resignation', async () => {
+    it('returning the asset unblocks the OFFICE_EQUIPMENT item, and signing off the full checklist clears the resignation', async () => {
       await request(app.getHttpServer())
         .post(`/api/v1/assets/${assetId}/return`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
@@ -510,7 +676,7 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
         .expect(201);
 
       await request(app.getHttpServer())
-        .post(`/api/v1/offboarding/clearance/${itClearanceItemId}/signoff`)
+        .post(`/api/v1/offboarding/clearance/${officeEquipmentItemId}/signoff`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
         .expect(201);
 
@@ -542,9 +708,13 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/offboarding/${resignationId}/generate-letters`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
+        .send({ closingRemarks: 'Full checklist cleared, no dues.' })
         .expect(201);
       expect(res.body.relievingLetterRef).toContain(resignationId);
       expect(res.body.experienceLetterRef).toContain(resignationId);
+      // "To be filled by Human Resources only" section of the checklist.
+      expect(res.body.certificateReleasedBy).toBe(hrAdminId);
+      expect(res.body.closingRemarks).toBe('Full checklist cleared, no dues.');
     });
 
     describe('Integration point: F&F settlement automatically pulls leave encashment and asset recovery', () => {

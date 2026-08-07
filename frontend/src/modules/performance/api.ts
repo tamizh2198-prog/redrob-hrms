@@ -119,3 +119,42 @@ export function correctRating(reviewId: string, data: { newRating: number; reaso
 export function getReview(cycleId: string, employeeId: string) {
   return api<Review | null>(`/performance/reviews/${cycleId}/${employeeId}`)
 }
+
+export type PerformanceGrade = 'FEE' | 'EE' | 'ME' | 'PME' | 'DNME'
+export type EvaluationAuditStatus = 'PENDING_AUDIT' | 'APPROVED' | 'SENT_BACK'
+
+// kpiScore/justification/submittedBy/auditNotes are omitted by the backend
+// when the viewer is the evaluation's own subject — see PerformanceService's
+// confidentiality rule. Optional here so both shapes type-check.
+export interface MonthlyEvaluation {
+  id: string
+  employeeId: string
+  period: string
+  grade: PerformanceGrade
+  auditStatus: EvaluationAuditStatus
+  createdAt: string
+  kpiScore?: number
+  justification?: string
+  submittedBy?: string
+  submittedAt?: string
+  auditedBy?: string | null
+  auditedAt?: string | null
+  auditNotes?: string | null
+}
+
+export function submitMonthlyEvaluation(data: {
+  employeeId: string
+  period: string
+  kpiScore: number
+  justification: string
+}) {
+  return api<MonthlyEvaluation>('/performance/evaluations', { method: 'POST', body: data })
+}
+
+export function listMonthlyEvaluations(employeeId: string) {
+  return api<MonthlyEvaluation[]>('/performance/evaluations', { params: { employeeId } })
+}
+
+export function auditMonthlyEvaluation(id: string, data: { approve: boolean; auditNotes?: string }) {
+  return api<MonthlyEvaluation>(`/performance/evaluations/${id}/audit`, { method: 'POST', body: data })
+}

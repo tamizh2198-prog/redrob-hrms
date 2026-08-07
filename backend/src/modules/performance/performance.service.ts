@@ -4,7 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, ReviewCycleStatus, ReviewStatus, Role } from '@prisma/client';
+import {
+  EvaluationAuditStatus,
+  PerformanceGrade,
+  Prisma,
+  ReviewCycleStatus,
+  ReviewStatus,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
@@ -13,11 +20,49 @@ import { OpenReviewCycleDto } from './dto/open-review-cycle.dto';
 import { SubmitSelfAssessmentDto } from './dto/submit-self-assessment.dto';
 import { SubmitManagerAssessmentDto } from './dto/submit-manager-assessment.dto';
 import { CorrectRatingDto } from './dto/correct-rating.dto';
+import { SubmitMonthlyEvaluationDto } from './dto/submit-monthly-evaluation.dto';
+import { AuditMonthlyEvaluationDto } from './dto/audit-monthly-evaluation.dto';
 
 const WEIGHTAGE_TOLERANCE = 0.01;
 
 function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+}
+
+// Performance Evaluation Policy 2026, Section 4 "KPI Score Mapping".
+function computeGrade(kpiScore: number): PerformanceGrade {
+  if (kpiScore >= 950) return PerformanceGrade.FEE;
+  if (kpiScore >= 850) return PerformanceGrade.EE;
+  if (kpiScore >= 700) return PerformanceGrade.ME;
+  if (kpiScore >= 600) return PerformanceGrade.PME;
+  return PerformanceGrade.DNME;
+}
+
+function normalizeToMonthStart(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+// Policy Section 7: "Exact KPI scores will not be shared with employees ...
+// only final performance grades will be communicated." Applies regardless of
+// the viewer's role when they are the evaluation's own subject — an
+// allow-list, not a deny-list, so a new confidential field added later is
+// hidden by default rather than leaked.
+function redactForSubject(evaluation: {
+  id: string;
+  employeeId: string;
+  period: Date;
+  grade: PerformanceGrade;
+  auditStatus: EvaluationAuditStatus;
+  createdAt: Date;
+}) {
+  return {
+    id: evaluation.id,
+    employeeId: evaluation.employeeId,
+    period: evaluation.period,
+    grade: evaluation.grade,
+    auditStatus: evaluation.auditStatus,
+    createdAt: evaluation.createdAt,
+  };
 }
 
 // Submission order (self vs manager) never matters — status is always
@@ -402,5 +447,159 @@ export class PerformanceService {
         ]),
       ),
     };
+  }
+
+  // Policy Section 2 "KPI Scoring and Governance": manager submits, HR/
+  // finance-compliance audits before it counts as final. Re-submitting for
+  // the same employee+period (e.g. after a send-back) overwrites the prior
+  // score and resets it to pending audit; once APPROVED it's locked, since
+  // the policy defines no correction workflow for monthly scores.
+  async submitMonthlyEvaluation(
+    dto: SubmitMonthlyEvaluationDto,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.reportingManagerId !== actorId && !isPrivileged(actorRole)) {
+      throw new ForbiddenException(
+        "Only this employee's manager or HR Admin can submit a monthly evaluation",
+      );
+    }
+
+    const period = normalizeToMonthStart(new Date(dto.period));
+    const existing = await this.prisma.monthlyEvaluation.findUnique({
+      where: { employeeId_period: { employeeId: dto.employeeId, period } },
+    });
+    if (existing?.auditStatus === EvaluationAuditStatus.APPROVED) {
+      throw new BadRequestException(
+        'This month has already been audited and approved; it cannot be resubmitted',
+      );
+    }
+
+    const grade = computeGrade(dto.kpiScore);
+    const evaluation = await this.prisma.monthlyEvaluation.upsert({
+      where: { employeeId_period: { employeeId: dto.employeeId, period } },
+      update: {
+        kpiScore: dto.kpiScore,
+        grade,
+        justification: dto.justification,
+        submittedBy: actorId,
+        submittedAt: new Date(),
+        auditStatus: EvaluationAuditStatus.PENDING_AUDIT,
+        auditedBy: null,
+        auditedAt: null,
+        auditNotes: null,
+      },
+      create: {
+        employeeId: dto.employeeId,
+        period,
+        kpiScore: dto.kpiScore,
+        grade,
+        justification: dto.justification,
+        submittedBy: actorId,
+      },
+    });
+
+    await this.notifications.send({
+      recipientId: 'hr-admin',
+      template: 'performance.monthly-evaluation-submitted',
+      data: { evaluationId: evaluation.id, employeeId: dto.employeeId },
+    });
+
+    return evaluation;
+  }
+
+  // Section 2: "Scores may be sent back for clarification or validation
+  // where required" — auditNotes is required in that case since there's
+  // nothing else pointing the manager at what to fix.
+  async auditMonthlyEvaluation(
+    evaluationId: string,
+    dto: AuditMonthlyEvaluationDto,
+    actorId: string,
+  ) {
+    const evaluation = await this.prisma.monthlyEvaluation.findUnique({
+      where: { id: evaluationId },
+    });
+    if (!evaluation)
+      throw new NotFoundException('Monthly evaluation not found');
+    if (evaluation.auditStatus !== EvaluationAuditStatus.PENDING_AUDIT) {
+      throw new BadRequestException('This evaluation is not pending audit');
+    }
+    if (!dto.approve && !dto.auditNotes) {
+      throw new BadRequestException(
+        'auditNotes is required when sending an evaluation back for clarification',
+      );
+    }
+
+    const updated = await this.prisma.monthlyEvaluation.update({
+      where: { id: evaluationId },
+      data: {
+        auditStatus: dto.approve
+          ? EvaluationAuditStatus.APPROVED
+          : EvaluationAuditStatus.SENT_BACK,
+        auditedBy: actorId,
+        auditedAt: new Date(),
+        auditNotes: dto.auditNotes ?? null,
+      },
+    });
+
+    await this.notifications.send({
+      recipientId: updated.submittedBy,
+      template: dto.approve
+        ? 'performance.monthly-evaluation-approved'
+        : 'performance.monthly-evaluation-sent-back',
+      data: { evaluationId: updated.id },
+    });
+
+    return updated;
+  }
+
+  private async assertCanViewEvaluations(
+    employeeId: string,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    if (employeeId === actorId || isPrivileged(actorRole)) return;
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (employee?.reportingManagerId === actorId) return;
+    throw new ForbiddenException(
+      "Not authorized to view this employee's evaluations",
+    );
+  }
+
+  async listMonthlyEvaluations(
+    employeeId: string,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    await this.assertCanViewEvaluations(employeeId, actorId, actorRole);
+    const evaluations = await this.prisma.monthlyEvaluation.findMany({
+      where: { employeeId },
+      orderBy: { period: 'desc' },
+    });
+    return employeeId === actorId
+      ? evaluations.map(redactForSubject)
+      : evaluations;
+  }
+
+  async getMonthlyEvaluation(id: string, actorId: string, actorRole?: Role) {
+    const evaluation = await this.prisma.monthlyEvaluation.findUnique({
+      where: { id },
+    });
+    if (!evaluation)
+      throw new NotFoundException('Monthly evaluation not found');
+    await this.assertCanViewEvaluations(
+      evaluation.employeeId,
+      actorId,
+      actorRole,
+    );
+    return evaluation.employeeId === actorId
+      ? redactForSubject(evaluation)
+      : evaluation;
   }
 }

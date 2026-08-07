@@ -39,6 +39,7 @@ export function OffboardingPage() {
   const [perDayPayRate, setPerDayPayRate] = useState('')
   const [pendingSalary, setPendingSalary] = useState('')
   const [settlement, setSettlement] = useState<FinalSettlement | null>(null)
+  const [closingRemarks, setClosingRemarks] = useState('')
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -155,13 +156,16 @@ export function OffboardingPage() {
     if (!active) return
     setError(null)
     try {
-      const r = await generateLetters(active.id)
-      setActive(r)
+      await generateLetters(active.id, closingRemarks || undefined)
       setMessage('Relieving and experience letters generated.')
+      loadActive(active.id)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to generate letters')
     }
   }
+
+  const leadVerificationItems = (active?.clearanceItems ?? []).filter((i) => i.category === 'LEAD_VERIFICATION')
+  const employeeDeclarationItems = (active?.clearanceItems ?? []).filter((i) => i.category === 'EMPLOYEE_DECLARATION')
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -210,15 +214,30 @@ export function OffboardingPage() {
               {active.experienceLetterRef && <p>Experience letter: {active.experienceLetterRef}</p>}
 
               <div className="mt-3 border-t pt-3">
-                <p className="mb-1 font-medium">Clearance</p>
-                <ul className="flex flex-wrap gap-2">
-                  {(active.clearanceItems ?? []).map((item) => (
-                    <li key={item.id} className="flex items-center gap-2 rounded border p-2">
-                      <span>{item.department}</span>
+                <p className="mb-1 font-medium">Separation Clearance Checklist — verified by Lead/POC</p>
+                <ul className="flex flex-col gap-2">
+                  {leadVerificationItems.map((item) => (
+                    <li key={item.id} className="flex flex-wrap items-center gap-2 rounded border p-2">
+                      <span className="flex-1">{item.label}</span>
                       <Badge variant={item.status === 'SIGNED_OFF' ? 'default' : 'outline'}>{item.status}</Badge>
-                      {isHrAdmin && item.status === 'PENDING' && (
+                      {item.status === 'PENDING' && (
                         <Button size="sm" variant="outline" onClick={() => handleSignoff(item.id)}>
-                          Sign Off
+                          Verify
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+
+                <p className="mb-1 mt-4 font-medium">Employee Self-Declaration</p>
+                <ul className="flex flex-col gap-2">
+                  {employeeDeclarationItems.map((item) => (
+                    <li key={item.id} className="flex flex-wrap items-center gap-2 rounded border p-2">
+                      <span className="flex-1">{item.label}</span>
+                      <Badge variant={item.status === 'SIGNED_OFF' ? 'default' : 'outline'}>{item.status}</Badge>
+                      {item.status === 'PENDING' && (
+                        <Button size="sm" variant="outline" onClick={() => handleSignoff(item.id)}>
+                          Confirm
                         </Button>
                       )}
                     </li>
@@ -330,10 +349,22 @@ export function OffboardingPage() {
                   </div>
                 )}
 
-                <div className="mt-3 border-t pt-3">
-                  <Button size="sm" variant="outline" onClick={handleGenerateLetters}>
+                <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+                  <Label>Closing Remarks (HR only)</Label>
+                  <Textarea
+                    placeholder="Closing remarks"
+                    value={closingRemarks}
+                    onChange={(e) => setClosingRemarks(e.target.value)}
+                  />
+                  <Button size="sm" variant="outline" onClick={handleGenerateLetters} className="self-start">
                     Generate Relieving &amp; Experience Letters
                   </Button>
+                  {active.certificateReleasedBy && (
+                    <p className="text-xs text-muted-foreground">
+                      Certificate released by {active.certificateReleasedBy}
+                      {active.closingRemarks ? ` — ${active.closingRemarks}` : ''}
+                    </p>
+                  )}
                 </div>
               </div>
             )}

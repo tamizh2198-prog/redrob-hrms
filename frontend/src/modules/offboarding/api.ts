@@ -1,14 +1,16 @@
 import { api } from '@/lib/api'
 
 export type ResignationStatus = 'SUBMITTED' | 'CLEARANCE_IN_PROGRESS' | 'CLEARED' | 'SETTLED' | 'ARCHIVED'
-export type ClearanceDepartment = 'IT' | 'FINANCE' | 'ADMIN' | 'HR'
+export type ClearanceItemCategory = 'LEAD_VERIFICATION' | 'EMPLOYEE_DECLARATION'
 export type ClearanceStatus = 'PENDING' | 'SIGNED_OFF'
 export type SettlementStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PAID'
 
 export interface ClearanceItem {
   id: string
   resignationId: string
-  department: ClearanceDepartment
+  key: string
+  label: string
+  category: ClearanceItemCategory
   status: ClearanceStatus
   signedOffBy: string | null
   signedOffAt: string | null
@@ -36,6 +38,8 @@ export interface Resignation {
   relievingLetterRef: string | null
   experienceLetterRef: string | null
   lettersGeneratedAt: string | null
+  closingRemarks: string | null
+  certificateReleasedBy: string | null
   clearanceItems?: ClearanceItem[]
   lwdAdjustments?: LwdAdjustment[]
 }
@@ -107,6 +111,9 @@ export function markSettlementPaid(id: string, rehireEligible?: boolean) {
   })
 }
 
-export function generateLetters(id: string) {
-  return api<Resignation>(`/offboarding/${id}/generate-letters`, { method: 'POST' })
+export function generateLetters(id: string, closingRemarks?: string) {
+  return api<Resignation>(`/offboarding/${id}/generate-letters`, {
+    method: 'POST',
+    body: { closingRemarks },
+  })
 }

@@ -9,6 +9,7 @@ import { SignoffClearanceDto } from './dto/signoff-clearance.dto';
 import { SubmitExitInterviewDto } from './dto/submit-exit-interview.dto';
 import { ComputeSettlementDto } from './dto/compute-settlement.dto';
 import { MarkSettlementPaidDto } from './dto/mark-settlement-paid.dto';
+import { GenerateLettersDto } from './dto/generate-letters.dto';
 
 @Controller('offboarding')
 export class OffboardingController {
@@ -32,14 +33,21 @@ export class OffboardingController {
     return this.offboardingService.listResignations();
   }
 
+  // Not HR-only — the checklist's EMPLOYEE_DECLARATION items are signed off
+  // by the exiting employee themselves; LEAD_VERIFICATION items by their
+  // manager. RBAC per item category is enforced in the service.
   @Post('clearance/:itemId/signoff')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   signoffClearance(
     @Param('itemId') itemId: string,
     @Body() dto: SignoffClearanceDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.offboardingService.signoffClearance(itemId, dto, user.userId);
+    return this.offboardingService.signoffClearance(
+      itemId,
+      dto,
+      user.userId,
+      user.role as Role,
+    );
   }
 
   @Get(':id')
@@ -110,7 +118,11 @@ export class OffboardingController {
 
   @Post(':id/generate-letters')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  generateLetters(@Param('id') id: string) {
-    return this.offboardingService.generateLetters(id);
+  generateLetters(
+    @Param('id') id: string,
+    @Body() dto: GenerateLettersDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.offboardingService.generateLetters(id, dto, user.userId);
   }
 }

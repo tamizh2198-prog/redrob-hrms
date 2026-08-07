@@ -26,6 +26,12 @@ function createMockPrisma() {
       findMany: jest.fn(),
     },
     reviewCorrection: { create: jest.fn() },
+    monthlyEvaluation: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+      update: jest.fn(),
+      findMany: jest.fn(),
+    },
     employee: { findMany: jest.fn(), findUnique: jest.fn() },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
   };
@@ -274,6 +280,195 @@ describe('PerformanceService', () => {
           'emp-1',
           Role.EMPLOYEE,
         ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Acceptance Criteria: monthly KPI score maps to the correct grade', () => {
+    it.each([
+      [1000, 'FEE'],
+      [950, 'FEE'],
+      [949, 'EE'],
+      [850, 'EE'],
+      [849, 'ME'],
+      [700, 'ME'],
+      [699, 'PME'],
+      [600, 'PME'],
+      [599, 'DNME'],
+      [0, 'DNME'],
+    ])('maps a score of %i to grade %s', async (kpiScore, grade) => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.monthlyEvaluation.findUnique.mockResolvedValue(null);
+      prisma.monthlyEvaluation.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({ id: 'eval-1', ...create }),
+      );
+
+      const result = await service.submitMonthlyEvaluation(
+        {
+          employeeId: 'emp-1',
+          period: '2026-08-01',
+          kpiScore,
+          justification: 'Solid month',
+        },
+        'mgr-1',
+        Role.MANAGER,
+      );
+
+      expect(result.grade).toBe(grade);
+    });
+  });
+
+  describe("Acceptance Criteria: only the employee's manager or HR can submit a monthly evaluation", () => {
+    it("rejects an unrelated manager submitting an employee's evaluation", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-real',
+      });
+
+      await expect(
+        service.submitMonthlyEvaluation(
+          {
+            employeeId: 'emp-1',
+            period: '2026-08-01',
+            kpiScore: 800,
+            justification: 'x',
+          },
+          'mgr-imposter',
+          Role.MANAGER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Acceptance Criteria: an approved evaluation cannot be resubmitted', () => {
+    it('rejects resubmission once the evaluation is already APPROVED', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.monthlyEvaluation.findUnique.mockResolvedValue({
+        id: 'eval-1',
+        auditStatus: 'APPROVED',
+      });
+
+      await expect(
+        service.submitMonthlyEvaluation(
+          {
+            employeeId: 'emp-1',
+            period: '2026-08-01',
+            kpiScore: 800,
+            justification: 'x',
+          },
+          'mgr-1',
+          Role.MANAGER,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('Acceptance Criteria: audit workflow can approve or send back a pending evaluation', () => {
+    it('rejects auditing an evaluation that is not pending audit', async () => {
+      prisma.monthlyEvaluation.findUnique.mockResolvedValue({
+        id: 'eval-1',
+        auditStatus: 'APPROVED',
+      });
+
+      await expect(
+        service.auditMonthlyEvaluation('eval-1', { approve: true }, 'hr-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('requires auditNotes when sending an evaluation back', async () => {
+      prisma.monthlyEvaluation.findUnique.mockResolvedValue({
+        id: 'eval-1',
+        auditStatus: 'PENDING_AUDIT',
+      });
+
+      await expect(
+        service.auditMonthlyEvaluation('eval-1', { approve: false }, 'hr-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('approves a pending evaluation and notifies the submitting manager', async () => {
+      prisma.monthlyEvaluation.findUnique.mockResolvedValue({
+        id: 'eval-1',
+        auditStatus: 'PENDING_AUDIT',
+        submittedBy: 'mgr-1',
+      });
+      prisma.monthlyEvaluation.update.mockResolvedValue({
+        id: 'eval-1',
+        auditStatus: 'APPROVED',
+        submittedBy: 'mgr-1',
+      });
+
+      await service.auditMonthlyEvaluation('eval-1', { approve: true }, 'hr-1');
+
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: 'mgr-1',
+          template: 'performance.monthly-evaluation-approved',
+        }),
+      );
+    });
+  });
+
+  describe('Acceptance Criteria: employees never see the raw KPI score, only the grade', () => {
+    it("redacts kpiScore, justification, and auditNotes from the evaluation's own subject", async () => {
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        {
+          id: 'eval-1',
+          employeeId: 'emp-1',
+          period: new Date('2026-08-01'),
+          kpiScore: 900,
+          grade: 'EE',
+          justification: 'Great work',
+          submittedBy: 'mgr-1',
+          auditStatus: 'APPROVED',
+          auditNotes: null,
+        },
+      ]);
+
+      const result = await service.listMonthlyEvaluations(
+        'emp-1',
+        'emp-1',
+        Role.EMPLOYEE,
+      );
+
+      expect(result[0]).not.toHaveProperty('kpiScore');
+      expect(result[0]).not.toHaveProperty('justification');
+      expect(result[0]).not.toHaveProperty('submittedBy');
+      expect(result[0].grade).toBe('EE');
+    });
+
+    it("shows the full record, including kpiScore, to the employee's manager", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        { id: 'eval-1', employeeId: 'emp-1', kpiScore: 900, grade: 'EE' },
+      ]);
+
+      const result = await service.listMonthlyEvaluations(
+        'emp-1',
+        'mgr-1',
+        Role.MANAGER,
+      );
+
+      expect(result[0].kpiScore).toBe(900);
+    });
+
+    it("rejects an unrelated employee viewing someone else's evaluations", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+
+      await expect(
+        service.listMonthlyEvaluations('emp-1', 'emp-2', Role.EMPLOYEE),
       ).rejects.toThrow(ForbiddenException);
     });
   });

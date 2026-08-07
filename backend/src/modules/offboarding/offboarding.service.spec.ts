@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { OffboardingService } from './offboarding.service';
+import { CLEARANCE_ITEMS, OffboardingService } from './offboarding.service';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { LeaveService } from '../leave/leave.service';
@@ -93,12 +93,11 @@ describe('OffboardingService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             clearanceItems: {
-              create: [
-                { department: 'IT' },
-                { department: 'FINANCE' },
-                { department: 'ADMIN' },
-                { department: 'HR' },
-              ],
+              create: CLEARANCE_ITEMS.map(({ key, label, category }) => ({
+                key,
+                label,
+                category,
+              })),
             },
           }),
         }),
@@ -116,100 +115,164 @@ describe('OffboardingService', () => {
     });
   });
 
-  describe('Acceptance Criteria: IT Clearance is blocked while unreturned assets exist', () => {
-    it('rejects IT sign-off while the employee still has an unreturned asset', async () => {
+  describe('Acceptance Criteria: the OFFICE_EQUIPMENT checklist item is blocked while unreturned assets exist', () => {
+    it('rejects sign-off while the employee still has an unreturned asset', async () => {
       prisma.clearanceItem.findUnique.mockResolvedValue({
         id: 'item-1',
         status: 'PENDING',
-        department: 'IT',
+        key: 'OFFICE_EQUIPMENT',
+        category: 'LEAD_VERIFICATION',
         resignationId: 'res-1',
-        resignation: { employeeId: 'emp-1' },
+        resignation: {
+          employeeId: 'emp-1',
+          employee: { reportingManagerId: 'mgr-1' },
+        },
       });
       assetsService.hasUnreturnedAssets.mockResolvedValue(true);
 
       await expect(
-        service.signoffClearance('item-1', {}, 'hr-1'),
+        service.signoffClearance('item-1', {}, 'hr-1', Role.HR_ADMIN),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('signs off IT clearance once all assets are returned', async () => {
+    it('signs off once all assets are returned', async () => {
       prisma.clearanceItem.findUnique.mockResolvedValue({
         id: 'item-1',
         status: 'PENDING',
-        department: 'IT',
+        key: 'OFFICE_EQUIPMENT',
+        category: 'LEAD_VERIFICATION',
         resignationId: 'res-1',
-        resignation: { employeeId: 'emp-1' },
+        resignation: {
+          employeeId: 'emp-1',
+          employee: { reportingManagerId: 'mgr-1' },
+        },
       });
       assetsService.hasUnreturnedAssets.mockResolvedValue(false);
       prisma.clearanceItem.update.mockResolvedValue({
         id: 'item-1',
         status: 'SIGNED_OFF',
       });
-      prisma.clearanceItem.count.mockResolvedValue(3); // other departments still pending
+      prisma.clearanceItem.count.mockResolvedValue(3); // other items still pending
 
-      const result = await service.signoffClearance('item-1', {}, 'hr-1');
+      const result = await service.signoffClearance(
+        'item-1',
+        {},
+        'mgr-1',
+        Role.MANAGER,
+      );
       expect(result.status).toBe('SIGNED_OFF');
       expect(prisma.resignation.update).not.toHaveBeenCalled();
     });
 
-    it('flips the resignation to CLEARED once the last department signs off', async () => {
+    it('flips the resignation to CLEARED once the last item signs off', async () => {
       prisma.clearanceItem.findUnique.mockResolvedValue({
-        id: 'item-4',
+        id: 'item-last',
         status: 'PENDING',
-        department: 'HR',
+        key: 'TAX_PAPERS',
+        category: 'EMPLOYEE_DECLARATION',
         resignationId: 'res-1',
-        resignation: { employeeId: 'emp-1' },
+        resignation: {
+          employeeId: 'emp-1',
+          employee: { reportingManagerId: 'mgr-1' },
+        },
       });
       prisma.clearanceItem.update.mockResolvedValue({
-        id: 'item-4',
+        id: 'item-last',
         status: 'SIGNED_OFF',
       });
       prisma.clearanceItem.count.mockResolvedValue(0);
       prisma.resignation.update.mockResolvedValue({});
 
-      await service.signoffClearance('item-4', {}, 'hr-1');
+      await service.signoffClearance('item-last', {}, 'emp-1', Role.EMPLOYEE);
       expect(prisma.resignation.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: 'CLEARED' } }),
       );
     });
   });
 
-  describe('Acceptance Criteria: relieving letter generation is blocked until all clearance items are signed off', () => {
-    it('rejects letter generation while any department is still pending', async () => {
-      prisma.resignation.findUnique.mockResolvedValue({
-        id: 'res-1',
-        employeeId: 'emp-1',
+  describe('Acceptance Criteria: clearance checklist RBAC matches the two checklist sections', () => {
+    it("rejects a LEAD_VERIFICATION item sign-off from someone who isn't the employee's manager", async () => {
+      prisma.clearanceItem.findUnique.mockResolvedValue({
+        id: 'item-1',
+        status: 'PENDING',
+        key: 'ID_CARD',
+        category: 'LEAD_VERIFICATION',
+        resignationId: 'res-1',
+        resignation: {
+          employeeId: 'emp-1',
+          employee: { reportingManagerId: 'mgr-real' },
+        },
       });
-      prisma.clearanceItem.findMany.mockResolvedValue([
-        { department: 'IT', status: 'SIGNED_OFF' },
-        { department: 'FINANCE', status: 'PENDING' },
-        { department: 'ADMIN', status: 'SIGNED_OFF' },
-        { department: 'HR', status: 'SIGNED_OFF' },
-      ]);
 
-      await expect(service.generateLetters('res-1')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.signoffClearance('item-1', {}, 'mgr-imposter', Role.MANAGER),
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('generates both letters once every department has signed off', async () => {
+    it('rejects an EMPLOYEE_DECLARATION item confirmation from anyone but the exiting employee', async () => {
+      prisma.clearanceItem.findUnique.mockResolvedValue({
+        id: 'item-2',
+        status: 'PENDING',
+        key: 'FORWARDING_ADDRESS',
+        category: 'EMPLOYEE_DECLARATION',
+        resignationId: 'res-1',
+        resignation: {
+          employeeId: 'emp-1',
+          employee: { reportingManagerId: 'mgr-1' },
+        },
+      });
+
+      await expect(
+        service.signoffClearance('item-2', {}, 'mgr-1', Role.MANAGER),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Acceptance Criteria: relieving letter generation is blocked until all clearance items are signed off', () => {
+    it('rejects letter generation while any checklist item is still pending', async () => {
       prisma.resignation.findUnique.mockResolvedValue({
         id: 'res-1',
         employeeId: 'emp-1',
       });
-      prisma.clearanceItem.findMany.mockResolvedValue([
-        { department: 'IT', status: 'SIGNED_OFF' },
-        { department: 'FINANCE', status: 'SIGNED_OFF' },
-        { department: 'ADMIN', status: 'SIGNED_OFF' },
-        { department: 'HR', status: 'SIGNED_OFF' },
-      ]);
+      const items = CLEARANCE_ITEMS.map((i) => ({
+        ...i,
+        status: 'SIGNED_OFF',
+      }));
+      items[1].status = 'PENDING';
+      prisma.clearanceItem.findMany.mockResolvedValue(items);
+
+      await expect(
+        service.generateLetters('res-1', {}, 'hr-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('generates both letters and records who released them once every item has signed off', async () => {
+      prisma.resignation.findUnique.mockResolvedValue({
+        id: 'res-1',
+        employeeId: 'emp-1',
+      });
+      prisma.clearanceItem.findMany.mockResolvedValue(
+        CLEARANCE_ITEMS.map((i) => ({ ...i, status: 'SIGNED_OFF' })),
+      );
       prisma.resignation.update.mockResolvedValue({
         relievingLetterRef: 'relieving-letter-res-1.pdf',
         experienceLetterRef: 'experience-letter-res-1.pdf',
       });
 
-      const result = await service.generateLetters('res-1');
+      const result = await service.generateLetters(
+        'res-1',
+        { closingRemarks: 'All clear' },
+        'hr-1',
+      );
       expect(result.relievingLetterRef).toBe('relieving-letter-res-1.pdf');
+      expect(prisma.resignation.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            certificateReleasedBy: 'hr-1',
+            closingRemarks: 'All clear',
+          }),
+        }),
+      );
       expect(notifications.send).toHaveBeenCalledWith(
         expect.objectContaining({
           recipientId: 'emp-1',
