@@ -314,14 +314,13 @@ describe('PerformanceService', () => {
           justification: 'Solid month',
         },
         'mgr-1',
-        Role.MANAGER,
       );
 
       expect(result.grade).toBe(grade);
     });
   });
 
-  describe("Acceptance Criteria: only the employee's manager or HR can submit a monthly evaluation", () => {
+  describe("Acceptance Criteria: only the employee's assigned manager can submit a monthly evaluation", () => {
     it("rejects an unrelated manager submitting an employee's evaluation", async () => {
       prisma.employee.findUnique.mockResolvedValue({
         id: 'emp-1',
@@ -337,7 +336,25 @@ describe('PerformanceService', () => {
             justification: 'x',
           },
           'mgr-imposter',
-          Role.MANAGER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("rejects HR Admin submitting a score on the manager's behalf", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-real',
+      });
+
+      await expect(
+        service.submitMonthlyEvaluation(
+          {
+            employeeId: 'emp-1',
+            period: '2026-08-01',
+            kpiScore: 800,
+            justification: 'x',
+          },
+          'hr-1',
         ),
       ).rejects.toThrow(ForbiddenException);
     });
@@ -363,7 +380,6 @@ describe('PerformanceService', () => {
             justification: 'x',
           },
           'mgr-1',
-          Role.MANAGER,
         ),
       ).rejects.toThrow(BadRequestException);
     });
@@ -415,8 +431,8 @@ describe('PerformanceService', () => {
     });
   });
 
-  describe('Acceptance Criteria: employees never see the raw KPI score, only the grade', () => {
-    it("redacts kpiScore, justification, and auditNotes from the evaluation's own subject", async () => {
+  describe('Acceptance Criteria: employees see their score and grade, but never who scored them or why', () => {
+    it("shows kpiScore and grade but redacts justification and submittedBy from the evaluation's own subject", async () => {
       prisma.monthlyEvaluation.findMany.mockResolvedValue([
         {
           id: 'eval-1',
@@ -437,10 +453,11 @@ describe('PerformanceService', () => {
         Role.EMPLOYEE,
       );
 
-      expect(result[0]).not.toHaveProperty('kpiScore');
+      expect(result[0].kpiScore).toBe(900);
+      expect(result[0].grade).toBe('EE');
       expect(result[0]).not.toHaveProperty('justification');
       expect(result[0]).not.toHaveProperty('submittedBy');
-      expect(result[0].grade).toBe('EE');
+      expect(result[0]).not.toHaveProperty('auditNotes');
     });
 
     it("shows the full record, including kpiScore, to the employee's manager", async () => {

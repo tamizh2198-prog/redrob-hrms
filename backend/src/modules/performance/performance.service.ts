@@ -42,15 +42,16 @@ function normalizeToMonthStart(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }
 
-// Policy Section 7: "Exact KPI scores will not be shared with employees ...
-// only final performance grades will be communicated." Applies regardless of
-// the viewer's role when they are the evaluation's own subject — an
-// allow-list, not a deny-list, so a new confidential field added later is
-// hidden by default rather than leaked.
+// Product decision (overrides the literal policy wording, which says exact
+// scores are never shared with employees): the employee dashboard shows the
+// score and grade, but never the manager's justification or who submitted
+// it — an allow-list, not a deny-list, so a new confidential field added
+// later is hidden by default rather than leaked.
 function redactForSubject(evaluation: {
   id: string;
   employeeId: string;
   period: Date;
+  kpiScore: number;
   grade: PerformanceGrade;
   auditStatus: EvaluationAuditStatus;
   createdAt: Date;
@@ -59,6 +60,7 @@ function redactForSubject(evaluation: {
     id: evaluation.id,
     employeeId: evaluation.employeeId,
     period: evaluation.period,
+    kpiScore: evaluation.kpiScore,
     grade: evaluation.grade,
     auditStatus: evaluation.auditStatus,
     createdAt: evaluation.createdAt,
@@ -454,18 +456,20 @@ export class PerformanceService {
   // the same employee+period (e.g. after a send-back) overwrites the prior
   // score and resets it to pending audit; once APPROVED it's locked, since
   // the policy defines no correction workflow for monthly scores.
+  // Product decision: scoring is restricted to the employee's assigned
+  // manager specifically — unlike every other "manager or HR" check in this
+  // module, HR/Super Admin cannot submit a score on a manager's behalf.
   async submitMonthlyEvaluation(
     dto: SubmitMonthlyEvaluationDto,
     actorId: string,
-    actorRole?: Role,
   ) {
     const employee = await this.prisma.employee.findUnique({
       where: { id: dto.employeeId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
-    if (employee.reportingManagerId !== actorId && !isPrivileged(actorRole)) {
+    if (employee.reportingManagerId !== actorId) {
       throw new ForbiddenException(
-        "Only this employee's manager or HR Admin can submit a monthly evaluation",
+        "Only this employee's assigned manager can submit a monthly evaluation",
       );
     }
 

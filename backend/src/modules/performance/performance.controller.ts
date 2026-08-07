@@ -125,13 +125,9 @@ export class PerformanceController {
   @Post('evaluations')
   submitMonthlyEvaluation(
     @Body() dto: SubmitMonthlyEvaluationDto,
-    @CurrentUser() user: { userId: string; role: string },
+    @CurrentUser() user: { userId: string },
   ) {
-    return this.performanceService.submitMonthlyEvaluation(
-      dto,
-      user.userId,
-      user.role as Role,
-    );
+    return this.performanceService.submitMonthlyEvaluation(dto, user.userId);
   }
 
   @Get('evaluations')

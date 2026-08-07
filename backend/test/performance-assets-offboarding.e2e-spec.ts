@@ -327,6 +327,19 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       await prisma.employee.delete({ where: { id: someoneElse.id } });
     });
 
+    it("rejects HR Admin submitting a score on the manager's behalf", async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/performance/evaluations')
+        .set('Authorization', `Bearer ${hrAdminToken}`)
+        .send({
+          employeeId,
+          period: '2026-08-01',
+          kpiScore: 900,
+          justification: "HR trying to score on the manager's behalf",
+        })
+        .expect(403);
+    });
+
     it("the manager submits the employee's monthly KPI score with justification", async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/performance/evaluations')
@@ -344,14 +357,14 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       expect(res.body.auditStatus).toBe('PENDING_AUDIT');
     });
 
-    it('Integration point: the employee sees only the grade, never the raw KPI score or justification', async () => {
+    it('Integration point: the employee sees their score and grade, but never who scored them or why', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/performance/evaluations?employeeId=${employeeId}`)
         .set('Authorization', `Bearer ${employeeToken}`)
         .expect(200);
 
       expect(res.body[0].grade).toBe('EE');
-      expect(res.body[0].kpiScore).toBeUndefined();
+      expect(res.body[0].kpiScore).toBe(920);
       expect(res.body[0].justification).toBeUndefined();
       expect(res.body[0].submittedBy).toBeUndefined();
     });

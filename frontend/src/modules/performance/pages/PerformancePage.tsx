@@ -350,14 +350,12 @@ export function PerformancePage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-md border p-4">
           <h2 className="mb-2 font-medium">My Monthly Evaluations</h2>
-          <p className="mb-2 text-xs text-muted-foreground">
-            Per policy, only the final grade is shown here — not the underlying KPI score.
-          </p>
           <ul className="flex flex-col gap-2 text-sm">
             {myEvaluations.map((e) => (
               <li key={e.id} className="flex items-center justify-between rounded border p-2">
                 <span>{e.period.slice(0, 7)}</span>
                 <div className="flex items-center gap-2">
+                  {e.kpiScore != null && <span className="text-muted-foreground">{e.kpiScore}</span>}
                   <Badge variant="outline">{e.grade}</Badge>
                   <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
                 </div>
@@ -430,27 +428,29 @@ export function PerformancePage() {
                 ))}
               </ul>
 
-              <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
-                <div className="flex flex-col gap-1">
-                  <Label>Month</Label>
-                  <Input type="date" value={evalPeriod} onChange={(e) => setEvalPeriod(e.target.value)} />
+              {isManager && (
+                <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
+                  <div className="flex flex-col gap-1">
+                    <Label>Month</Label>
+                    <Input type="date" value={evalPeriod} onChange={(e) => setEvalPeriod(e.target.value)} />
+                  </div>
+                  <Input
+                    placeholder="KPI Score (0-1000)"
+                    type="number"
+                    value={evalKpiScore}
+                    onChange={(e) => setEvalKpiScore(e.target.value)}
+                    className="w-40"
+                  />
+                  <Textarea
+                    placeholder="Justification"
+                    value={evalJustification}
+                    onChange={(e) => setEvalJustification(e.target.value)}
+                  />
+                  <Button size="sm" variant="outline" onClick={handleSubmitEvaluation}>
+                    Submit for Audit
+                  </Button>
                 </div>
-                <Input
-                  placeholder="KPI Score (0-1000)"
-                  type="number"
-                  value={evalKpiScore}
-                  onChange={(e) => setEvalKpiScore(e.target.value)}
-                  className="w-40"
-                />
-                <Textarea
-                  placeholder="Justification"
-                  value={evalJustification}
-                  onChange={(e) => setEvalJustification(e.target.value)}
-                />
-                <Button size="sm" variant="outline" onClick={handleSubmitEvaluation}>
-                  Submit for Audit
-                </Button>
-              </div>
+              )}
             </div>
           </div>
         )}
