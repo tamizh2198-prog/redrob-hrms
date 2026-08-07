@@ -79,3 +79,38 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Plays once when the logo mounts fresh after a successful login — Gate in
+   App.tsx swaps LoginPage for AppShell on that transition, so a plain mount
+   animation IS the "just logged in" moment, no extra state needed. */
+@keyframes logo-welcome-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-15deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes logo-welcome-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(88, 55, 217, 0);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(88, 55, 217, 0.55);
+  }
+}
+
+.animate-logo-welcome {
+  animation:
+    logo-welcome-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    logo-welcome-glow 1.4s ease-in-out 2;
+  animation-delay: 0s, 0.6s;
+}

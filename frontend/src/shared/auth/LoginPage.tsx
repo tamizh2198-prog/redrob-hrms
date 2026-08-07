@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from './AuthContext'
+import logo from '@/assets/logo.jpg'
 
 const DEMO_USERS = [
   { code: 'EMP-SEED-0001', label: 'Aditi Rao — Super Admin' },
@@ -36,6 +37,7 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6">
+      <img src={logo} alt="Redrob HRMS" className="h-16 w-16 rounded-xl" />
       <h1 className="text-2xl font-semibold">Redrob HRMS — Sign in</h1>
 
       <div className="flex flex-col gap-2">
