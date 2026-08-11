@@ -33,11 +33,6 @@ export class EmployeeController {
     return this.employeeService.getReferenceData();
   }
 
-  @Get('org-lookup')
-  getOrgLookup() {
-    return this.employeeService.getOrgLookup();
-  }
-
   @Get('change-requests')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   listChangeRequests(
