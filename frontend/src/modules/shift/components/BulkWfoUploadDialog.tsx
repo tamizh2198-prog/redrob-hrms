@@ -19,8 +19,24 @@ export function BulkWfoUploadDialog({ onImported }: { onImported: () => void }) 
   const [file, setFile] = useState<File | null>(null)
   const [result, setResult] = useState<BulkWfoUploadResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleDownloadTemplate() {
+    setError(null)
+    setMessage(null)
+    setDownloading(true)
+    try {
+      await downloadWfoTemplate()
+      setMessage('Template downloaded — check your browser\'s downloads.')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to download template')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   async function runUpload(dryRun: boolean) {
     if (!file) {
@@ -28,6 +44,7 @@ export function BulkWfoUploadDialog({ onImported }: { onImported: () => void }) 
       return
     }
     setError(null)
+    setMessage(null)
     setSubmitting(true)
     try {
       const res = await bulkUploadWfoSchedule(file, dryRun)
@@ -49,6 +66,7 @@ export function BulkWfoUploadDialog({ onImported }: { onImported: () => void }) 
           setFile(null)
           setResult(null)
           setError(null)
+          setMessage(null)
           if (fileInputRef.current) fileInputRef.current.value = ''
         }
       }}
@@ -64,8 +82,14 @@ export function BulkWfoUploadDialog({ onImported }: { onImported: () => void }) 
           template below, fill it in, then run a dry-run validation before committing.
         </p>
 
-        <Button variant="outline" size="sm" className="self-start" onClick={downloadWfoTemplate}>
-          Download Template
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          disabled={downloading}
+          onClick={handleDownloadTemplate}
+        >
+          {downloading ? 'Downloading…' : 'Download Template'}
         </Button>
 
         <input
@@ -79,6 +103,7 @@ export function BulkWfoUploadDialog({ onImported }: { onImported: () => void }) 
           className="text-sm"
         />
 
+        {message && <p className="text-sm text-primary">{message}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {result && (
