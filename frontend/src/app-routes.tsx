@@ -55,7 +55,25 @@ export function AppRoutes() {
           </RequireRole>
         }
       />
-      {MODULE_NAV.filter(({ path }) => path !== '/employee').map(({ path, Component }) => (
+      <Route
+        path="/settings"
+        element={
+          <RequireRole roles={['HR_ADMIN', 'SUPER_ADMIN']}>
+            <SettingsPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/audit"
+        element={
+          <RequireRole roles={['HR_ADMIN', 'SUPER_ADMIN']}>
+            <AuditPage />
+          </RequireRole>
+        }
+      />
+      {MODULE_NAV.filter(
+        ({ path }) => !['/employee', '/settings', '/audit'].includes(path),
+      ).map(({ path, Component }) => (
         <Route key={path} path={path} element={<Component />} />
       ))}
     </Routes>

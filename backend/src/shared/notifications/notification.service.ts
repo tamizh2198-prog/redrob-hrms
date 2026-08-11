@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { NotificationsService } from '../../modules/notifications/notifications.service';
 
 export interface NotificationPayload {
   recipientId: string;
@@ -10,10 +11,13 @@ export interface NotificationPayload {
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
 
-  send(payload: NotificationPayload): Promise<void> {
-    // TODO: dispatch via the notifications module's channels (email/in-app/etc.)
-    // once Section 7.16 is built; every other module calls this same entry point.
+  constructor(private readonly notificationsService: NotificationsService) {}
+
+  async send(payload: NotificationPayload): Promise<void> {
     this.logger.log(`notify ${payload.recipientId} via "${payload.template}"`);
-    return Promise.resolve();
+    // Section 7.16: the notifications feature module owns real persistence/
+    // dispatch now — this stays the stable entry point every other module
+    // already calls.
+    await this.notificationsService.dispatch(payload);
   }
 }
