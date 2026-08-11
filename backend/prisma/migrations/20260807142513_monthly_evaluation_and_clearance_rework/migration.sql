@@ -8,7 +8,7 @@ CREATE TYPE "EvaluationAuditStatus" AS ENUM ('PENDING_AUDIT', 'APPROVED', 'SENT_
 CREATE TYPE "ClearanceItemCategory" AS ENUM ('LEAD_VERIFICATION', 'EMPLOYEE_DECLARATION');
 
 -- DropIndex
-DROP INDEX "ClearanceItem_resignationId_department_key";
+DROP INDEX IF EXISTS "ClearanceItem_resignationId_department_key";
 
 -- AlterTable: added as nullable first so this doesn't fail against any
 -- pre-existing rows (a plain "ADD COLUMN ... NOT NULL" would reject them

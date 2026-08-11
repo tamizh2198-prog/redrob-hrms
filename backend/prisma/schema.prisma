@@ -76,6 +76,15 @@ model Company {
 
   reviewCycles ReviewCycle[]
   assets       Asset[]
+
+  ticketSlaPolicies TicketSlaPolicy[]
+  faqEntries        FaqEntry[]
+
+  announcements Announcement[]
+
+  policyDocuments PolicyDocument[]
+
+  workflowDefinitions WorkflowDefinition[]
 }
 
 model Department {
@@ -93,6 +102,9 @@ model Department {
 
   jobRequisitions     JobRequisition[]
   onboardingTemplates OnboardingChecklistTemplate[]
+
+  announcements Announcement[]
+  recognitions  Recognition[]
 
   @@unique([companyId, code])
 }
@@ -133,6 +145,8 @@ model Location {
 
   employees Employee[]
   holidays  Holiday[]
+
+  announcements Announcement[]
 
   @@unique([companyId, code])
 }
@@ -210,6 +224,25 @@ model Employee {
   resignation        Resignation?
   exitInterview      ExitInterview?
   finalSettlement    FinalSettlement?
+
+  ticketsRaised          Ticket[]          @relation("TicketRaisedBy")
+  ticketsAssigned        Ticket[]          @relation("TicketAssignedAgent")
+  ticketMessages         TicketMessage[]
+  ticketSlaPoliciesOwned TicketSlaPolicy[]
+
+  announcementsCreated Announcement[]
+  announcementAcks     AnnouncementAck[]
+  recognitionsSent     Recognition[]     @relation("RecognitionSender")
+  recognitionsReceived Recognition[]     @relation("RecognitionRecipient")
+
+  savedReportsCreated SavedReport[]
+
+  policyDocumentsUploaded PolicyDocument[]
+  assistantConversations  AssistantConversation[]
+
+  workflowDefinitionsCreated WorkflowDefinition[]
+  approvalRequestsMade       ApprovalRequest[]
+  workflowApprovalDecisions  WorkflowApprovalDecision[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -761,19 +794,19 @@ model ReviewCycle {
 // Cascades company → department → team → individual via parentGoalId
 // (Section 7.8 Key Features).
 model Goal {
-  id            String   @id @default(uuid())
-  employeeId    String
-  employee      Employee @relation(fields: [employeeId], references: [id])
-  cycleId       String
-  cycle         ReviewCycle @relation(fields: [cycleId], references: [id])
-  parentGoalId  String?
-  parentGoal    Goal?    @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  childGoals    Goal[]   @relation("GoalHierarchy")
-  title         String
-  target        Float?
-  actual        Float    @default(0)
-  weightage     Float    @default(0)
-  createdAt     DateTime @default(now())
+  id           String      @id @default(uuid())
+  employeeId   String
+  employee     Employee    @relation(fields: [employeeId], references: [id])
+  cycleId      String
+  cycle        ReviewCycle @relation(fields: [cycleId], references: [id])
+  parentGoalId String?
+  parentGoal   Goal?       @relation("GoalHierarchy", fields: [parentGoalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childGoals   Goal[]      @relation("GoalHierarchy")
+  title        String
+  target       Float?
+  actual       Float       @default(0)
+  weightage    Float       @default(0)
+  createdAt    DateTime    @default(now())
 
   @@index([employeeId, cycleId])
 }
@@ -784,7 +817,7 @@ model Review {
   cycle                 ReviewCycle  @relation(fields: [cycleId], references: [id])
   employeeId            String
   employee              Employee     @relation(fields: [employeeId], references: [id])
-  selfAssessmentJson     Json?
+  selfAssessmentJson    Json?
   managerAssessmentJson Json?
   finalRating           Float?
   status                ReviewStatus @default(NOT_STARTED)
@@ -916,16 +949,16 @@ model AssetAssignment {
 }
 
 model AssetRequest {
-  id            String              @id @default(uuid())
+  id            String             @id @default(uuid())
   employeeId    String
-  employee      Employee            @relation("AssetRequester", fields: [employeeId], references: [id])
+  employee      Employee           @relation("AssetRequester", fields: [employeeId], references: [id])
   assetCategory String
   justification String?
-  status        AssetRequestStatus  @default(PENDING)
+  status        AssetRequestStatus @default(PENDING)
   approverId    String?
-  approver      Employee?           @relation("AssetApprover", fields: [approverId], references: [id])
+  approver      Employee?          @relation("AssetApprover", fields: [approverId], references: [id])
   decidedAt     DateTime?
-  createdAt     DateTime            @default(now())
+  createdAt     DateTime           @default(now())
 
   @@index([employeeId])
 }
@@ -963,22 +996,22 @@ enum SettlementStatus {
 }
 
 model Resignation {
-  id               String            @id @default(uuid())
-  employeeId       String            @unique
-  employee         Employee          @relation(fields: [employeeId], references: [id])
-  submittedDate    DateTime          @default(now())
-  noticePeriodDays Int
-  lastWorkingDay   DateTime
-  status           ResignationStatus @default(SUBMITTED)
-  rehireEligible   Boolean           @default(true)
-  relievingLetterRef   String?
-  experienceLetterRef  String?
-  lettersGeneratedAt   DateTime?
+  id                    String            @id @default(uuid())
+  employeeId            String            @unique
+  employee              Employee          @relation(fields: [employeeId], references: [id])
+  submittedDate         DateTime          @default(now())
+  noticePeriodDays      Int
+  lastWorkingDay        DateTime
+  status                ResignationStatus @default(SUBMITTED)
+  rehireEligible        Boolean           @default(true)
+  relievingLetterRef    String?
+  experienceLetterRef   String?
+  lettersGeneratedAt    DateTime?
   // "To be filled by Human Resources only" section of the Separation
   // Clearance Checklist — captured when the letters/certificate are released.
-  closingRemarks       String?
+  closingRemarks        String?
   certificateReleasedBy String?
-  createdAt        DateTime          @default(now())
+  createdAt             DateTime          @default(now())
 
   clearanceItems  ClearanceItem[]
   lwdAdjustments  LwdAdjustment[]
@@ -1056,4 +1089,413 @@ model FinalSettlement {
   approvedBy      String?
   approvedAt      DateTime?
   paidAt          DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// Helpdesk / HR Ticketing (Section 7.11)
+// ---------------------------------------------------------------------------
+
+// Section 7.11 Key Features: "Ticket categories (Payroll query,
+// Leave/Attendance issue, IT support, Admin/Facilities, General HR) each
+// routable to a specific support queue/agent group" — these five are the
+// PRD's literal, fixed list, not an open admin-defined set.
+enum TicketCategory {
+  PAYROLL_QUERY
+  LEAVE_ATTENDANCE_ISSUE
+  IT_SUPPORT
+  ADMIN_FACILITIES
+  GENERAL_HR
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REOPENED
+}
+
+// Section 7.11 Key Features: "SLA timers per category/priority" — HR
+// Admin-configurable per company; helpdesk.service.ts falls back to a
+// built-in default (DEFAULT_SLA_HOURS) when no row exists for a given
+// category+priority, the same "configurable override, sane built-in
+// default" shape OnboardingChecklistTemplate uses for department fallback.
+model TicketSlaPolicy {
+  id        String         @id @default(uuid())
+  companyId String
+  company   Company        @relation(fields: [companyId], references: [id])
+  category  TicketCategory
+  priority  TicketPriority
+  slaHours  Int
+  // Section 7.11 Business Rule: "SLA breach automatically escalates to the
+  // category's designated HR Admin/lead" — this is that designated lead.
+  agentId   String?
+  agent     Employee?      @relation(fields: [agentId], references: [id])
+
+  @@unique([companyId, category, priority])
+}
+
+model Ticket {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation("TicketRaisedBy", fields: [employeeId], references: [id])
+
+  category    TicketCategory
+  priority    TicketPriority @default(MEDIUM)
+  subject     String
+  description String
+  status      TicketStatus   @default(OPEN)
+
+  assignedAgentId String?
+  assignedAgent   Employee? @relation("TicketAssignedAgent", fields: [assignedAgentId], references: [id])
+
+  // Section 7.11 Workflow: due at creation from the category/priority SLA
+  // policy; warning/breach timestamps are set once each by the escalation
+  // job so repeated cron runs don't re-notify on every pass.
+  slaDueAt             DateTime?
+  slaWarningNotifiedAt DateTime?
+  slaBreachedAt        DateTime?
+
+  // Section 7.11 Business Rule: "A ticket cannot be closed without a
+  // resolution note" — enforced in helpdesk.service.ts at the CLOSED
+  // transition.
+  resolutionNote String?
+  resolvedAt     DateTime?
+  closedAt       DateTime?
+  // Section 7.11 Business Rule: "Employees can reopen a closed ticket
+  // within a configurable window" — reopenedAt anchors that window's start
+  // for any subsequent reopen, and distinguishes a reopened ticket from a
+  // fresh one in reporting.
+  reopenedAt     DateTime?
+
+  // Section 7.11 Key Features: "CSAT rating request on ticket closure."
+  csatRating Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages TicketMessage[]
+
+  @@index([employeeId])
+  @@index([assignedAgentId])
+  @@index([status])
+}
+
+// Section 7.11 Key Features: "Threaded conversation per ticket with
+// attachments and internal-only agent notes" — isInternalNote-flagged rows
+// are filtered out before a non-agent/non-HR viewer (the ticket's own
+// employee) ever sees them.
+model TicketMessage {
+  id       String @id @default(uuid())
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  senderId String
+  sender   Employee @relation(fields: [senderId], references: [id])
+
+  body           String
+  isInternalNote Boolean @default(false)
+  // Scaffold-level simplification matching EmployeeDocument.fileRef — a
+  // reference to wherever the attachment is actually stored, not a real
+  // upload pipeline.
+  attachmentRef  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+// Section 7.11 Key Features: "Searchable FAQ/knowledge-base surfaced to
+// employees before they raise a ticket (deflection)."
+model FaqEntry {
+  id        String          @id @default(uuid())
+  companyId String
+  company   Company         @relation(fields: [companyId], references: [id])
+  category  TicketCategory?
+  question  String
+  answer    String
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+
+  @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Announcements & Recognition (Section 7.12)
+// ---------------------------------------------------------------------------
+
+// Section 7.12 Key Feature: "Target employees by organization, department,
+// or location."
+enum AnnouncementScope {
+  ORGANIZATION
+  DEPARTMENT
+  LOCATION
+}
+
+enum AnnouncementPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RecognitionCategory {
+  TEAMWORK
+  INNOVATION
+  CUSTOMER_FOCUS
+}
+
+model Announcement {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  title     String
+  body      String
+
+  scope        AnnouncementScope
+  departmentId String?
+  department   Department?       @relation(fields: [departmentId], references: [id])
+  locationId   String?
+  location     Location?         @relation(fields: [locationId], references: [id])
+
+  priority AnnouncementPriority @default(MEDIUM)
+  isPinned Boolean              @default(false)
+
+  // Section 7.12 Business Rule: "Mandatory announcements track per-employee
+  // acknowledgement/read status" — AnnouncementAck rows are only created
+  // (one per targeted employee) when this is true.
+  requiresAck Boolean @default(false)
+
+  createdBy String
+  creator   Employee @relation(fields: [createdBy], references: [id])
+  createdAt DateTime @default(now())
+
+  acks AnnouncementAck[]
+
+  @@index([companyId])
+  @@index([departmentId])
+  @@index([locationId])
+}
+
+// Section 7.12 Acceptance Criteria: "Mandatory announcement compliance
+// accurately reflects per-employee read status" — one row per targeted
+// employee, pre-created at announcement-creation time so compliance-% is a
+// simple count query rather than an approximation (same shape as
+// OnboardingChecklist/ChecklistTask).
+model AnnouncementAck {
+  id             String       @id @default(uuid())
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id])
+  employeeId     String
+  employee       Employee     @relation(fields: [employeeId], references: [id])
+  acknowledgedAt DateTime?
+  // Idempotency marker for the T+2 reminder cron — set once so a later
+  // sweep doesn't re-notify.
+  remindedAt     DateTime?
+
+  @@unique([announcementId, employeeId])
+  @@index([employeeId])
+}
+
+// Section 7.12 Key Feature: "Recognition can optionally be restricted to a
+// department" — when set, only that department's employees (plus HR
+// Admin/Super Admin) see this entry in the feed; null means public kudos
+// visible to everyone.
+model Recognition {
+  id           String              @id @default(uuid())
+  senderId     String
+  sender       Employee            @relation("RecognitionSender", fields: [senderId], references: [id])
+  recipientId  String
+  recipient    Employee            @relation("RecognitionRecipient", fields: [recipientId], references: [id])
+  message      String
+  category     RecognitionCategory
+  departmentId String?
+  department   Department?         @relation(fields: [departmentId], references: [id])
+  createdAt    DateTime            @default(now())
+
+  @@index([recipientId])
+  @@index([departmentId])
+}
+
+enum ReportSchedule {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// Section 7.14 Business Rule: "Policy answers must be grounded in indexed
+// company documents." No vector DB exists in this stack — `content` is
+// searched via a plain keyword-relevance scan rather than embeddings; a
+// real semantic-search upgrade can swap the retrieval method later without
+// touching this shape.
+model PolicyDocument {
+  id       String @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  title   String
+  content String
+  version Int    @default(1)
+
+  uploadedById String
+  uploadedBy   Employee @relation(fields: [uploadedById], references: [id])
+
+  indexedAt DateTime @default(now())
+
+  @@index([companyId])
+}
+
+enum AssistantMessageRole {
+  USER
+  ASSISTANT
+}
+
+// Section 7.14: "Full conversation logging for audit" — this table IS the
+// audit trail for assistant interactions (Section 7.18's general audit log
+// doesn't exist yet); every action the assistant takes is recorded here
+// against the real employee's id, never a system identity.
+model AssistantConversation {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  createdAt  DateTime @default(now())
+
+  messages AssistantMessage[]
+
+  @@index([employeeId])
+}
+
+model AssistantMessage {
+  id             String                @id @default(uuid())
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id])
+
+  role    AssistantMessageRole
+  message String
+
+  // Cited PolicyDocument ids/titles the answer was grounded in — empty for
+  // a data/action query or an honest "I don't have this" refusal.
+  groundedSources Json?
+
+  // Set on an assistant message that proposes a write action, awaiting the
+  // user's explicit confirmation; cleared (moved into actionTaken) once
+  // executed. AC: "never executes a write action without confirmation."
+  proposedAction Json?
+  actionTaken    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+// Section 7.13 Phase 5 Architecture Decision: SavedReport persists ONLY for
+// scheduled reports (ad-hoc report-builder runs are never stored) — a
+// minimal config+schedule+recipients record. Recipients are re-validated
+// against their CURRENT role by the cron at send time (AC-3), never trusted
+// from what was true when the schedule was created.
+model SavedReport {
+  id     String @id @default(uuid())
+  name   String
+
+  // The exact BuildReportDto payload (entity/fields/filters/groupBy) to
+  // re-run on every scheduled send.
+  config Json
+
+  schedule     ReportSchedule
+  recipientIds Json // string[] of Employee ids
+
+  createdById String
+  createdBy   Employee @relation(fields: [createdById], references: [id])
+
+  lastRunAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([schedule])
+}
+
+// Section 7.15 Architecture Decision: a generic, configurable approval
+// engine — `stepsJson` holds an ordered WorkflowStepDef[] (approver rule(s),
+// requireAll for parallel steps, per-step SLA/escalation, optional numeric
+// condition for conditional branching). See workflow-types.ts for the exact
+// shape. Reuses the existing `ApprovalDecision` enum (PENDING/APPROVED/
+// REJECTED) for both request-level status and per-decision outcome, rather
+// than adding a near-duplicate enum.
+model WorkflowDefinition {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name   String
+  module String // free-text source-module tag, e.g. "LEAVE", "OFFBOARDING"
+  stepsJson Json
+
+  createdById String
+  createdBy   Employee @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  requests ApprovalRequest[]
+
+  @@index([companyId])
+}
+
+// Section 7.15: "A generic 'Approval Request' object every module creates
+// against a workflow definition" — sourceModule/sourceRecordId let the
+// unified inbox and any future module-side listener trace back to the
+// originating record without a hard FK (the source record can live in any
+// module's table).
+model ApprovalRequest {
+  id                 String             @id @default(uuid())
+  workflowId         String
+  workflowDefinition WorkflowDefinition @relation(fields: [workflowId], references: [id])
+
+  sourceModule   String
+  sourceRecordId String
+
+  requestedById String
+  requestedBy   Employee @relation(fields: [requestedById], references: [id])
+
+  // Numeric/string context used to evaluate step conditions (e.g.
+  // {"daysCount": 12}) — Section 7.15 Key Feature: conditional branching.
+  contextJson Json
+
+  status      ApprovalDecision @default(PENDING)
+  currentStep Int              @default(0)
+
+  // Business Rule: "A step's SLA clock starts only once it becomes the
+  // active step" — reset on every advance; escalatedAt prevents re-notifying
+  // on every cron pass once a breach has already been flagged once.
+  currentStepStartedAt   DateTime  @default(now())
+  currentStepEscalatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  decisions WorkflowApprovalDecision[]
+
+  @@index([workflowId])
+  @@index([status])
+  @@index([requestedById])
+}
+
+model WorkflowApprovalDecision {
+  id        String          @id @default(uuid())
+  requestId String
+  request   ApprovalRequest @relation(fields: [requestId], references: [id])
+
+  step       Int
+  approverId String
+  approver   Employee @relation(fields: [approverId], references: [id])
+
+  decision ApprovalDecision
+  comment  String?
+
+  decidedAt DateTime @default(now())
+
+  @@index([requestId])
 }
