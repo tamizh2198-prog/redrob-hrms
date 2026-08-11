@@ -18,11 +18,11 @@ import {
 } from '@/components/ui/select'
 import { useAuth } from '@/shared/auth/AuthContext'
 import {
-  getReferenceData,
+  getOrgLookup,
   listEmployees,
   type Employee,
   type EmployeeStatus,
-  type ReferenceData,
+  type OrgLookup,
 } from '../api'
 import { CreateEmployeeDialog } from '../components/CreateEmployeeDialog'
 import { BulkImportDialog } from '../components/BulkImportDialog'
@@ -51,12 +51,12 @@ export function EmployeePage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [reference, setReference] = useState<ReferenceData | null>(null)
+  const [reference, setReference] = useState<OrgLookup | null>(null)
 
   const pageSize = 20
 
   useEffect(() => {
-    getReferenceData().then(setReference).catch(() => setReference(null))
+    getOrgLookup().then(setReference).catch(() => setReference(null))
   }, [])
 
   useEffect(() => {

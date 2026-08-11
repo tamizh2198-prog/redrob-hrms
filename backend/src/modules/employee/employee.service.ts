@@ -251,6 +251,20 @@ export class EmployeeService {
     return { departments, designations, grades, locations, managers };
   }
 
+  // Section 6 Access Control: unlike getReferenceData(), this never includes
+  // the employee roster — departments/designations/locations aren't PII, but
+  // the "managers" list is effectively the whole company directory, and an
+  // Employee's own dashboard has no legitimate need to see anyone else's
+  // name/code just to render its own department/location columns.
+  async getOrgLookup() {
+    const [departments, designations, locations] = await Promise.all([
+      this.prisma.department.findMany({ where: { isActive: true } }),
+      this.prisma.designation.findMany({ where: { isActive: true } }),
+      this.prisma.location.findMany({ where: { isActive: true } }),
+    ]);
+    return { departments, designations, locations };
+  }
+
   // Section 6 Access Control: an Employee sees only their own record here —
   // the shared directory list is an HR Admin/Super Admin/Manager surface,
   // not something every colleague should be able to browse. Mirrors the
