@@ -12,6 +12,7 @@ export interface RequesterContext {
 // set of "Step 2" fields a new hire completes themselves once HR has created
 // their record with just the Step 1 (employment) details.
 export const SELF_SERVICE_FIELDS = [
+  'dob',
   'personalEmail',
   'workEmail',
   'phone',

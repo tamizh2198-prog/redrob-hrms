@@ -284,6 +284,98 @@ describe('EmployeeService', () => {
       });
     });
 
+    it('lets a new hire submit their own date of birth as a self-service change request', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.PREBOARDING,
+      });
+      prisma.employee.findUniqueOrThrow.mockResolvedValueOnce({
+        id: 'emp-1',
+        dob: null,
+      });
+
+      await service.update(
+        'emp-1',
+        { dob: '1995-05-15' },
+        { userId: 'emp-1', role: Role.EMPLOYEE },
+      );
+
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+      expect(prisma.profileChangeRequest.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            employeeId: 'emp-1',
+            fieldName: 'dob',
+            oldValue: null,
+            newValue: '1995-05-15',
+          }),
+        ],
+      });
+    });
+
+    it('does not re-flag dob as changed when resubmitting the same date already on the Date-typed record', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.ACTIVE,
+      });
+      prisma.employee.findUniqueOrThrow.mockResolvedValueOnce({
+        id: 'emp-1',
+        dob: new Date('1995-05-15'),
+      });
+
+      await service.update(
+        'emp-1',
+        { dob: '1995-05-15' },
+        { userId: 'emp-1', role: Role.EMPLOYEE },
+      );
+
+      expect(prisma.profileChangeRequest.createMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('approving a change request', () => {
+    it('converts a dob change request newValue to a real Date before writing (Prisma rejects a bare date string)', async () => {
+      prisma.profileChangeRequest.findUnique.mockResolvedValueOnce({
+        id: 'req-1',
+        employeeId: 'emp-1',
+        fieldName: 'dob',
+        oldValue: null,
+        newValue: '1996-03-20',
+        status: 'PENDING',
+      });
+
+      await service.approveChangeRequest('req-1', 'hr-1');
+
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'emp-1' },
+          data: { dob: new Date('1996-03-20') },
+        }),
+      );
+    });
+
+    it('writes a non-dob field as the plain string, unchanged', async () => {
+      prisma.profileChangeRequest.findUnique.mockResolvedValueOnce({
+        id: 'req-2',
+        employeeId: 'emp-1',
+        fieldName: 'phone',
+        oldValue: null,
+        newValue: '9998887777',
+        status: 'PENDING',
+      });
+
+      await service.approveChangeRequest('req-2', 'hr-1');
+
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'emp-1' },
+          data: { phone: '9998887777' },
+        }),
+      );
+    });
+  });
+
+  describe('employee-submitted profile changes never bypass approval, continued', () => {
     it("rejects an employee editing someone else's profile", async () => {
       prisma.employee.findUnique.mockResolvedValueOnce({
         id: 'emp-2',

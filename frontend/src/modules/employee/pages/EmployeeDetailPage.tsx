@@ -39,6 +39,7 @@ const BLOOD_GROUPS: BloodGroup[] = [
 // as a non-HR user always creates a ProfileChangeRequest, never a direct
 // write (Section 7.1 Business Rule).
 const SELF_SERVICE_FIELDS = [
+  'dob',
   'personalEmail',
   'workEmail',
   'phone',
@@ -160,6 +161,8 @@ export function EmployeeDetailPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <div className="grid grid-cols-2 gap-4">
+        <Field label="Date of birth" value={form.dob} editable={canEdit} type="date"
+          onChange={(v) => setForm((f) => ({ ...f, dob: v }))} />
         <Field label="Personal email" value={form.personalEmail} editable={canEdit}
           onChange={(v) => setForm((f) => ({ ...f, personalEmail: v }))} />
         <Field label="Work email" value={form.workEmail} editable={canEdit}
@@ -289,17 +292,24 @@ function Field({
   value,
   editable,
   onChange,
+  type = 'text',
 }: {
   label: string
   value?: string | null
   editable: boolean
   onChange: (value: string) => void
+  type?: 'text' | 'date'
 }) {
+  // getEmployee() returns dob as a full ISO datetime string
+  // ("1995-05-15T00:00:00.000Z") — a native date input only accepts the
+  // plain YYYY-MM-DD portion.
+  const displayValue = type === 'date' ? (value ?? '').slice(0, 10) : (value ?? '')
   return (
     <div className="flex flex-col gap-1">
       <Label>{label}</Label>
       <Input
-        value={value ?? ''}
+        type={type}
+        value={displayValue}
         disabled={!editable}
         onChange={(e) => onChange(e.target.value)}
       />

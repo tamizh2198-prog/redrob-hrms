@@ -26,7 +26,6 @@ function label(value: string) {
 const EMPTY_FORM = {
   firstName: '',
   lastName: '',
-  dob: '',
   gender: 'PREFER_NOT_TO_SAY',
   dateOfJoining: '',
   departmentId: '',
@@ -36,15 +35,14 @@ const EMPTY_FORM = {
 }
 
 // HR/Super Admin only fill the employment-side basics here — contact info,
-// statutory IDs, and bank details are self-service fields the new hire adds
-// themselves from their own profile page once they have access (see
-// SELF_SERVICE_FIELDS / ProfileChangeRequest). Matches assertMandatory
-// FieldsForActive's required set minus PAN/bank/emergency-contact, since
-// those aren't collected here anymore.
+// date of birth, statutory IDs, and bank details are self-service fields the
+// new hire adds themselves from their own profile page once they have
+// access (see SELF_SERVICE_FIELDS / ProfileChangeRequest). Matches
+// assertMandatoryFieldsForActive's required set minus DOB/PAN/bank/
+// emergency-contact, since those aren't collected here anymore.
 const REQUIRED_FIELDS = [
   'firstName',
   'lastName',
-  'dob',
   'gender',
   'departmentId',
   'designationId',
@@ -55,7 +53,6 @@ const REQUIRED_FIELDS = [
 const FIELD_LABELS: Record<string, string> = {
   firstName: 'First name',
   lastName: 'Last name',
-  dob: 'Date of birth',
   gender: 'Gender',
   departmentId: 'Department',
   designationId: 'Designation',
@@ -133,10 +130,6 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
           <div className="flex flex-col gap-1">
             <Label>Last name</Label>
             <Input value={form.lastName} onChange={(e) => update('lastName', e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Date of birth</Label>
-            <Input type="date" value={form.dob} onChange={(e) => update('dob', e.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
             <Label>Gender</Label>

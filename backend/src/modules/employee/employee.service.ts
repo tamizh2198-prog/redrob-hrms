@@ -453,12 +453,20 @@ export class EmployeeService {
     for (const field of SELF_SERVICE_FIELDS) {
       const newValue = dto[field];
       if (newValue === undefined) continue;
-      const oldValue = employee[field];
-      if (newValue === oldValue) continue;
+      const rawOldValue = employee[field];
+      // dob is a Date on the record but a plain "YYYY-MM-DD" string on the
+      // DTO — normalize to the date-only string before comparing/storing so
+      // resubmitting an unchanged dob isn't flagged as a change just
+      // because of the type mismatch.
+      const oldValue =
+        rawOldValue instanceof Date
+          ? rawOldValue.toISOString().slice(0, 10)
+          : rawOldValue;
+      if (String(oldValue ?? '') === String(newValue ?? '')) continue;
       toCreate.push({
         employeeId,
         fieldName: field,
-        oldValue: oldValue ?? null,
+        oldValue: oldValue != null ? String(oldValue) : null,
         newValue: String(newValue),
       });
     }
@@ -491,7 +499,14 @@ export class EmployeeService {
       this.prisma.employee.update({
         where: { id: request.employeeId },
         data: {
-          [request.fieldName]: request.newValue,
+          // ProfileChangeRequest.newValue is always a plain string — dob is
+          // the one self-service field that isn't a String column on
+          // Employee, so it needs the same string-to-Date conversion the
+          // other write paths (toCreateData/update) already do.
+          [request.fieldName]:
+            request.fieldName === 'dob'
+              ? new Date(request.newValue)
+              : request.newValue,
         },
       }),
       this.prisma.employeeHistory.create({
