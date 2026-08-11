@@ -12,6 +12,7 @@ import { CreateShiftDto } from './dto/create-shift.dto';
 import { AssignRosterDto } from './dto/assign-roster.dto';
 import { RequestShiftSwapDto } from './dto/request-shift-swap.dto';
 import { SetHybridScheduleDto } from './dto/set-hybrid-schedule.dto';
+import { BulkHybridScheduleRow } from './hybrid-schedule-upload.util';
 
 // Normalizes to UTC midnight, not local midnight — see calendar.service.ts
 // for why: date-only ISO strings parse as UTC, so a local boundary here
@@ -56,34 +57,27 @@ export class ShiftService {
 
   // Section 7.4: HR assigns each employee's own office weekdays for the
   // month — there is no single company-wide pattern, since different
-  // employees/teams come into the office on different days.
-  async setEmployeeHybridSchedule(dto: SetHybridScheduleDto) {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: dto.employeeId },
-    });
-    if (!employee) throw new NotFoundException('Employee not found');
-
-    const officeWeekdays = [...new Set(dto.officeWeekdays)];
+  // employees/teams come into the office on different days. Shared by the
+  // single-employee endpoint and the bulk-upload path below, so every route
+  // that sets a hybrid schedule also regenerates that month's RosterEntry
+  // rows the same way — the employee's own roster view is never out of
+  // sync with what HR just set.
+  private async applyHybridSchedule(
+    employeeId: string,
+    year: number,
+    month: number,
+    officeWeekdaysRaw: number[],
+  ): Promise<{ officeWeekdays: number[]; daysUpdated: number }> {
+    const officeWeekdays = [...new Set(officeWeekdaysRaw)];
 
     await this.prisma.employeeHybridSchedule.upsert({
-      where: {
-        employeeId_year_month: {
-          employeeId: dto.employeeId,
-          year: dto.year,
-          month: dto.month,
-        },
-      },
+      where: { employeeId_year_month: { employeeId, year, month } },
       update: { officeWeekdays },
-      create: {
-        employeeId: dto.employeeId,
-        year: dto.year,
-        month: dto.month,
-        officeWeekdays,
-      },
+      create: { employeeId, year, month, officeWeekdays },
     });
 
-    const monthStart = new Date(Date.UTC(dto.year, dto.month - 1, 1));
-    const monthEnd = new Date(Date.UTC(dto.year, dto.month, 0));
+    const monthStart = new Date(Date.UTC(year, month - 1, 1));
+    const monthEnd = new Date(Date.UTC(year, month, 0));
 
     let daysUpdated = 0;
     for (
@@ -97,19 +91,100 @@ export class ShiftService {
         : WorkMode.WORK_FROM_HOME;
 
       await this.prisma.rosterEntry.upsert({
-        where: { employeeId_date: { employeeId: dto.employeeId, date } },
+        where: { employeeId_date: { employeeId, date } },
         update: { workMode },
-        create: {
-          employeeId: dto.employeeId,
-          date,
-          workMode,
-          isWeekOff: false,
-        },
+        create: { employeeId, date, workMode, isWeekOff: false },
       });
       daysUpdated++;
     }
 
     return { officeWeekdays, daysUpdated };
+  }
+
+  async setEmployeeHybridSchedule(dto: SetHybridScheduleDto) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    return this.applyHybridSchedule(
+      dto.employeeId,
+      dto.year,
+      dto.month,
+      dto.officeWeekdays,
+    );
+  }
+
+  // Bulk-upload counterpart: one spreadsheet row per employee, each with
+  // its own office-weekday pattern for the month — HR no longer has to
+  // repeat the single-employee flow one person at a time.
+  async bulkSetHybridSchedule(
+    rows: BulkHybridScheduleRow[],
+    dryRun: boolean,
+  ): Promise<{
+    totalRows: number;
+    successCount: number;
+    failureCount: number;
+    dryRun: boolean;
+    results: Array<{
+      row: number;
+      success: boolean;
+      employeeId?: string;
+      errors?: string[];
+    }>;
+  }> {
+    const results: Array<{
+      row: number;
+      success: boolean;
+      employeeId?: string;
+      errors?: string[];
+    }> = [];
+
+    for (const [index, row] of rows.entries()) {
+      const errors: string[] = [];
+      if (!row.employeeCode) errors.push('Employee Code is required');
+      if (!row.year || row.year < 2000) errors.push('Year is invalid');
+      if (!row.month || row.month < 1 || row.month > 12) {
+        errors.push('Month must be between 1 and 12');
+      }
+      if (row.officeWeekdays.length === 0) {
+        errors.push('At least one office weekday must be selected');
+      }
+      if (errors.length > 0) {
+        results.push({ row: index, success: false, errors });
+        continue;
+      }
+
+      const employee = await this.prisma.employee.findUnique({
+        where: { employeeCode: row.employeeCode },
+      });
+      if (!employee) {
+        results.push({
+          row: index,
+          success: false,
+          errors: [`No employee found with code "${row.employeeCode}"`],
+        });
+        continue;
+      }
+
+      if (!dryRun) {
+        await this.applyHybridSchedule(
+          employee.id,
+          row.year,
+          row.month,
+          row.officeWeekdays,
+        );
+      }
+      results.push({ row: index, success: true, employeeId: employee.id });
+    }
+
+    return {
+      totalRows: rows.length,
+      successCount: results.filter((r) => r.success).length,
+      failureCount: results.filter((r) => !r.success).length,
+      dryRun,
+      results,
+    };
   }
 
   async getEmployeeHybridSchedule(

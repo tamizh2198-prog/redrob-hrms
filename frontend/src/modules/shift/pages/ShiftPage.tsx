@@ -27,6 +27,7 @@ import {
   type RosterEntry,
   type ShiftSwapRequest,
 } from '../api'
+import { BulkWfoUploadDialog } from '../components/BulkWfoUploadDialog'
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -355,11 +356,15 @@ export function ShiftPage() {
           </div>
 
           <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Assign WFO Days (HR Admin)</h2>
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="font-medium">Assign WFO Days (HR Admin)</h2>
+              <BulkWfoUploadDialog onImported={() => refresh()} />
+            </div>
             <p className="mb-2 text-sm text-muted-foreground">
               Employees follow a hybrid work culture, but office days aren't the same for
-              everyone. Pick an employee and a month, then choose which weekdays are their
-              office days that month — every other working day is auto-marked WFH.
+              everyone. Assign one employee at a time below, or use "Bulk Upload WFO Days" to set
+              every employee's own office-weekday pattern for the month in one file. Every other
+              working day is auto-marked WFH.
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex flex-col gap-1">

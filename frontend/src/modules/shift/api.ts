@@ -1,4 +1,6 @@
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
 
 export interface Shift {
   id: string
@@ -90,4 +92,59 @@ export function decideSwap(id: string, approve: boolean) {
     method: 'POST',
     body: { approve },
   })
+}
+
+export interface BulkWfoRowResult {
+  row: number
+  success: boolean
+  employeeId?: string
+  errors?: string[]
+}
+
+export interface BulkWfoUploadResult {
+  totalRows: number
+  successCount: number
+  failureCount: number
+  dryRun: boolean
+  results: BulkWfoRowResult[]
+}
+
+// Bypasses the shared api() helper (which always JSON-encodes the body) —
+// this sends a real file as multipart form data, same reasoning as
+// analytics/api.ts's exportReport() bypassing it for blob downloads.
+export async function bulkUploadWfoSchedule(file: File, dryRun: boolean) {
+  const token = localStorage.getItem('accessToken')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(
+    `${API_URL}/roster/hybrid-schedule/bulk-upload?dryRun=${dryRun}`,
+    {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }))
+    throw new ApiError(body.message ?? 'Bulk upload failed', res.status)
+  }
+  return res.json() as Promise<BulkWfoUploadResult>
+}
+
+export async function downloadWfoTemplate() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/roster/hybrid-schedule/template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download template', res.status)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'wfo-days-template.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }

@@ -310,6 +310,81 @@ describe('ShiftService', () => {
     });
   });
 
+  describe('Hybrid work culture: bulk WFO upload gives every row its own employee/pattern', () => {
+    it('applies a different office-weekday pattern per employee in the same batch', async () => {
+      prisma.employee.findUnique
+        .mockResolvedValueOnce({ id: 'emp-1', employeeCode: 'EMP-0001' })
+        .mockResolvedValueOnce({ id: 'emp-2', employeeCode: 'EMP-0002' });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await service.bulkSetHybridSchedule(
+        [
+          { employeeCode: 'EMP-0001', year: 2026, month: 8, officeWeekdays: [1, 3] },
+          { employeeCode: 'EMP-0002', year: 2026, month: 8, officeWeekdays: [2, 4] },
+        ],
+        false,
+      );
+
+      expect(result).toMatchObject({ totalRows: 2, successCount: 2, failureCount: 0 });
+      expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: { officeWeekdays: [1, 3] } }),
+      );
+      expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: { officeWeekdays: [2, 4] } }),
+      );
+    });
+
+    it('reports a row-level error for an unknown employee code without failing the rest of the batch', async () => {
+      prisma.employee.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'emp-2', employeeCode: 'EMP-0002' });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await service.bulkSetHybridSchedule(
+        [
+          { employeeCode: 'GHOST', year: 2026, month: 8, officeWeekdays: [1] },
+          { employeeCode: 'EMP-0002', year: 2026, month: 8, officeWeekdays: [2] },
+        ],
+        false,
+      );
+
+      expect(result.successCount).toBe(1);
+      expect(result.failureCount).toBe(1);
+      expect(result.results[0]).toMatchObject({
+        row: 0,
+        success: false,
+        errors: [expect.stringContaining('GHOST')],
+      });
+    });
+
+    it('rejects a row with no office weekdays selected, without a database lookup', async () => {
+      const result = await service.bulkSetHybridSchedule(
+        [{ employeeCode: 'EMP-0001', year: 2026, month: 8, officeWeekdays: [] }],
+        false,
+      );
+
+      expect(result.failureCount).toBe(1);
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('validates every row but writes nothing when dryRun is true', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        employeeCode: 'EMP-0001',
+      });
+
+      const result = await service.bulkSetHybridSchedule(
+        [{ employeeCode: 'EMP-0001', year: 2026, month: 8, officeWeekdays: [1] }],
+        true,
+      );
+
+      expect(result.successCount).toBe(1);
+      expect(result.dryRun).toBe(true);
+      expect(prisma.employeeHybridSchedule.upsert).not.toHaveBeenCalled();
+      expect(prisma.rosterEntry.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Acceptance Criteria: shift swaps cannot bypass manager approval', () => {
     it('rejects a decision from someone who is not the approver', async () => {
       prisma.shiftSwapRequest.findUnique.mockResolvedValue({
