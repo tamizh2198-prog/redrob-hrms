@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -193,18 +192,19 @@ export function AtsPage() {
   }
 
   async function handleCreateOffer(candidateId: string) {
+    const ctcLpa = Number(ctcByCandidate[candidateId])
+    if (!ctcByCandidate[candidateId] || Number.isNaN(ctcLpa) || ctcLpa <= 0) {
+      setError('Enter a valid CTC (LPA) before creating the offer')
+      return
+    }
     setError(null)
+    setMessage(null)
     try {
-      const raw = ctcByCandidate[candidateId] ?? '{}'
-      const offer = await createOffer({ candidateId, ctcBreakup: JSON.parse(raw) })
+      const offer = await createOffer({ candidateId, ctcBreakup: { ctcLpa } })
       setOfferByCandidate((s) => ({ ...s, [candidateId]: offer.id }))
       setMessage('Offer created.')
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : 'Failed to create offer — check the CTC breakup is valid JSON',
-      )
+      setError(err instanceof ApiError ? err.message : 'Failed to create offer')
     }
   }
 
@@ -440,8 +440,13 @@ export function AtsPage() {
 
                     {isHrAdmin && c.currentStage === 'OFFER' && (
                       <div className="mt-3 flex flex-col gap-2">
-                        <Textarea
-                          placeholder='CTC breakup JSON, e.g. {"base": 1200000}'
+                        <Label>CTC (LPA)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          placeholder="e.g. 12"
+                          className="w-40"
                           value={ctcByCandidate[c.id] ?? ''}
                           onChange={(e) =>
                             setCtcByCandidate((s) => ({ ...s, [c.id]: e.target.value }))
