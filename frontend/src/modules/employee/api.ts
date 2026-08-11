@@ -9,6 +9,15 @@ export type EmployeeStatus =
   | 'ON_LEAVE'
   | 'INACTIVE'
   | 'TERMINATED'
+export type BloodGroup =
+  | 'A_POSITIVE'
+  | 'A_NEGATIVE'
+  | 'B_POSITIVE'
+  | 'B_NEGATIVE'
+  | 'AB_POSITIVE'
+  | 'AB_NEGATIVE'
+  | 'O_POSITIVE'
+  | 'O_NEGATIVE'
 
 export interface Employee {
   id: string
@@ -31,6 +40,8 @@ export interface Employee {
   pan: string | null
   aadhaar: string | null
   bankAccountNumber: string | null
+  ifscCode: string | null
+  bloodGroup: BloodGroup | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null
 }

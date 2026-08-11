@@ -251,6 +251,39 @@ describe('EmployeeService', () => {
       );
     });
 
+    it('treats a new hire\'s own PAN/bank/IFSC/blood-group entry as a self-service change request too', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.PREBOARDING,
+      });
+      prisma.employee.findUniqueOrThrow.mockResolvedValueOnce({
+        id: 'emp-1',
+        pan: null,
+        bankAccountNumber: null,
+        ifscCode: null,
+        bloodGroup: null,
+      });
+
+      await service.update(
+        'emp-1',
+        {
+          pan: 'ABCDE1234F',
+          bankAccountNumber: '1234567890',
+          ifscCode: 'HDFC0001234',
+          bloodGroup: 'O_POSITIVE' as never,
+        },
+        { userId: 'emp-1', role: Role.EMPLOYEE },
+      );
+
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+      expect(prisma.profileChangeRequest.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({ fieldName: 'pan', newValue: 'ABCDE1234F' }),
+          expect.objectContaining({ fieldName: 'bloodGroup', newValue: 'O_POSITIVE' }),
+        ]),
+      });
+    });
+
     it("rejects an employee editing someone else's profile", async () => {
       prisma.employee.findUnique.mockResolvedValueOnce({
         id: 'emp-2',
@@ -302,6 +335,46 @@ describe('EmployeeService', () => {
 
       expect(prisma.employee.update).toHaveBeenCalled();
       expect(prisma.profileChangeRequest.createMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Section 6 data-scope: an Employee only sees their own record in the directory list', () => {
+    it('returns just the requester\'s own record for an EMPLOYEE, ignoring list filters', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        pan: 'ABCDE1234F',
+        aadhaar: null,
+        bankAccountNumber: null,
+      });
+
+      const result = await service.findAll(
+        { departmentId: 'dept-1' },
+        { userId: 'emp-1', role: Role.EMPLOYEE },
+      );
+
+      expect(prisma.employee.findMany).not.toHaveBeenCalled();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe('emp-1');
+      expect(result.total).toBe(1);
+    });
+
+    it('returns an empty list rather than throwing if the employee record is somehow missing', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce(null);
+
+      const result = await service.findAll({}, { userId: 'emp-1', role: Role.EMPLOYEE });
+
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it('still returns the full directory for HR Admin', async () => {
+      prisma.employee.findMany.mockResolvedValue([{ id: 'emp-1' }, { id: 'emp-2' }]);
+      prisma.employee.count.mockResolvedValueOnce(2);
+
+      const result = await service.findAll({}, { userId: 'hr-1', role: Role.HR_ADMIN });
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(result.items).toHaveLength(2);
     });
   });
 

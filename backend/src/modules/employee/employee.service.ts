@@ -182,6 +182,8 @@ export class EmployeeService {
       pan: dto.pan,
       aadhaar: dto.aadhaar,
       bankAccountNumber: dto.bankAccountNumber,
+      ifscCode: dto.ifscCode,
+      bloodGroup: dto.bloodGroup,
       emergencyContactName: dto.emergencyContactName,
       emergencyContactPhone: dto.emergencyContactPhone,
     };
@@ -249,9 +251,23 @@ export class EmployeeService {
     return { departments, designations, grades, locations, managers };
   }
 
+  // Section 6 Access Control: an Employee sees only their own record here —
+  // the shared directory list is an HR Admin/Super Admin/Manager surface,
+  // not something every colleague should be able to browse. Mirrors the
+  // same self/privileged split assertReadScope already enforces on
+  // findOne/getOrgChart, just applied to the list endpoint too.
   async findAll(query: ListEmployeesQueryDto, requester: RequesterContext) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
+
+    if (requester.role === Role.EMPLOYEE && requester.userId) {
+      const self = await this.prisma.employee.findUnique({
+        where: { id: requester.userId },
+      });
+      const items = self ? [this.maskSensitiveFields(self, requester)] : [];
+      return { items, total: items.length, page: 1, pageSize };
+    }
+
     const where: Prisma.EmployeeWhereInput = {
       ...(query.departmentId && { departmentId: query.departmentId }),
       ...(query.locationId && { locationId: query.locationId }),
@@ -377,6 +393,8 @@ export class EmployeeService {
         pan: dto.pan,
         aadhaar: dto.aadhaar,
         bankAccountNumber: dto.bankAccountNumber,
+        ifscCode: dto.ifscCode,
+        bloodGroup: dto.bloodGroup,
         emergencyContactName: dto.emergencyContactName,
         emergencyContactPhone: dto.emergencyContactPhone,
       },

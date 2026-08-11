@@ -4,6 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import {
@@ -11,13 +18,35 @@ import {
   getOrgChart,
   revealSensitiveFields,
   updateEmployee,
+  type BloodGroup,
   type Employee,
   type OrgChartResponse,
 } from '../api'
 
+const BLOOD_GROUPS: BloodGroup[] = [
+  'A_POSITIVE',
+  'A_NEGATIVE',
+  'B_POSITIVE',
+  'B_NEGATIVE',
+  'AB_POSITIVE',
+  'AB_NEGATIVE',
+  'O_POSITIVE',
+  'O_NEGATIVE',
+]
+
+// Mirrors the backend's SELF_SERVICE_FIELDS (employee.types.ts) — these are
+// "Step 2" fields the new hire completes themselves; submitting any of them
+// as a non-HR user always creates a ProfileChangeRequest, never a direct
+// write (Section 7.1 Business Rule).
 const SELF_SERVICE_FIELDS = [
   'personalEmail',
+  'workEmail',
   'phone',
+  'pan',
+  'aadhaar',
+  'bankAccountNumber',
+  'ifscCode',
+  'bloodGroup',
   'emergencyContactName',
   'emergencyContactPhone',
 ] as const
@@ -133,6 +162,8 @@ export function EmployeeDetailPage() {
       <div className="grid grid-cols-2 gap-4">
         <Field label="Personal email" value={form.personalEmail} editable={canEdit}
           onChange={(v) => setForm((f) => ({ ...f, personalEmail: v }))} />
+        <Field label="Work email" value={form.workEmail} editable={canEdit}
+          onChange={(v) => setForm((f) => ({ ...f, workEmail: v }))} />
         <Field label="Phone" value={form.phone} editable={canEdit}
           onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
         <Field label="Emergency contact name" value={form.emergencyContactName} editable={canEdit}
@@ -141,27 +172,76 @@ export function EmployeeDetailPage() {
           onChange={(v) => setForm((f) => ({ ...f, emergencyContactPhone: v }))} />
       </div>
 
+      {/* Section 7.1: PAN/Aadhaar/bank details are masked in the API response
+          for anyone but a privileged viewer or the employee themselves — so
+          whenever canEdit is true, `form`/`employee` already hold the real
+          unmasked values and an editable input is enough. A Manager viewing
+          a report's profile is neither, so they get the old read-only +
+          Reveal flow instead. */}
       <div className="rounded-md border p-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-medium">Sensitive fields</h2>
-          <Button variant="outline" size="sm" onClick={handleReveal}>
-            Reveal
-          </Button>
+          {!canEdit && (
+            <Button variant="outline" size="sm" onClick={handleReveal}>
+              Reveal
+            </Button>
+          )}
         </div>
-        <div className="grid grid-cols-3 gap-4 text-sm">
-          <div>
-            <div className="text-muted-foreground">PAN</div>
-            <div>{revealed?.pan ?? employee.pan}</div>
+        {canEdit ? (
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <Field label="PAN" value={form.pan} editable
+              onChange={(v) => setForm((f) => ({ ...f, pan: v }))} />
+            <Field label="Aadhaar" value={form.aadhaar} editable
+              onChange={(v) => setForm((f) => ({ ...f, aadhaar: v }))} />
+            <Field label="Bank account" value={form.bankAccountNumber} editable
+              onChange={(v) => setForm((f) => ({ ...f, bankAccountNumber: v }))} />
+            <Field label="IFSC code" value={form.ifscCode} editable
+              onChange={(v) => setForm((f) => ({ ...f, ifscCode: v }))} />
+            <div className="flex flex-col gap-1">
+              <Label>Blood group</Label>
+              <Select
+                value={form.bloodGroup ?? ''}
+                onValueChange={(v) => setForm((f) => ({ ...f, bloodGroup: v as BloodGroup }))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select blood group">
+                    {(v: string) => (v ? v.replaceAll('_', ' ') : 'Select blood group')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {BLOOD_GROUPS.map((bg) => (
+                    <SelectItem key={bg} value={bg}>
+                      {bg.replaceAll('_', ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div>
-            <div className="text-muted-foreground">Aadhaar</div>
-            <div>{revealed?.aadhaar ?? employee.aadhaar}</div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <div className="text-muted-foreground">PAN</div>
+              <div>{revealed?.pan ?? employee.pan}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Aadhaar</div>
+              <div>{revealed?.aadhaar ?? employee.aadhaar}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Bank account</div>
+              <div>{revealed?.bankAccountNumber ?? employee.bankAccountNumber}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">IFSC code</div>
+              <div>{employee.ifscCode ?? '—'}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Blood group</div>
+              <div>{employee.bloodGroup?.replaceAll('_', ' ') ?? '—'}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-muted-foreground">Bank account</div>
-            <div>{revealed?.bankAccountNumber ?? employee.bankAccountNumber}</div>
-          </div>
-        </div>
+        )}
       </div>
 
       {canEdit && <Button onClick={handleSave}>{isHrAdmin ? 'Save' : 'Submit change request'}</Button>}

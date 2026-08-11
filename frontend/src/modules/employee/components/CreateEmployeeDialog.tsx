@@ -17,12 +17,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ApiError } from '@/lib/api'
-import {
-  createEmployee,
-  getReferenceData,
-  type Employee,
-  type ReferenceData,
-} from '../api'
+import { createEmployee, getReferenceData, type Employee, type ReferenceData } from '../api'
+
+function label(value: string) {
+  return value.replaceAll('_', ' ')
+}
 
 const EMPTY_FORM = {
   firstName: '',
@@ -32,11 +31,36 @@ const EMPTY_FORM = {
   dateOfJoining: '',
   departmentId: '',
   designationId: '',
+  locationId: '',
   reportingManagerId: '',
-  pan: '',
-  bankAccountNumber: '',
-  emergencyContactName: '',
-  emergencyContactPhone: '',
+}
+
+// HR/Super Admin only fill the employment-side basics here — contact info,
+// statutory IDs, and bank details are self-service fields the new hire adds
+// themselves from their own profile page once they have access (see
+// SELF_SERVICE_FIELDS / ProfileChangeRequest). Matches assertMandatory
+// FieldsForActive's required set minus PAN/bank/emergency-contact, since
+// those aren't collected here anymore.
+const REQUIRED_FIELDS = [
+  'firstName',
+  'lastName',
+  'dob',
+  'gender',
+  'departmentId',
+  'designationId',
+  'reportingManagerId',
+  'dateOfJoining',
+] as const
+
+const FIELD_LABELS: Record<string, string> = {
+  firstName: 'First name',
+  lastName: 'Last name',
+  dob: 'Date of birth',
+  gender: 'Gender',
+  departmentId: 'Department',
+  designationId: 'Designation',
+  reportingManagerId: 'Reporting manager',
+  dateOfJoining: 'Date of joining',
 }
 
 export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
@@ -49,6 +73,9 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
   useEffect(() => {
     if (open) {
       getReferenceData().then(setReference).catch(() => setReference(null))
+    } else {
+      setForm(EMPTY_FORM)
+      setError(null)
     }
   }, [open])
 
@@ -57,14 +84,25 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
   }
 
   async function handleSubmit() {
+    const missing = REQUIRED_FIELDS.filter((f) => !form[f])
+    if (missing.length > 0) {
+      setError(`Missing required field(s): ${missing.map((f) => FIELD_LABELS[f]).join(', ')}`)
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
+      const payload = Object.fromEntries(
+        Object.entries(form).map(([key, value]) => [key, value || undefined]),
+      )
       await createEmployee({
-        ...form,
-        status: 'ACTIVE_PROBATION',
+        ...payload,
+        // Pre-Day-1 state: the new hire completes their own contact/
+        // statutory/bank details before this ever needs to become
+        // ACTIVE_PROBATION (which would otherwise reject this create for
+        // missing PAN/bank account/emergency contact).
+        status: 'PREBOARDING',
       } as Partial<Employee>)
-      setForm(EMPTY_FORM)
       setOpen(false)
       onCreated()
     } catch (err) {
@@ -79,8 +117,13 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
       <DialogTrigger render={<Button>New Employee</Button>} />
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Employee</DialogTitle>
+          <DialogTitle>New Employee — Employment Details</DialogTitle>
         </DialogHeader>
+
+        <p className="text-sm text-muted-foreground">
+          Contact details, statutory IDs, and bank details are added by the employee themselves
+          from their own profile once their account is active.
+        </p>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
@@ -94,6 +137,20 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
           <div className="flex flex-col gap-1">
             <Label>Date of birth</Label>
             <Input type="date" value={form.dob} onChange={(e) => update('dob', e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Gender</Label>
+            <Select value={form.gender} onValueChange={(v) => update('gender', v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue>{(v: string) => label(v)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="MALE">Male</SelectItem>
+                <SelectItem value="FEMALE">Female</SelectItem>
+                <SelectItem value="OTHER">Other</SelectItem>
+                <SelectItem value="PREFER_NOT_TO_SAY">Prefer not to say</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-1">
             <Label>Date of joining</Label>
@@ -144,6 +201,26 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
           </div>
 
           <div className="col-span-2 flex flex-col gap-1">
+            <Label>Assigned location</Label>
+            <Select value={form.locationId} onValueChange={(v) => update('locationId', v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select location">
+                  {(value: string) =>
+                    reference?.locations.find((l) => l.id === value)?.name ?? 'Select location'
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {reference?.locations.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="col-span-2 flex flex-col gap-1">
             <Label>Reporting manager</Label>
             <Select
               value={form.reportingManagerId}
@@ -165,32 +242,6 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <Label>PAN</Label>
-            <Input value={form.pan} onChange={(e) => update('pan', e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Bank account</Label>
-            <Input
-              value={form.bankAccountNumber}
-              onChange={(e) => update('bankAccountNumber', e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Emergency contact name</Label>
-            <Input
-              value={form.emergencyContactName}
-              onChange={(e) => update('emergencyContactName', e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Emergency contact phone</Label>
-            <Input
-              value={form.emergencyContactPhone}
-              onChange={(e) => update('emergencyContactPhone', e.target.value)}
-            />
           </div>
         </div>
 
