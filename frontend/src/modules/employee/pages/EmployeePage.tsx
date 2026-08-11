@@ -97,8 +97,21 @@ export function EmployeePage() {
           )}
           {isHrAdmin && <BulkImportDialog onImported={refresh} />}
           {isHrAdmin && <CreateEmployeeDialog onCreated={refresh} />}
+          {isSelfView && user && (
+            <Link to={`/employee/${user.id}`}>
+              <Button>Add / Update My Details</Button>
+            </Link>
+          )}
         </div>
       </div>
+
+      {isSelfView && (
+        <p className="text-sm text-muted-foreground">
+          Contact details, PAN, Aadhaar, bank account, IFSC code, blood group, and emergency
+          contact aren't shown in the table below — use "Add / Update My Details" above to add or
+          change them.
+        </p>
+      )}
 
       {!isSelfView && (
         <div className="flex items-center gap-2">
