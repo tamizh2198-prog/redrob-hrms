@@ -129,12 +129,37 @@ export class WorkflowService {
     return request;
   }
 
-  async getRequest(id: string) {
+  async getRequest(id: string, requester: { userId?: string; role?: Role }) {
     const request = await this.prisma.approvalRequest.findUnique({
       where: { id },
       include: { decisions: true, workflowDefinition: true },
     });
     if (!request) throw new NotFoundException('Approval request not found');
+
+    const isPrivileged =
+      requester.role === Role.HR_ADMIN || requester.role === Role.SUPER_ADMIN;
+    const isRequester = requester.userId === request.requestedById;
+    if (!isPrivileged && !isRequester) {
+      const steps = request.workflowDefinition
+        .stepsJson as unknown as WorkflowStepDef[];
+      const step = getStep(steps, request.currentStep);
+      const slots = step
+        ? await this.resolveStepApprovers(
+            step,
+            request.requestedById,
+            request.workflowDefinition.companyId,
+          )
+        : [];
+      const isEligibleApprover = slots.some(
+        (eligible) => requester.userId && eligible.includes(requester.userId),
+      );
+      if (!isEligibleApprover) {
+        throw new ForbiddenException(
+          'Not authorized to view this approval request',
+        );
+      }
+    }
+
     return request;
   }
 
@@ -431,9 +456,10 @@ export class WorkflowService {
       });
     }
 
-    const assetRequests = await this.assetsService.listAssetRequests({
-      approverId: actorId,
-    });
+    const assetRequests = await this.assetsService.listAssetRequests(
+      { approverId: actorId },
+      { userId: actorId, role },
+    );
     for (const req of assetRequests as Array<{
       id: string;
       status: string;

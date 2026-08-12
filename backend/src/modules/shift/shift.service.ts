@@ -13,6 +13,10 @@ import { AssignRosterDto } from './dto/assign-roster.dto';
 import { RequestShiftSwapDto } from './dto/request-shift-swap.dto';
 import { SetHybridScheduleDto } from './dto/set-hybrid-schedule.dto';
 import { BulkHybridScheduleRow } from './hybrid-schedule-upload.util';
+import {
+  assertCanAccessEmployeeData,
+  type EmployeeDataRequester,
+} from '../../shared/employee/reporting-hierarchy.util';
 
 // Normalizes to UTC midnight, not local midnight — see calendar.service.ts
 // for why: date-only ISO strings parse as UTC, so a local boundary here
@@ -191,7 +195,9 @@ export class ShiftService {
     employeeId: string,
     year: number,
     month: number,
+    requester: EmployeeDataRequester,
   ) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     const schedule = await this.prisma.employeeHybridSchedule.findUnique({
       where: { employeeId_year_month: { employeeId, year, month } },
     });
@@ -277,7 +283,13 @@ export class ShiftService {
     };
   }
 
-  async getRoster(employeeId: string, from: Date, to: Date) {
+  async getRoster(
+    employeeId: string,
+    from: Date,
+    to: Date,
+    requester: EmployeeDataRequester,
+  ) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     return this.prisma.rosterEntry.findMany({
       where: {
         employeeId,
@@ -288,16 +300,37 @@ export class ShiftService {
     });
   }
 
-  async listSwaps(filter: { employeeId?: string; approverId?: string }) {
+  // Non-privileged callers can only see swaps where they're a participant
+  // (requester/counterpart) or the approver — client-supplied employeeId/
+  // approverId filters are ignored for them, not trusted, so one employee
+  // can't enumerate another's swap requests or approval queue.
+  async listSwaps(
+    filter: { employeeId?: string; approverId?: string },
+    requester: EmployeeDataRequester,
+  ) {
+    if (isPrivileged(requester.role)) {
+      return this.prisma.shiftSwapRequest.findMany({
+        where: {
+          OR: filter.employeeId
+            ? [
+                { requesterId: filter.employeeId },
+                { counterpartId: filter.employeeId },
+              ]
+            : undefined,
+          approverId: filter.approverId,
+        },
+        include: { requester: true, counterpart: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    const selfId = requester.userId;
     return this.prisma.shiftSwapRequest.findMany({
       where: {
-        OR: filter.employeeId
-          ? [
-              { requesterId: filter.employeeId },
-              { counterpartId: filter.employeeId },
-            ]
-          : undefined,
-        approverId: filter.approverId,
+        OR: [
+          { requesterId: selfId },
+          { counterpartId: selfId },
+          { approverId: selfId },
+        ],
       },
       include: { requester: true, counterpart: true },
       orderBy: { createdAt: 'desc' },

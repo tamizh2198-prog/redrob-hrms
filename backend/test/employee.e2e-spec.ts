@@ -159,6 +159,13 @@ describe('Employee Management (e2e)', () => {
   });
 
   afterAll(async () => {
+    const allTestEmployeeIds = [
+      employeeId,
+      otherEmployeeId,
+      managerId,
+      hrAdminId,
+      superAdminId,
+    ];
     await prisma.profileChangeRequest.deleteMany({
       where: { employeeId: { in: [employeeId, otherEmployeeId] } },
     });
@@ -167,12 +174,14 @@ describe('Employee Management (e2e)', () => {
         employeeId: { in: [employeeId, otherEmployeeId, managerId, hrAdminId] },
       },
     });
+    await prisma.notification.deleteMany({
+      where: { employeeId: { in: allTestEmployeeIds } },
+    });
+    await prisma.notificationLog.deleteMany({
+      where: { employeeId: { in: allTestEmployeeIds } },
+    });
     await prisma.employee.deleteMany({
-      where: {
-        id: {
-          in: [employeeId, otherEmployeeId, managerId, hrAdminId, superAdminId],
-        },
-      },
+      where: { id: { in: allTestEmployeeIds } },
     });
     await prisma.designation.delete({ where: { id: designationId } });
     await prisma.department.delete({ where: { id: departmentId } });
@@ -206,6 +215,12 @@ describe('Employee Management (e2e)', () => {
 
       expect(res.body.employeeCode).toMatch(/^EMP-\d{4}-\d{4}$/);
 
+      await prisma.notification.deleteMany({
+        where: { employeeId: res.body.id },
+      });
+      await prisma.notificationLog.deleteMany({
+        where: { employeeId: res.body.id },
+      });
       await prisma.employee.delete({ where: { id: res.body.id } });
     });
 

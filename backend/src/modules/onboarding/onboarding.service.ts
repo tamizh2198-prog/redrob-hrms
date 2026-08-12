@@ -13,6 +13,10 @@ import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { MagicLinkService } from '../../shared/auth/magic-link.service';
+import {
+  assertCanAccessEmployeeData,
+  type EmployeeDataRequester,
+} from '../../shared/employee/reporting-hierarchy.util';
 import { CreateTemplateDto } from './dto/create-template.dto';
 
 // Section 7.7 Business Rules: "cannot move from 'Preboarding' to 'Active'
@@ -206,10 +210,13 @@ export class OnboardingService {
       token,
       PREBOARDING_PORTAL_PURPOSE,
     );
-    return this.getProgress(employeeId);
+    // The magic link is already scoped to this one employeeId — that's the
+    // authorization check for the portal, so this is inherently self-access.
+    return this.getProgress(employeeId, { userId: employeeId });
   }
 
-  async getProgress(employeeId: string) {
+  async getProgress(employeeId: string, requester: EmployeeDataRequester) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     const checklist = await this.prisma.onboardingChecklist.findUnique({
       where: { employeeId },
       include: { tasks: true },
@@ -244,6 +251,7 @@ export class OnboardingService {
   async completeTask(taskId: string, actorId: string, actorRole?: Role) {
     const task = await this.prisma.checklistTask.findUnique({
       where: { id: taskId },
+      include: { checklist: { include: { employee: true } } },
     });
     if (!task) throw new NotFoundException('Checklist task not found');
     if (task.status === ChecklistTaskStatus.COMPLETED) return task;
@@ -255,8 +263,9 @@ export class OnboardingService {
     }
     if (
       task.ownerRole === ChecklistOwnerRole.MANAGER &&
-      actorRole !== Role.MANAGER &&
-      !isPrivileged(actorRole)
+      !isPrivileged(actorRole) &&
+      (actorRole !== Role.MANAGER ||
+        task.checklist.employee.reportingManagerId !== actorId)
     ) {
       throw new BadRequestException(
         'Only the assigned manager can complete this task',

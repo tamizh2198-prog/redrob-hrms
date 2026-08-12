@@ -14,6 +14,10 @@ import {
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { CalendarService } from '../../shared/calendar/calendar.service';
+import {
+  assertCanAccessEmployeeData,
+  type EmployeeDataRequester,
+} from '../../shared/employee/reporting-hierarchy.util';
 import { RegularizeDto } from './dto/regularize.dto';
 import { ImportBiometricDto } from './dto/import-biometric.dto';
 
@@ -189,7 +193,13 @@ export class AttendanceService {
     });
   }
 
-  async getCalendar(employeeId: string, year: number, month: number) {
+  async getCalendar(
+    employeeId: string,
+    year: number,
+    month: number,
+    requester: EmployeeDataRequester,
+  ) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     const from = new Date(Date.UTC(year, month - 1, 1));
     const to = new Date(Date.UTC(year, month, 0));
 

@@ -297,7 +297,10 @@ describe('ShiftService', () => {
       });
 
       await expect(
-        service.getEmployeeHybridSchedule('emp-1', 2026, 8),
+        service.getEmployeeHybridSchedule('emp-1', 2026, 8, {
+          userId: 'emp-1',
+          role: Role.EMPLOYEE,
+        }),
       ).resolves.toEqual({ officeWeekdays: [1, 5] });
     });
 
@@ -305,7 +308,10 @@ describe('ShiftService', () => {
       prisma.employeeHybridSchedule.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.getEmployeeHybridSchedule('emp-1', 2026, 8),
+        service.getEmployeeHybridSchedule('emp-1', 2026, 8, {
+          userId: 'emp-1',
+          role: Role.EMPLOYEE,
+        }),
       ).resolves.toEqual({ officeWeekdays: [] });
     });
   });
@@ -319,13 +325,27 @@ describe('ShiftService', () => {
 
       const result = await service.bulkSetHybridSchedule(
         [
-          { employeeCode: 'EMP-0001', year: 2026, month: 8, officeWeekdays: [1, 3] },
-          { employeeCode: 'EMP-0002', year: 2026, month: 8, officeWeekdays: [2, 4] },
+          {
+            employeeCode: 'EMP-0001',
+            year: 2026,
+            month: 8,
+            officeWeekdays: [1, 3],
+          },
+          {
+            employeeCode: 'EMP-0002',
+            year: 2026,
+            month: 8,
+            officeWeekdays: [2, 4],
+          },
         ],
         false,
       );
 
-      expect(result).toMatchObject({ totalRows: 2, successCount: 2, failureCount: 0 });
+      expect(result).toMatchObject({
+        totalRows: 2,
+        successCount: 2,
+        failureCount: 0,
+      });
       expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(
         expect.objectContaining({ update: { officeWeekdays: [1, 3] } }),
       );
@@ -343,7 +363,12 @@ describe('ShiftService', () => {
       const result = await service.bulkSetHybridSchedule(
         [
           { employeeCode: 'GHOST', year: 2026, month: 8, officeWeekdays: [1] },
-          { employeeCode: 'EMP-0002', year: 2026, month: 8, officeWeekdays: [2] },
+          {
+            employeeCode: 'EMP-0002',
+            year: 2026,
+            month: 8,
+            officeWeekdays: [2],
+          },
         ],
         false,
       );
@@ -359,7 +384,14 @@ describe('ShiftService', () => {
 
     it('rejects a row with no office weekdays selected, without a database lookup', async () => {
       const result = await service.bulkSetHybridSchedule(
-        [{ employeeCode: 'EMP-0001', year: 2026, month: 8, officeWeekdays: [] }],
+        [
+          {
+            employeeCode: 'EMP-0001',
+            year: 2026,
+            month: 8,
+            officeWeekdays: [],
+          },
+        ],
         false,
       );
 
@@ -374,7 +406,14 @@ describe('ShiftService', () => {
       });
 
       const result = await service.bulkSetHybridSchedule(
-        [{ employeeCode: 'EMP-0001', year: 2026, month: 8, officeWeekdays: [1] }],
+        [
+          {
+            employeeCode: 'EMP-0001',
+            year: 2026,
+            month: 8,
+            officeWeekdays: [1],
+          },
+        ],
         true,
       );
 

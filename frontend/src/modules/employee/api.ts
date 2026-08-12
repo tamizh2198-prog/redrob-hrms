@@ -118,6 +118,19 @@ export function getReferenceData() {
   return api<ReferenceData>('/employees/reference-data')
 }
 
+export interface OrgLookup {
+  departments: ReferenceOption[]
+  designations: ReferenceOption[]
+  locations: ReferenceOption[]
+}
+
+// Unlike getReferenceData(), this never returns the employee roster — use it
+// anywhere that only needs department/designation/location names (e.g. an
+// Employee's own dashboard), not an HR-facing assignment dropdown.
+export function getOrgLookup() {
+  return api<OrgLookup>('/employees/org-lookup')
+}
+
 export function listEmployees(params: {
   departmentId?: string
   locationId?: string

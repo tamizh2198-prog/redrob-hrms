@@ -15,6 +15,10 @@ import {
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
+import {
+  assertCanAccessEmployeeData,
+  type EmployeeDataRequester,
+} from '../../shared/employee/reporting-hierarchy.util';
 import { CreateGoalDto } from './dto/create-goal.dto';
 import { OpenReviewCycleDto } from './dto/open-review-cycle.dto';
 import { SubmitSelfAssessmentDto } from './dto/submit-self-assessment.dto';
@@ -165,7 +169,12 @@ export class PerformanceService {
     });
   }
 
-  listGoals(employeeId: string, cycleId?: string) {
+  async listGoals(
+    employeeId: string,
+    cycleId: string | undefined,
+    requester: EmployeeDataRequester,
+  ) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     return this.prisma.goal.findMany({
       where: { employeeId, cycleId },
       orderBy: { createdAt: 'asc' },
@@ -209,7 +218,12 @@ export class PerformanceService {
     return this.prisma.review.create({ data: { cycleId, employeeId } });
   }
 
-  getReview(cycleId: string, employeeId: string) {
+  async getReview(
+    cycleId: string,
+    employeeId: string,
+    requester: EmployeeDataRequester,
+  ) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     return this.prisma.review.findUnique({
       where: { cycleId_employeeId: { cycleId, employeeId } },
       include: { corrections: true },

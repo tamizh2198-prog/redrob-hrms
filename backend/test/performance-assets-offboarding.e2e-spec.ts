@@ -187,6 +187,12 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
     await prisma.employeeHistory.deleteMany({
       where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
     });
+    await prisma.notification.deleteMany({
+      where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
+    });
+    await prisma.notificationLog.deleteMany({
+      where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
+    });
     await prisma.employee.deleteMany({
       where: { id: { in: [employeeId, managerId, hrAdminId] } },
     });
@@ -555,6 +561,12 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
       // "other"'s (now-closed) AssetAssignment row still references them by
       // FK — delete it before the employee, not after.
       await prisma.assetAssignment.deleteMany({
+        where: { employeeId: other.id },
+      });
+      await prisma.notification.deleteMany({
+        where: { employeeId: other.id },
+      });
+      await prisma.notificationLog.deleteMany({
         where: { employeeId: other.id },
       });
       await prisma.employee.delete({ where: { id: other.id } });

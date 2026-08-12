@@ -66,6 +66,7 @@ describe('AnalyticsService', () => {
       expect(leaveService.getBalances).toHaveBeenCalledWith(
         'emp-1',
         expect.any(Number),
+        { userId: 'emp-1', role: 'EMPLOYEE' },
       );
     });
 

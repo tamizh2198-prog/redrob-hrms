@@ -39,9 +39,13 @@ export class PerformanceController {
   @Get('goals')
   listGoals(
     @Query('employeeId') employeeId: string,
-    @Query('cycleId') cycleId?: string,
+    @Query('cycleId') cycleId: string | undefined,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.performanceService.listGoals(employeeId, cycleId);
+    return this.performanceService.listGoals(employeeId, cycleId, {
+      userId: user.userId,
+      role: user.role as Role,
+    });
   }
 
   @Patch('goals/:id/progress')
@@ -118,8 +122,12 @@ export class PerformanceController {
   getReview(
     @Param('cycleId') cycleId: string,
     @Param('employeeId') employeeId: string,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.performanceService.getReview(cycleId, employeeId);
+    return this.performanceService.getReview(cycleId, employeeId, {
+      userId: user.userId,
+      role: user.role as Role,
+    });
   }
 
   @Post('evaluations')

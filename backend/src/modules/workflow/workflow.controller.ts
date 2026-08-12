@@ -44,8 +44,14 @@ export class WorkflowController {
   }
 
   @Get('requests/:id')
-  getRequest(@Param('id') id: string) {
-    return this.workflowService.getRequest(id);
+  getRequest(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.workflowService.getRequest(id, {
+      userId: user.userId,
+      role: user.role as Role,
+    });
   }
 
   @Post('requests/:id/decide')

@@ -8,6 +8,7 @@ import { AssetStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
+import type { EmployeeDataRequester } from '../../shared/employee/reporting-hierarchy.util';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { CreateAssetRequestDto } from './dto/create-asset-request.dto';
 import { IssueAssetDto } from './dto/issue-asset.dto';
@@ -80,12 +81,27 @@ export class AssetsService {
     return request;
   }
 
-  listAssetRequests(filter: { employeeId?: string; approverId?: string }) {
+  // Non-privileged callers can't trust their own employeeId/approverId query
+  // params — those get overridden to the caller's own id so one employee
+  // can't read another's asset requests (their "mine" view) or another
+  // manager's approval queue (the "to decide" view) by supplying someone
+  // else's id.
+  listAssetRequests(
+    filter: { employeeId?: string; approverId?: string },
+    requester: EmployeeDataRequester,
+  ) {
+    let { employeeId, approverId } = filter;
+    if (!isPrivileged(requester.role)) {
+      if (approverId !== undefined) {
+        approverId = requester.userId;
+        employeeId = undefined;
+      } else {
+        employeeId = requester.userId;
+        approverId = undefined;
+      }
+    }
     return this.prisma.assetRequest.findMany({
-      where: {
-        employeeId: filter.employeeId,
-        approverId: filter.approverId,
-      },
+      where: { employeeId, approverId },
       orderBy: { createdAt: 'desc' },
     });
   }

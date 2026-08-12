@@ -113,8 +113,12 @@ export class AtsService {
     });
   }
 
-  listRequisitions() {
+  // Section 6 matrix: Employee has no ATS access at all (enforced by the
+  // controller's @Roles); a Manager only sees requisitions where they're
+  // the hiring manager, not the whole company's pipeline.
+  listRequisitions(actorId: string, actorRole?: Role) {
     return this.prisma.jobRequisition.findMany({
+      where: isPrivileged(actorRole) ? undefined : { hiringManagerId: actorId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -164,20 +168,46 @@ export class AtsService {
     return candidate;
   }
 
-  listCandidates(requisitionId?: string) {
+  // Same scope as listRequisitions: a non-privileged Manager only sees
+  // candidates for requisitions they're the hiring manager on.
+  listCandidates(
+    requisitionId: string | undefined,
+    actorId: string,
+    actorRole?: Role,
+  ) {
     return this.prisma.candidate.findMany({
-      where: requisitionId ? { requisitionId } : undefined,
+      where: {
+        requisitionId,
+        requisition: isPrivileged(actorRole)
+          ? undefined
+          : { hiringManagerId: actorId },
+      },
       orderBy: { appliedAt: 'desc' },
     });
   }
 
   // Acceptance Criteria: "A candidate cannot be moved to 'Offer' stage
   // without at least one completed interview scorecard on file."
-  async moveStage(candidateId: string, stage: CandidateStage, actorId: string) {
+  async moveStage(
+    candidateId: string,
+    stage: CandidateStage,
+    actorId: string,
+    actorRole?: Role,
+  ) {
     const candidate = await this.prisma.candidate.findUnique({
       where: { id: candidateId },
+      include: { requisition: true },
     });
     if (!candidate) throw new NotFoundException('Candidate not found');
+
+    if (
+      !isPrivileged(actorRole) &&
+      candidate.requisition.hiringManagerId !== actorId
+    ) {
+      throw new ForbiddenException(
+        'Only this requisition’s hiring manager can move this candidate',
+      );
+    }
 
     if (stage === CandidateStage.OFFER) {
       const completedRound = await this.prisma.interviewRound.findFirst({
@@ -199,11 +229,26 @@ export class AtsService {
     return updated;
   }
 
-  async scheduleInterview(candidateId: string, dto: ScheduleInterviewDto) {
+  async scheduleInterview(
+    candidateId: string,
+    dto: ScheduleInterviewDto,
+    actorId: string,
+    actorRole?: Role,
+  ) {
     const candidate = await this.prisma.candidate.findUnique({
       where: { id: candidateId },
+      include: { requisition: true },
     });
     if (!candidate) throw new NotFoundException('Candidate not found');
+
+    if (
+      !isPrivileged(actorRole) &&
+      candidate.requisition.hiringManagerId !== actorId
+    ) {
+      throw new ForbiddenException(
+        'Only this requisition’s hiring manager can schedule interviews for this candidate',
+      );
+    }
 
     const round = await this.prisma.interviewRound.create({
       data: {

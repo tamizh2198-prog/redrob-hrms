@@ -191,6 +191,12 @@ describe('Attendance + Leave + Shift + Holiday (e2e)', () => {
     await prisma.attendanceRecord.deleteMany({
       where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
     });
+    await prisma.notification.deleteMany({
+      where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
+    });
+    await prisma.notificationLog.deleteMany({
+      where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
+    });
     await prisma.employee.deleteMany({
       where: { id: { in: [employeeId, managerId, hrAdminId] } },
     });

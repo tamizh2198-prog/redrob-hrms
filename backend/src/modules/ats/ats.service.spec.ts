@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { AtsService } from './ats.service';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
@@ -153,7 +154,10 @@ describe('AtsService', () => {
 
   describe("Acceptance Criteria: a candidate cannot be moved to 'Offer' stage without a completed scorecard", () => {
     it('rejects the move when no interview round is completed', async () => {
-      prisma.candidate.findUnique.mockResolvedValue({ id: 'cand-1' });
+      prisma.candidate.findUnique.mockResolvedValue({
+        id: 'cand-1',
+        requisition: { hiringManagerId: 'actor-1' },
+      });
       prisma.interviewRound.findFirst.mockResolvedValue(null);
 
       await expect(
@@ -162,7 +166,10 @@ describe('AtsService', () => {
     });
 
     it('allows the move once a scorecard is on file', async () => {
-      prisma.candidate.findUnique.mockResolvedValue({ id: 'cand-1' });
+      prisma.candidate.findUnique.mockResolvedValue({
+        id: 'cand-1',
+        requisition: { hiringManagerId: 'actor-1' },
+      });
       prisma.interviewRound.findFirst.mockResolvedValue({ id: 'round-1' });
       prisma.candidate.update.mockResolvedValue({
         id: 'cand-1',
@@ -171,6 +178,17 @@ describe('AtsService', () => {
 
       const result = await service.moveStage('cand-1', 'OFFER', 'actor-1');
       expect(result.currentStage).toBe('OFFER');
+    });
+
+    it('rejects a manager who is not this requisition’s hiring manager', async () => {
+      prisma.candidate.findUnique.mockResolvedValue({
+        id: 'cand-1',
+        requisition: { hiringManagerId: 'other-manager' },
+      });
+
+      await expect(
+        service.moveStage('cand-1', 'OFFER', 'actor-1', Role.MANAGER),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 

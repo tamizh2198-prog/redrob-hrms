@@ -25,11 +25,13 @@ export class LeaveController {
   @Get('balance/:employeeId')
   getBalance(
     @Param('employeeId') employeeId: string,
-    @Query('year') year?: string,
+    @Query('year') year: string | undefined,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.leaveService.getBalances(
       employeeId,
       year ? parseInt(year, 10) : new Date().getFullYear(),
+      { userId: user.userId, role: user.role as Role },
     );
   }
 

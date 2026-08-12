@@ -14,6 +14,10 @@ import { DefaultCompanyService } from '../../shared/database/default-company.ser
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { CalendarService } from '../../shared/calendar/calendar.service';
 import { AttendanceService } from '../attendance/attendance.service';
+import {
+  assertCanAccessEmployeeData,
+  type EmployeeDataRequester,
+} from '../../shared/employee/reporting-hierarchy.util';
 import { CreateLeaveTypeDto } from './dto/create-leave-type.dto';
 import { ApplyLeaveDto } from './dto/apply-leave.dto';
 import { LeaveDecisionDto } from './dto/leave-decision.dto';
@@ -90,7 +94,12 @@ export class LeaveService {
     });
   }
 
-  async getBalances(employeeId: string, year: number) {
+  async getBalances(
+    employeeId: string,
+    year: number,
+    requester: EmployeeDataRequester,
+  ) {
+    await assertCanAccessEmployeeData(this.prisma, employeeId, requester);
     const leaveTypes = await this.prisma.leaveType.findMany();
     return Promise.all(
       leaveTypes.map(async (lt) => {

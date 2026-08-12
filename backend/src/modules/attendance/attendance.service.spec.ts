@@ -298,7 +298,10 @@ describe('AttendanceService', () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
       calendar.isHoliday.mockResolvedValue(true);
 
-      const days = await service.getCalendar('emp-1', 2026, 1);
+      const days = await service.getCalendar('emp-1', 2026, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan26 = days.find((d) => d.date === '2026-01-26');
 
       expect(jan26?.status).toBe(AttendanceStatus.HOLIDAY);
@@ -310,7 +313,10 @@ describe('AttendanceService', () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
       calendar.isWFH.mockResolvedValue(true);
 
-      const days = await service.getCalendar('emp-1', 2026, 1);
+      const days = await service.getCalendar('emp-1', 2026, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan5 = days.find((d) => d.date === '2026-01-05');
 
       expect(jan5?.status).toBe(AttendanceStatus.WFH);

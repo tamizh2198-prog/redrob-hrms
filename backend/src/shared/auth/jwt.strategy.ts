@@ -11,10 +11,17 @@ export interface JwtPayload {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(config: ConfigService) {
+    const secret = config.get<string>('JWT_ACCESS_SECRET');
+    // Fail loudly at boot if unset, rather than silently verifying tokens
+    // against an empty-string secret — a forgeable signature is worse than
+    // a crash.
+    if (!secret) {
+      throw new Error('JWT_ACCESS_SECRET must be set');
+    }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_ACCESS_SECRET') ?? '',
+      secretOrKey: secret,
     });
   }
 

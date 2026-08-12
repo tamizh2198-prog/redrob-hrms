@@ -200,18 +200,21 @@ describe('ATS + Onboarding (e2e)', () => {
     if (requisitionId) {
       await prisma.jobRequisition.delete({ where: { id: requisitionId } });
     }
+    const allTestEmployeeIds = [
+      employeeId,
+      hiringManagerId,
+      otherManagerId,
+      hrAdminId,
+      newHireEmployeeId,
+    ].filter(Boolean);
+    await prisma.notification.deleteMany({
+      where: { employeeId: { in: allTestEmployeeIds } },
+    });
+    await prisma.notificationLog.deleteMany({
+      where: { employeeId: { in: allTestEmployeeIds } },
+    });
     await prisma.employee.deleteMany({
-      where: {
-        id: {
-          in: [
-            employeeId,
-            hiringManagerId,
-            otherManagerId,
-            hrAdminId,
-            newHireEmployeeId,
-          ].filter(Boolean),
-        },
-      },
+      where: { id: { in: allTestEmployeeIds } },
     });
     await prisma.designation.delete({ where: { id: designationId } });
     await prisma.department.delete({ where: { id: departmentId } });

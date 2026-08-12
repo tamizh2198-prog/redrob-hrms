@@ -13,6 +13,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
+import {
+  assertCanAccessEmployeeData,
+  type EmployeeDataRequester,
+} from '../../shared/employee/reporting-hierarchy.util';
 import { LeaveService } from '../leave/leave.service';
 import { AssetsService } from '../assets/assets.service';
 import { SubmitResignationDto } from './dto/submit-resignation.dto';
@@ -211,11 +215,21 @@ export class OffboardingService {
     return resignation;
   }
 
-  getResignation(resignationId: string) {
-    return this.prisma.resignation.findUnique({
+  async getResignation(
+    resignationId: string,
+    requester: EmployeeDataRequester,
+  ) {
+    const resignation = await this.prisma.resignation.findUnique({
       where: { id: resignationId },
       include: { clearanceItems: true, lwdAdjustments: true },
     });
+    if (!resignation) throw new NotFoundException('Resignation not found');
+    await assertCanAccessEmployeeData(
+      this.prisma,
+      resignation.employeeId,
+      requester,
+    );
+    return resignation;
   }
 
   listResignations() {
@@ -270,7 +284,20 @@ export class OffboardingService {
     return updated;
   }
 
-  getClearanceStatus(resignationId: string) {
+  async getClearanceStatus(
+    resignationId: string,
+    requester: EmployeeDataRequester,
+  ) {
+    const resignation = await this.prisma.resignation.findUnique({
+      where: { id: resignationId },
+      select: { employeeId: true },
+    });
+    if (!resignation) throw new NotFoundException('Resignation not found');
+    await assertCanAccessEmployeeData(
+      this.prisma,
+      resignation.employeeId,
+      requester,
+    );
     return this.prisma.clearanceItem.findMany({ where: { resignationId } });
   }
 
@@ -400,6 +427,10 @@ export class OffboardingService {
     const balances = await this.leaveService.getBalances(
       resignation.employeeId,
       year,
+      // computeSettlement is only reachable via the HR_ADMIN/SUPER_ADMIN
+      // -gated settlement endpoints (offboarding.controller.ts), so this
+      // internal lookup is already authorization-checked at the boundary.
+      { userId: resignation.employeeId, role: Role.SUPER_ADMIN },
     );
     const encashableDays = balances
       .filter((b) => b.leaveType.isEncashable)

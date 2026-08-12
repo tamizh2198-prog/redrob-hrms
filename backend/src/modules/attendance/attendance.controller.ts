@@ -23,11 +23,13 @@ export class AttendanceController {
     @Param('employeeId') employeeId: string,
     @Query('year') year: string,
     @Query('month') month: string,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.attendanceService.getCalendar(
       employeeId,
       parseInt(year, 10),
       parseInt(month, 10),
+      { userId: user.userId, role: user.role as Role },
     );
   }
 

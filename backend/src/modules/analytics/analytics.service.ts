@@ -72,7 +72,10 @@ export class AnalyticsService {
   private async getEmployeeDashboard(employeeId: string) {
     const year = new Date().getUTCFullYear();
     const [leaveBalances, myApplications, myOpenTickets] = await Promise.all([
-      this.leaveService.getBalances(employeeId, year),
+      this.leaveService.getBalances(employeeId, year, {
+        userId: employeeId,
+        role: Role.EMPLOYEE,
+      }),
       this.leaveService.listMyApplications(employeeId),
       this.prisma.ticket.count({
         where: { employeeId, status: { notIn: ['RESOLVED', 'CLOSED'] } },

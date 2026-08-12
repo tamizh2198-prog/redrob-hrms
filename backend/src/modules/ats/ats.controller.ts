@@ -34,8 +34,9 @@ export class AtsController {
   }
 
   @Get('requisitions')
-  listRequisitions() {
-    return this.atsService.listRequisitions();
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listRequisitions(@CurrentUser() user: { userId: string; role: string }) {
+    return this.atsService.listRequisitions(user.userId, user.role as Role);
   }
 
   @Get('requisitions/:id/analytics')
@@ -65,8 +66,16 @@ export class AtsController {
   }
 
   @Get('candidates')
-  listCandidates(@Query('requisitionId') requisitionId?: string) {
-    return this.atsService.listCandidates(requisitionId);
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listCandidates(
+    @Query('requisitionId') requisitionId: string | undefined,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.atsService.listCandidates(
+      requisitionId,
+      user.userId,
+      user.role as Role,
+    );
   }
 
   @Patch('candidates/:id/stage')
@@ -74,9 +83,14 @@ export class AtsController {
   moveStage(
     @Param('id') id: string,
     @Body() dto: MoveStageDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.atsService.moveStage(id, dto.stage, user.userId);
+    return this.atsService.moveStage(
+      id,
+      dto.stage,
+      user.userId,
+      user.role as Role,
+    );
   }
 
   @Post('candidates/:id/interviews')
@@ -84,8 +98,14 @@ export class AtsController {
   scheduleInterview(
     @Param('id') id: string,
     @Body() dto: ScheduleInterviewDto,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.atsService.scheduleInterview(id, dto);
+    return this.atsService.scheduleInterview(
+      id,
+      dto,
+      user.userId,
+      user.role as Role,
+    );
   }
 
   @Post('interviews/:id/scorecard')

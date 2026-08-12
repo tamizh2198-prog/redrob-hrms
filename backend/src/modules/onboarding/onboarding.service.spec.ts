@@ -166,6 +166,39 @@ describe('OnboardingService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it("rejects a manager who isn't this new hire's assigned manager", async () => {
+      prisma.checklistTask.findUnique.mockResolvedValue({
+        id: 'task-1',
+        ownerRole: 'MANAGER',
+        status: 'PENDING',
+        checklistId: 'checklist-1',
+        checklist: { employee: { reportingManagerId: 'mgr-assigned' } },
+      });
+
+      await expect(
+        service.completeTask('task-1', 'mgr-other', 'MANAGER'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows the actually-assigned manager to complete a manager-owned task', async () => {
+      prisma.checklistTask.findUnique.mockResolvedValue({
+        id: 'task-1',
+        ownerRole: 'MANAGER',
+        status: 'PENDING',
+        checklistId: 'checklist-1',
+        checklist: { employee: { reportingManagerId: 'mgr-assigned' } },
+      });
+      prisma.checklistTask.update.mockResolvedValue({
+        id: 'task-1',
+        status: 'COMPLETED',
+      });
+      prisma.checklistTask.count.mockResolvedValue(1);
+
+      await expect(
+        service.completeTask('task-1', 'mgr-assigned', 'MANAGER'),
+      ).resolves.toEqual({ id: 'task-1', status: 'COMPLETED' });
+    });
+
     it('marks the checklist complete once its last task is done', async () => {
       prisma.checklistTask.findUnique.mockResolvedValue({
         id: 'task-1',

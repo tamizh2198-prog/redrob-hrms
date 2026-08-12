@@ -39,10 +39,14 @@ export class RosterController {
 
   @Get('swap')
   listSwaps(
-    @Query('employeeId') employeeId?: string,
-    @Query('approverId') approverId?: string,
+    @Query('employeeId') employeeId: string | undefined,
+    @Query('approverId') approverId: string | undefined,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.shiftService.listSwaps({ employeeId, approverId });
+    return this.shiftService.listSwaps(
+      { employeeId, approverId },
+      { userId: user.userId, role: user.role as Role },
+    );
   }
 
   // Registered before the ':employeeId' route below so the literal path
@@ -52,11 +56,13 @@ export class RosterController {
     @Query('employeeId') employeeId: string,
     @Query('year') year: string,
     @Query('month') month: string,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.shiftService.getEmployeeHybridSchedule(
       employeeId,
       Number(year),
       Number(month),
+      { userId: user.userId, role: user.role as Role },
     );
   }
 
@@ -83,7 +89,9 @@ export class RosterController {
   // single-employee form one person at a time.
   @Post('hybrid-schedule/bulk-upload')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
+  )
   async bulkUploadHybridSchedule(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query('dryRun') dryRunRaw?: string,
@@ -103,11 +111,13 @@ export class RosterController {
     @Param('employeeId') employeeId: string,
     @Query('from') from: string,
     @Query('to') to: string,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.shiftService.getRoster(
       employeeId,
       new Date(from),
       new Date(to),
+      { userId: user.userId, role: user.role as Role },
     );
   }
 

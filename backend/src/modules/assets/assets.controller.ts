@@ -19,6 +19,7 @@ export class AssetsController {
   }
 
   @Get()
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
   list(@Query('status') status?: AssetStatus) {
     return this.assetsService.listAssets(status);
   }
@@ -38,10 +39,14 @@ export class AssetsController {
 
   @Get('requests')
   listRequests(
-    @Query('employeeId') employeeId?: string,
-    @Query('approverId') approverId?: string,
+    @Query('employeeId') employeeId: string | undefined,
+    @Query('approverId') approverId: string | undefined,
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.assetsService.listAssetRequests({ employeeId, approverId });
+    return this.assetsService.listAssetRequests(
+      { employeeId, approverId },
+      { userId: user.userId, role: user.role as Role },
+    );
   }
 
   @Post('requests/:id/decision')

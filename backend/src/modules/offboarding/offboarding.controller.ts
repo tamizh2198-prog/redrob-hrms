@@ -51,8 +51,14 @@ export class OffboardingController {
   }
 
   @Get(':id')
-  getResignation(@Param('id') id: string) {
-    return this.offboardingService.getResignation(id);
+  getResignation(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.offboardingService.getResignation(id, {
+      userId: user.userId,
+      role: user.role as Role,
+    });
   }
 
   @Post(':id/adjust-lwd')
@@ -70,8 +76,14 @@ export class OffboardingController {
   }
 
   @Get(':id/clearance')
-  getClearanceStatus(@Param('id') id: string) {
-    return this.offboardingService.getClearanceStatus(id);
+  getClearanceStatus(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.offboardingService.getClearanceStatus(id, {
+      userId: user.userId,
+      role: user.role as Role,
+    });
   }
 
   @Post(':id/exit-interview')

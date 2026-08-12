@@ -76,8 +76,14 @@ export class OnboardingController {
   }
 
   @Get(':employeeId/progress')
-  progress(@Param('employeeId') employeeId: string) {
-    return this.onboardingService.getProgress(employeeId);
+  progress(
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.onboardingService.getProgress(employeeId, {
+      userId: user.userId,
+      role: user.role as Role,
+    });
   }
 
   @Post(':employeeId/activate')

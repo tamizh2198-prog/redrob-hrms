@@ -396,7 +396,10 @@ export class AssistantService {
     switch (name) {
       case 'check_leave_balance': {
         const year = new Date().getUTCFullYear();
-        const balances = await this.leaveService.getBalances(actorId, year);
+        const balances = await this.leaveService.getBalances(actorId, year, {
+          userId: actorId,
+          role,
+        });
         if (balances.length === 0)
           return 'You have no configured leave balances.';
         return balances
