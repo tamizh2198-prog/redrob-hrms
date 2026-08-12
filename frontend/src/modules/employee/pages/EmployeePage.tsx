@@ -16,18 +16,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { ApiError } from '@/lib/api'
 import {
-  getOrgLookup,
   listEmployees,
+  listPendingInvitations,
+  resendInvitation,
+  computeDisplayCompletionPercentage,
   type Employee,
   type EmployeeStatus,
-  type OrgLookup,
+  type PendingInvitation,
 } from '../api'
 import { CreateEmployeeDialog } from '../components/CreateEmployeeDialog'
 import { BulkImportDialog } from '../components/BulkImportDialog'
 
 const STATUS_OPTIONS: EmployeeStatus[] = [
+  'INVITED',
   'ACTIVE',
   'ACTIVE_PROBATION',
   'ON_LEAVE',
@@ -51,13 +56,11 @@ export function EmployeePage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [reference, setReference] = useState<OrgLookup | null>(null)
+  const [invitations, setInvitations] = useState<PendingInvitation[]>([])
+  const [invitationError, setInvitationError] = useState<string | null>(null)
+  const [invitationMessage, setInvitationMessage] = useState<string | null>(null)
 
   const pageSize = 20
-
-  useEffect(() => {
-    getOrgLookup().then(setReference).catch(() => setReference(null))
-  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -71,16 +74,33 @@ export function EmployeePage() {
       .finally(() => setLoading(false))
   }, [status, page, refreshKey])
 
-  function designationName(id: string | null) {
-    return reference?.designations.find((d) => d.id === id)?.name ?? '—'
+  function refreshInvitations() {
+    listPendingInvitations()
+      .then(setInvitations)
+      .catch(() => setInvitations([]))
   }
 
-  function locationName(id: string | null) {
-    return reference?.locations.find((l) => l.id === id)?.name ?? '—'
-  }
+  useEffect(() => {
+    if (isHrAdmin) refreshInvitations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
 
   function refresh() {
     setRefreshKey((k) => k + 1)
+  }
+
+  async function handleResend(employeeId: string) {
+    setInvitationError(null)
+    setInvitationMessage(null)
+    try {
+      const result = await resendInvitation(employeeId)
+      setInvitationMessage(
+        result.emailSent ? 'Invitation resent.' : 'A new invitation was created, but the email could not be sent.',
+      )
+      refreshInvitations()
+    } catch (err) {
+      setInvitationError(err instanceof ApiError ? err.message : 'Failed to resend invitation')
+    }
   }
 
   return (
@@ -143,9 +163,9 @@ export function EmployeePage() {
           <TableRow>
             <TableHead>Employee Code</TableHead>
             <TableHead>Name</TableHead>
-            <TableHead>Designation</TableHead>
-            <TableHead>Location</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>PAN</TableHead>
+            <TableHead>Profile</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -157,9 +177,15 @@ export function EmployeePage() {
                   {e.firstName} {e.lastName}
                 </Link>
               </TableCell>
-              <TableCell>{designationName(e.designationId)}</TableCell>
-              <TableCell>{locationName(e.locationId)}</TableCell>
-              <TableCell>{e.status}</TableCell>
+              <TableCell>
+                <Badge variant={e.status === 'TERMINATED' ? 'destructive' : 'outline'}>
+                  {e.status}
+                </Badge>
+              </TableCell>
+              <TableCell>{e.pan}</TableCell>
+              <TableCell className="text-muted-foreground">
+                {computeDisplayCompletionPercentage(e)}% Complete
+              </TableCell>
             </TableRow>
           ))}
           {!loading && employees.length === 0 && (
@@ -195,6 +221,51 @@ export function EmployeePage() {
               Next
             </Button>
           </div>
+        </div>
+      )}
+
+      {isHrAdmin && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Pending Invitations</h2>
+          {invitationError && <p className="text-sm text-destructive">{invitationError}</p>}
+          {invitationMessage && <p className="text-sm text-primary">{invitationMessage}</p>}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Employee Code</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Expires</TableHead>
+                <TableHead>Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invitations.map((inv) => (
+                <TableRow key={inv.id}>
+                  <TableCell>
+                    {inv.employee.firstName} {inv.employee.lastName}
+                  </TableCell>
+                  <TableCell>{inv.employee.employeeCode}</TableCell>
+                  <TableCell>{inv.employee.workEmail}</TableCell>
+                  <TableCell>{inv.employee.status}</TableCell>
+                  <TableCell>{new Date(inv.expiresAt).toLocaleString()}</TableCell>
+                  <TableCell>
+                    <Button size="sm" variant="outline" onClick={() => handleResend(inv.employeeId)}>
+                      Remind
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {invitations.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    No pending invitations.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

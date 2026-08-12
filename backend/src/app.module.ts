@@ -11,6 +11,7 @@ import { AuditModule } from './shared/audit/audit.module';
 import { NotificationModule } from './shared/notifications/notification.module';
 import { WorkflowEngineModule } from './shared/workflow/workflow-engine.module';
 import { CalendarModule } from './shared/calendar/calendar.module';
+import { EmailModule } from './shared/email/email.module';
 
 import { EmployeeModule } from './modules/employee/employee.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
@@ -30,6 +31,7 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AuditModule as AuditFeatureModule } from './modules/audit/audit.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
 
 @Module({
   imports: [
@@ -44,6 +46,7 @@ import { AuditModule as AuditFeatureModule } from './modules/audit/audit.module'
     NotificationModule,
     WorkflowEngineModule,
     CalendarModule,
+    EmailModule,
 
     // Feature modules (Section 7)
     EmployeeModule,
@@ -64,6 +67,7 @@ import { AuditModule as AuditFeatureModule } from './modules/audit/audit.module'
     NotificationsModule,
     SettingsModule,
     AuditFeatureModule,
+    PermissionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

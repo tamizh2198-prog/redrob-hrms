@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog'
 import {
   Select,
@@ -17,54 +18,50 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ApiError } from '@/lib/api'
-import { createEmployee, getReferenceData, type Employee, type ReferenceData } from '../api'
-
-function label(value: string) {
-  return value.replaceAll('_', ' ')
-}
+import { useAuth } from '@/shared/auth/AuthContext'
+import type { Role } from '@/shared/auth/role'
+import { inviteEmployee, getReferenceData, type ReferenceData } from '../api'
 
 const EMPTY_FORM = {
   firstName: '',
   lastName: '',
-  gender: 'PREFER_NOT_TO_SAY',
-  dateOfJoining: '',
+  email: '',
+  employeeCode: '',
   departmentId: '',
-  designationId: '',
   locationId: '',
   reportingManagerId: '',
+  role: 'EMPLOYEE' as Role,
 }
 
-// HR/Super Admin only fill the employment-side basics here — contact info,
-// date of birth, statutory IDs, and bank details are self-service fields the
-// new hire adds themselves from their own profile page once they have
-// access (see SELF_SERVICE_FIELDS / ProfileChangeRequest). Matches
-// assertMandatoryFieldsForActive's required set minus DOB/PAN/bank/
-// emergency-contact, since those aren't collected here anymore.
-const REQUIRED_FIELDS = [
-  'firstName',
-  'lastName',
-  'gender',
-  'departmentId',
-  'designationId',
-  'reportingManagerId',
-  'dateOfJoining',
-] as const
+// This task (security review): explicit missing-field error instead of a
+// silently-disabled submit button. Matches the fields this invite-based
+// form actually collects and canSubmit already gates on.
+const REQUIRED_FIELDS = ['firstName', 'lastName', 'email', 'employeeCode'] as const
 
 const FIELD_LABELS: Record<string, string> = {
   firstName: 'First name',
   lastName: 'Last name',
-  gender: 'Gender',
-  departmentId: 'Department',
-  designationId: 'Designation',
-  reportingManagerId: 'Reporting manager',
-  dateOfJoining: 'Date of joining',
+  email: 'Work email',
+  employeeCode: 'Employee code',
 }
 
+const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
+
+// This task: the ONE employee-creation path. Collects only the basic
+// administrative fields needed to create the record — the employee fills
+// in their own personal/payroll profile later (Auth Phase 3). On submit
+// this reuses the existing Phase 2 invite endpoint, so status is always
+// INVITED and an invitation email is always sent — there is no longer a
+// separate "New Employee" flow that skips the invitation.
 export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
+  const { user } = useAuth()
+  const canAssignPrivilegedRole = user?.role === 'SUPER_ADMIN'
+
   const [open, setOpen] = useState(false)
   const [reference, setReference] = useState<ReferenceData | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -76,7 +73,7 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
     }
   }, [open])
 
-  function update<K extends keyof typeof form>(key: K, value: string) {
+  function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
@@ -88,19 +85,24 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
     }
     setSubmitting(true)
     setError(null)
+    setMessage(null)
     try {
-      const payload = Object.fromEntries(
-        Object.entries(form).map(([key, value]) => [key, value || undefined]),
+      const result = await inviteEmployee({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        employeeCode: form.employeeCode,
+        departmentId: form.departmentId || undefined,
+        locationId: form.locationId || undefined,
+        reportingManagerId: form.reportingManagerId || undefined,
+        role: form.role,
+      })
+      setMessage(
+        result.emailSent
+          ? 'Employee created. Invitation sent.'
+          : 'Employee created, but the invitation email could not be sent. Use "Remind" from the directory once email is configured.',
       )
-      await createEmployee({
-        ...payload,
-        // Pre-Day-1 state: the new hire completes their own contact/
-        // statutory/bank details before this ever needs to become
-        // ACTIVE_PROBATION (which would otherwise reject this create for
-        // missing PAN/bank account/emergency contact).
-        status: 'PREBOARDING',
-      } as Partial<Employee>)
-      setOpen(false)
+      setForm(EMPTY_FORM)
       onCreated()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create employee')
@@ -109,12 +111,25 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
     }
   }
 
+  const canSubmit =
+    !submitting && form.firstName && form.lastName && form.employeeCode && form.email
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button>New Employee</Button>} />
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) {
+          setError(null)
+          setMessage(null)
+          setForm(EMPTY_FORM)
+        }
+      }}
+    >
+      <DialogTrigger render={<Button>+ Create Employee</Button>} />
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Employee — Employment Details</DialogTitle>
+          <DialogTitle>Create Employee</DialogTitle>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
@@ -132,25 +147,20 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
             <Input value={form.lastName} onChange={(e) => update('lastName', e.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
-            <Label>Gender</Label>
-            <Select value={form.gender} onValueChange={(v) => update('gender', v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>{(v: string) => label(v)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MALE">Male</SelectItem>
-                <SelectItem value="FEMALE">Female</SelectItem>
-                <SelectItem value="OTHER">Other</SelectItem>
-                <SelectItem value="PREFER_NOT_TO_SAY">Prefer not to say</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label>Work email</Label>
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => update('email', e.target.value)}
+              placeholder="employee@company.com"
+            />
           </div>
           <div className="flex flex-col gap-1">
-            <Label>Date of joining</Label>
+            <Label>Employee code</Label>
             <Input
-              type="date"
-              value={form.dateOfJoining}
-              onChange={(e) => update('dateOfJoining', e.target.value)}
+              value={form.employeeCode}
+              onChange={(e) => update('employeeCode', e.target.value)}
+              placeholder="EMP-2026-0010"
             />
           </div>
 
@@ -174,27 +184,7 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <Label>Designation</Label>
-            <Select value={form.designationId} onValueChange={(v) => update('designationId', v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select designation">
-                  {(value: string) =>
-                    reference?.designations.find((d) => d.id === value)?.name ?? 'Select designation'
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {reference?.designations.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="col-span-2 flex flex-col gap-1">
-            <Label>Assigned location</Label>
+            <Label>Location</Label>
             <Select value={form.locationId} onValueChange={(v) => update('locationId', v)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select location">
@@ -236,13 +226,38 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="col-span-2 flex flex-col gap-1">
+            <Label>Role</Label>
+            <Select value={form.role} onValueChange={(v) => update('role', v as Role)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select role">
+                  {(value: string) => value.replaceAll('_', ' ')}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => (
+                  <SelectItem
+                    key={r}
+                    value={r}
+                    disabled={(r === 'SUPER_ADMIN' || r === 'HR_ADMIN') && !canAssignPrivilegedRole}
+                  >
+                    {r.replaceAll('_', ' ')}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {message && <p className="text-sm text-primary">{message}</p>}
 
-        <Button disabled={submitting} onClick={handleSubmit}>
-          Create
-        </Button>
+        <DialogFooter>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            Create
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

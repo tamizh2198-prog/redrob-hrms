@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  AttendanceStatus,
   LeaveApplicationStatus,
   ReportSchedule,
   Role,
@@ -42,6 +43,16 @@ function startOfDay(date: Date): Date {
 function daysAgo(days: number): Date {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
+
+// Phase 6C: statuses counted as "present" for the company-wide attendance
+// percentage on the HR Admin/Super Admin dashboard — reused as-is from the
+// AttendanceStatus enum, no new calculation model.
+const PRESENT_LIKE_STATUSES: AttendanceStatus[] = [
+  AttendanceStatus.PRESENT,
+  AttendanceStatus.LATE,
+  AttendanceStatus.HALF_DAY,
+  AttendanceStatus.WFH,
+];
 
 @Injectable()
 export class AnalyticsService {
@@ -146,12 +157,15 @@ export class AnalyticsService {
     });
     const companyId = actor?.companyId;
 
+    const today = startOfDay(new Date());
+
     const [
       headcountByStatus,
       attritionCount,
       candidatesByStage,
       openRequisitions,
       leaveLiability,
+      attendanceToday,
     ] = await Promise.all([
       this.prisma.employee.groupBy({
         by: ['status'],
@@ -170,7 +184,22 @@ export class AnalyticsService {
         where: { companyId, status: 'PUBLISHED' },
       }),
       this.getLeaveLiability(companyId),
+      // Phase 6C: company-wide version of the exact groupBy pattern
+      // getManagerDashboard() already uses team-scoped, below.
+      this.prisma.attendanceRecord.groupBy({
+        by: ['status'],
+        where: { employee: { companyId }, date: today },
+        _count: true,
+      }),
     ]);
+
+    const totalRecordedToday = attendanceToday.reduce(
+      (sum, a) => sum + a._count,
+      0,
+    );
+    const presentLikeToday = attendanceToday
+      .filter((a) => PRESENT_LIKE_STATUSES.includes(a.status))
+      .reduce((sum, a) => sum + a._count, 0);
 
     return {
       role: 'HR_ADMIN',
@@ -185,6 +214,20 @@ export class AnalyticsService {
       })),
       openRequisitions,
       leaveLiabilityDays: leaveLiability,
+      // Phase 6C: counts are over AttendanceRecord rows that exist for
+      // today only (same limitation the existing Manager dashboard already
+      // has) — an employee who hasn't punched/been imported yet has no row
+      // and isn't counted as Absent here. attendancePercentToday is the
+      // share of today's RECORDED rows that are present-like, not a share
+      // of total active headcount.
+      attendanceToday: attendanceToday.map((a) => ({
+        status: a.status,
+        count: a._count,
+      })),
+      attendancePercentToday:
+        totalRecordedToday === 0
+          ? null
+          : Math.round((presentLikeToday / totalRecordedToday) * 100),
     };
   }
 

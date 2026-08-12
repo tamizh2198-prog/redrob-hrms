@@ -1,8 +1,10 @@
 import { api } from '@/lib/api'
+import type { Role } from '@/shared/auth/role'
 
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY'
 export type EmploymentType = 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN'
 export type EmployeeStatus =
+  | 'INVITED'
   | 'PREBOARDING'
   | 'ACTIVE'
   | 'ACTIVE_PROBATION'
@@ -37,6 +39,7 @@ export interface Employee {
   dateOfJoining: string | null
   employmentType: EmploymentType | null
   status: EmployeeStatus
+  role: Role
   pan: string | null
   aadhaar: string | null
   bankAccountNumber: string | null
@@ -44,6 +47,11 @@ export interface Employee {
   bloodGroup: BloodGroup | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null
+  addressLine: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  postalCode: string | null
 }
 
 export interface EmployeeListResponse {
@@ -197,4 +205,146 @@ export function bulkImportEmployees(rows: Partial<Employee>[], dryRun: boolean) 
     method: 'POST',
     body: { rows, dryRun },
   })
+}
+
+// Auth Phase 2: invitation + activation
+export interface InviteEmployeeResult {
+  employee: Employee
+  invitation: { expiresAt: string }
+  emailSent: boolean
+}
+
+export interface PendingInvitation {
+  id: string
+  employeeId: string
+  expiresAt: string
+  usedAt: string | null
+  createdAt: string
+  employee: {
+    id: string
+    firstName: string
+    lastName: string
+    employeeCode: string
+    workEmail: string | null
+    status: EmployeeStatus
+  }
+}
+
+export function inviteEmployee(data: {
+  email: string
+  employeeCode: string
+  firstName: string
+  lastName: string
+  departmentId?: string
+  locationId?: string
+  reportingManagerId?: string
+  role?: Role
+}) {
+  return api<InviteEmployeeResult>('/employees/invite', { method: 'POST', body: data })
+}
+
+export function resendInvitation(employeeId: string) {
+  return api<{ invitation: { expiresAt: string }; emailSent: boolean }>(
+    `/employees/${employeeId}/resend-invitation`,
+    { method: 'POST' },
+  )
+}
+
+export function listPendingInvitations() {
+  return api<PendingInvitation[]>('/employees/invitations')
+}
+
+export interface ActivationIdentity {
+  firstName: string
+  lastName: string
+  employeeCode: string
+  email: string | null
+  expiresAt: string
+}
+
+export function validateActivationToken(token: string) {
+  return api<ActivationIdentity>(`/auth/activate/${token}`)
+}
+
+export function activateAccount(data: {
+  token: string
+  password: string
+  confirmPassword: string
+}) {
+  return api<{ success: true }>('/auth/activate', { method: 'POST', body: data })
+}
+
+// Auth Phase 3: profile completion
+export interface ProfileCompletion {
+  completionPercentage: number
+  isComplete: boolean
+  requiredFields: string[]
+  missingFields: string[]
+}
+
+export interface MyProfileResponse extends ProfileCompletion {
+  employee: Employee
+}
+
+export function getMyProfile() {
+  return api<MyProfileResponse>('/employees/me/profile')
+}
+
+// This task: admin employee-profile view — reuses the same ProfileCompletion
+// shape/calculation as getMyProfile, just for an arbitrary employee id.
+export function getProfileCompletion(id: string) {
+  return api<ProfileCompletion>(`/employees/${id}/profile-completion`)
+}
+
+// This task: controlled dismissal/deactivation. Never deletes the record —
+// sets status to TERMINATED and invalidates any pending invitation.
+export function dismissEmployee(id: string) {
+  return api<Employee>(`/employees/${id}/dismiss`, { method: 'POST' })
+}
+
+export interface UpdateMyProfileInput {
+  dob?: string
+  gender?: Gender
+  phone?: string
+  personalEmail?: string
+  addressLine?: string
+  city?: string
+  state?: string
+  country?: string
+  postalCode?: string
+  pan?: string
+  aadhaar?: string
+  bankAccountNumber?: string
+  emergencyContactName?: string
+  emergencyContactPhone?: string
+}
+
+export function updateMyProfile(data: UpdateMyProfileInput) {
+  return api<MyProfileResponse>('/employees/me/profile', { method: 'PATCH', body: data })
+}
+
+// Display-only helper for the HR Admin employee list — mirrors the
+// backend's required-field checklist purely for a cosmetic badge; the
+// authoritative completion value for gating/redirect decisions always
+// comes from GET /employees/me/profile, never computed on the client.
+const DISPLAY_REQUIRED_FIELDS: Array<keyof Employee> = [
+  'dob',
+  'gender',
+  'phone',
+  'addressLine',
+  'city',
+  'state',
+  'postalCode',
+  'pan',
+  'bankAccountNumber',
+  'emergencyContactName',
+  'emergencyContactPhone',
+]
+
+export function computeDisplayCompletionPercentage(employee: Employee): number {
+  const filled = DISPLAY_REQUIRED_FIELDS.filter((f) => {
+    const v = employee[f]
+    return v !== null && v !== undefined && v !== ''
+  }).length
+  return Math.round((filled / DISPLAY_REQUIRED_FIELDS.length) * 100)
 }

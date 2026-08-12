@@ -5,8 +5,24 @@ import {
   EmploymentType,
   EmployeeStatus,
 } from '@prisma/client';
+import { hashPassword } from '../src/shared/auth/password.util';
+import {
+  PERMISSION_CATALOG,
+  DEFAULT_ROLE_PERMISSIONS,
+} from '../src/modules/permissions/permission-catalog';
 
 const prisma = new PrismaClient();
+
+// Phase 1: dev-only default so `npm run prisma:seed` keeps working out of
+// the box — override with a real value via SUPER_ADMIN_SEED_PASSWORD for
+// any shared/non-local environment. Never hardcoded silently in prod.
+const SUPER_ADMIN_SEED_PASSWORD =
+  process.env.SUPER_ADMIN_SEED_PASSWORD ?? 'ChangeMe123!';
+if (!process.env.SUPER_ADMIN_SEED_PASSWORD) {
+  console.warn(
+    'SUPER_ADMIN_SEED_PASSWORD not set — seeding Super Admin with the dev-only default password. Set this env var for any non-local environment.',
+  );
+}
 
 async function main() {
   const company = await prisma.company.upsert({
@@ -126,9 +142,10 @@ async function main() {
     emergencyContactPhone: '9999999999',
   };
 
+  const superAdminPasswordHash = await hashPassword(SUPER_ADMIN_SEED_PASSWORD);
   const superAdmin = await prisma.employee.upsert({
     where: { employeeCode: 'EMP-SEED-0001' },
-    update: {},
+    update: { passwordHash: superAdminPasswordHash },
     create: {
       ...baseFields,
       employeeCode: 'EMP-SEED-0001',
@@ -137,6 +154,7 @@ async function main() {
       workEmail: 'aditi.rao@redrob.seed',
       role: Role.SUPER_ADMIN,
       designationId: designationAdmin.id,
+      passwordHash: superAdminPasswordHash,
     },
   });
 
@@ -184,6 +202,36 @@ async function main() {
       reportingManagerId: manager.id,
     },
   });
+
+  // Auth Phase 5: seed the permission catalog and default role mappings.
+  // Additive/idempotent — upserts by unique key, never resets existing
+  // rows, so re-running the seed after a role's permissions have been
+  // customized via the admin UI won't clobber that customization... except
+  // it deliberately DOES reset to defaults on every seed run for a role
+  // that has no existing RolePermission rows yet (first run only).
+  const permissionByKey = new Map<string, { id: string }>();
+  for (const def of PERMISSION_CATALOG) {
+    const permission = await prisma.permission.upsert({
+      where: { key: def.key },
+      update: { name: def.name, description: def.description, category: def.category },
+      create: def,
+    });
+    permissionByKey.set(def.key, permission);
+  }
+
+  for (const [role, keys] of Object.entries(DEFAULT_ROLE_PERMISSIONS) as [
+    Role,
+    string[],
+  ][]) {
+    const existingCount = await prisma.rolePermission.count({ where: { role } });
+    if (existingCount > 0) continue;
+    await prisma.rolePermission.createMany({
+      data: keys
+        .map((key) => permissionByKey.get(key))
+        .filter((p): p is { id: string } => !!p)
+        .map((p) => ({ role, permissionId: p.id })),
+    });
+  }
 
   console.log('Seed complete.');
 }

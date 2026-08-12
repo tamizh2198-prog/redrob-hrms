@@ -6,6 +6,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthController } from './auth.controller';
 import { MagicLinkService } from './magic-link.service';
+import { EmployeeModule } from '../../modules/employee/employee.module';
 
 @Module({
   imports: [
@@ -18,6 +19,11 @@ import { MagicLinkService } from './magic-link.service';
         signOptions: { expiresIn: '15m' },
       }),
     }),
+    // Auth Phase 2: activation endpoints live on AuthController (public,
+    // token-authorized) but the invitation/activation logic itself lives on
+    // EmployeeService, which already owns the Employee/EmployeeInvitation
+    // tables.
+    EmployeeModule,
   ],
   controllers: [AuthController],
   providers: [

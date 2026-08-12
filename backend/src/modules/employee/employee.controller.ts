@@ -15,6 +15,8 @@ import { EmployeeService } from './employee.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { InviteEmployeeDto } from './dto/invite-employee.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 import { RequesterContext } from './employee.types';
 
 function toRequester(user?: {
@@ -76,6 +78,53 @@ export class EmployeeController {
     return this.employeeService.bulkImport(rows, dryRun ?? true, user.userId);
   }
 
+  // Auth Phase 2: must be registered before the `:id` route below, or Nest
+  // would match "invitations" as an :id param instead.
+  @Get('invitations')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listPendingInvitations() {
+    return this.employeeService.listPendingInvitations();
+  }
+
+  @Post('invite')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  inviteEmployee(
+    @Body() dto: InviteEmployeeDto,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.employeeService.inviteEmployee(
+      dto,
+      user.userId,
+      user.role as Role,
+    );
+  }
+
+  @Post(':id/resend-invitation')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  resendInvitation(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.employeeService.resendInvitation(id, user.userId);
+  }
+
+  // Auth Phase 3: employeeId always comes from the JWT via CurrentUser —
+  // never from a param or body — so these two can only ever act on the
+  // caller's own record. No @Roles: any authenticated employee (including
+  // plain EMPLOYEE) may read/edit their own profile.
+  @Get('me/profile')
+  getMyProfile(@CurrentUser() user: { userId: string }) {
+    return this.employeeService.getMyProfile(user.userId);
+  }
+
+  @Patch('me/profile')
+  updateMyProfile(
+    @Body() dto: UpdateMyProfileDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.employeeService.updateMyProfile(user.userId, dto);
+  }
+
   @Get()
   findAll(
     @Query() query: ListEmployeesQueryDto,
@@ -99,6 +148,33 @@ export class EmployeeController {
     @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.employeeService.getOrgChart(id, toRequester(user));
+  }
+
+  // This task: admin employee-profile view — reuses the exact Phase 3
+  // computeProfileCompletion() calculation, just scoped to an arbitrary
+  // employee id instead of the caller's own (via the same read-scope rule
+  // as findOne/getOrgChart above).
+  @Get(':id/profile-completion')
+  getProfileCompletion(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.employeeService.getProfileCompletionForEmployee(
+      id,
+      toRequester(user),
+    );
+  }
+
+  // This task: controlled dismissal/deactivation. SUPER_ADMIN only, per
+  // Part 12 — not extended to HR_ADMIN since no existing capability already
+  // granted it. Never hard-deletes; sets the existing TERMINATED status.
+  @Post(':id/dismiss')
+  @Roles(Role.SUPER_ADMIN)
+  dismissEmployee(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.employeeService.dismissEmployee(id, user.userId);
   }
 
   @Post(':id/reveal')

@@ -72,6 +72,32 @@ export class LeaveController {
     return this.leaveService.listPendingApprovals(user.userId);
   }
 
+  // Phase 6A: company-wide pending list for the combined Attendance & Leave
+  // admin view — SUPER_ADMIN only, per the approved plan. Must be
+  // registered before ':id/decision' etc. is irrelevant here (different
+  // segment count), but grouped with the other pending-list route for
+  // readability.
+  @Get('pending-requests')
+  @Roles(Role.SUPER_ADMIN)
+  pendingRequests() {
+    return this.leaveService.listAllPendingApplications();
+  }
+
+  // Phase 6B: Employee Profile → Leave history. Scope is enforced inside
+  // the service (self / privileged / direct manager) — same pattern as
+  // cancelLeave, not a new rule.
+  @Get('applications/:employeeId')
+  applicationsForEmployee(
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.leaveService.listApplicationsForEmployee(
+      employeeId,
+      user.userId,
+      user.role as Role,
+    );
+  }
+
   @Get('team-calendar')
   teamCalendar(
     @Query('from') from: string,

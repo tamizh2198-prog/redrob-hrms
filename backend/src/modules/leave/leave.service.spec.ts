@@ -9,7 +9,11 @@ import { AttendanceService } from '../attendance/attendance.service';
 
 function createMockPrisma() {
   return {
-    employee: { findUnique: jest.fn(), findMany: jest.fn() },
+    employee: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
     leaveType: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -25,6 +29,7 @@ function createMockPrisma() {
     leaveApplication: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -152,6 +157,126 @@ describe('LeaveService', () => {
     });
   });
 
+  describe('Phase 6E: half-day leave (duration, not a separate leave type)', () => {
+    it('applies daysCount = 0.5 for a HALF_DAY application on a single date', async () => {
+      prisma.leaveApplication.create.mockResolvedValue({
+        id: 'app-1',
+        daysCount: 0.5,
+        approvalSteps: [],
+      });
+
+      await service.applyLeave('emp-1', {
+        leaveTypeId: 'lt-1',
+        startDate: '2026-03-02',
+        endDate: '2026-03-02',
+        duration: 'HALF_DAY',
+      });
+
+      const createArgs = prisma.leaveApplication.create.mock.calls[0][0];
+      expect(createArgs.data.daysCount).toBe(0.5);
+    });
+
+    it('rejects a HALF_DAY application spanning more than one date', async () => {
+      await expect(
+        service.applyLeave('emp-1', {
+          leaveTypeId: 'lt-1',
+          startDate: '2026-03-02',
+          endDate: '2026-03-03',
+          duration: 'HALF_DAY',
+        }),
+      ).rejects.toThrow('Half-day leave can only be applied for a single date');
+      expect(prisma.leaveApplication.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a HALF_DAY application on a non-working day', async () => {
+      calendar.isNonWorkingDay.mockResolvedValue(true);
+
+      await expect(
+        service.applyLeave('emp-1', {
+          leaveTypeId: 'lt-1',
+          startDate: '2026-03-02',
+          endDate: '2026-03-02',
+          duration: 'HALF_DAY',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('validates 0.5 against the available balance (rejects when balance is 0.4)', async () => {
+      prisma.leaveBalance.findUnique.mockResolvedValue({
+        id: 'bal-1',
+        openingBalance: 0.4,
+        accrued: 0,
+        used: 0,
+        carriedForward: 0,
+      });
+
+      await expect(
+        service.applyLeave('emp-1', {
+          leaveTypeId: 'lt-1',
+          startDate: '2026-03-02',
+          endDate: '2026-03-02',
+          duration: 'HALF_DAY',
+        }),
+      ).rejects.toThrow('Insufficient balance');
+    });
+
+    it('overlap check still applies to a half-day application', async () => {
+      prisma.leaveApplication.findFirst.mockResolvedValue({ id: 'existing' });
+
+      await expect(
+        service.applyLeave('emp-1', {
+          leaveTypeId: 'lt-1',
+          startDate: '2026-03-02',
+          endDate: '2026-03-02',
+          duration: 'HALF_DAY',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('final approval of a half-day application debits the balance by exactly 0.5', async () => {
+      prisma.leaveApplication.findUnique.mockResolvedValue({
+        id: 'app-1',
+        employeeId: 'emp-1',
+        leaveTypeId: 'lt-1',
+        startDate: new Date('2026-03-02'),
+        endDate: new Date('2026-03-02'),
+        daysCount: 0.5,
+        status: LeaveApplicationStatus.PENDING,
+        approvalSteps: [
+          {
+            id: 'step-1',
+            sequence: 1,
+            approverId: 'mgr-1',
+            decision: 'PENDING',
+          },
+        ],
+      });
+      prisma.leaveBalance.findUnique.mockResolvedValue({
+        id: 'bal-1',
+        openingBalance: 5,
+        accrued: 0,
+        used: 1,
+        carriedForward: 0,
+      });
+
+      await service.decideLeave(
+        'app-1',
+        'mgr-1',
+        { approve: true },
+        Role.MANAGER,
+      );
+
+      expect(prisma.leaveBalance.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { used: 1.5 } }),
+      );
+      expect(attendance.syncLeaveStatus).toHaveBeenCalledWith(
+        'emp-1',
+        [new Date('2026-03-02')],
+        true,
+      );
+    });
+  });
+
   describe('Business Rule: multi-level approval beyond the consecutive-day threshold', () => {
     it('creates a single approval step for a short application', async () => {
       prisma.leaveApplication.create.mockResolvedValue({
@@ -194,6 +319,54 @@ describe('LeaveService', () => {
       const createArgs = prisma.leaveApplication.create.mock.calls[0][0];
       expect(createArgs.data.approvalSteps.create).toHaveLength(2);
       expect(createArgs.data.approvalSteps.create[1].approverId).toBe('skip-1');
+    });
+  });
+
+  describe('This task: applicant with no reportingManagerId (e.g. Super Admin)', () => {
+    it('falls back to an existing HR Admin/Super Admin as approver, excluding the applicant', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'super-admin-1',
+        reportingManagerId: null,
+      });
+      prisma.employee.findFirst.mockResolvedValue({ id: 'hr-admin-1' });
+      prisma.leaveApplication.create.mockResolvedValue({
+        id: 'app-1',
+        approvalSteps: [],
+      });
+
+      await service.applyLeave('super-admin-1', {
+        leaveTypeId: 'lt-1',
+        startDate: '2026-03-02',
+        endDate: '2026-03-03',
+      });
+
+      expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: { not: 'super-admin-1' } }),
+        }),
+      );
+      const createArgs = prisma.leaveApplication.create.mock.calls[0][0];
+      expect(createArgs.data.currentApproverId).toBe('hr-admin-1');
+      expect(createArgs.data.approvalSteps.create[0].approverId).toBe(
+        'hr-admin-1',
+      );
+    });
+
+    it('rejects explicitly when no manager and no other HR Admin/Super Admin exist', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'super-admin-1',
+        reportingManagerId: null,
+      });
+      prisma.employee.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.applyLeave('super-admin-1', {
+          leaveTypeId: 'lt-1',
+          startDate: '2026-03-02',
+          endDate: '2026-03-03',
+        }),
+      ).rejects.toThrow('No approver is configured for this employee');
+      expect(prisma.leaveApplication.create).not.toHaveBeenCalled();
     });
   });
 
@@ -525,6 +698,130 @@ describe('LeaveService', () => {
       await service.runYearEndClose(2026);
 
       expect(notifications.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Phase 6A: company-wide pending leave listing', () => {
+    it('lists PENDING applications company-wide, unscoped by approver', async () => {
+      prisma.leaveApplication.findMany.mockResolvedValue([
+        { id: 'app-1', status: 'PENDING' },
+        { id: 'app-2', status: 'PENDING' },
+      ]);
+
+      const result = await service.listAllPendingApplications();
+
+      expect(prisma.leaveApplication.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: LeaveApplicationStatus.PENDING },
+        }),
+      );
+      expect(result).toHaveLength(2);
+    });
+
+    it('SECURITY: never returns passwordHash on the included employee', async () => {
+      prisma.leaveApplication.findMany.mockResolvedValue([
+        {
+          id: 'app-1',
+          status: 'PENDING',
+          employee: {
+            id: 'emp-1',
+            firstName: 'Jane',
+            passwordHash: 'super-secret-hash',
+          },
+        },
+      ]);
+
+      const result = await service.listAllPendingApplications();
+
+      expect(result[0].employee).not.toHaveProperty('passwordHash');
+      expect(result[0].employee.firstName).toBe('Jane');
+    });
+  });
+
+  describe('SECURITY: listPendingApprovals and getTeamCalendar never leak passwordHash', () => {
+    it('listPendingApprovals strips passwordHash from the included employee', async () => {
+      prisma.leaveApplication.findMany.mockResolvedValue([
+        {
+          id: 'app-1',
+          status: 'PENDING',
+          employee: {
+            id: 'emp-1',
+            firstName: 'Jane',
+            passwordHash: 'super-secret-hash',
+          },
+        },
+      ]);
+
+      const result = await service.listPendingApprovals('mgr-1');
+
+      expect(result[0].employee).not.toHaveProperty('passwordHash');
+    });
+
+    it('getTeamCalendar strips passwordHash from the included employee', async () => {
+      prisma.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
+      prisma.leaveApplication.findMany.mockResolvedValue([
+        {
+          id: 'app-1',
+          status: 'APPROVED',
+          employee: {
+            id: 'emp-1',
+            firstName: 'Jane',
+            passwordHash: 'super-secret-hash',
+          },
+        },
+      ]);
+
+      const result = await service.getTeamCalendar(
+        'mgr-1',
+        new Date('2026-01-01'),
+        new Date('2026-01-31'),
+      );
+
+      expect(result[0].employee).not.toHaveProperty('passwordHash');
+    });
+  });
+
+  describe('Phase 6B: employee leave-history authorization (Employee Profile → Leave)', () => {
+    it('SUPER_ADMIN can view any employee’s leave history', async () => {
+      prisma.leaveApplication.findMany.mockResolvedValue([{ id: 'app-1' }]);
+
+      const result = await service.listApplicationsForEmployee(
+        'emp-2',
+        'admin-1',
+        Role.SUPER_ADMIN,
+      );
+
+      expect(result).toEqual([{ id: 'app-1' }]);
+    });
+
+    it('an employee can view their own leave history', async () => {
+      prisma.leaveApplication.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.listApplicationsForEmployee('emp-1', 'emp-1', Role.EMPLOYEE),
+      ).resolves.toEqual([]);
+    });
+
+    it('a direct manager can view their report’s leave history', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.leaveApplication.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.listApplicationsForEmployee('emp-2', 'mgr-1', Role.MANAGER),
+      ).resolves.toEqual([]);
+    });
+
+    it('an unrelated EMPLOYEE cannot view another employee’s leave history', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        reportingManagerId: 'someone-else',
+      });
+
+      await expect(
+        service.listApplicationsForEmployee('emp-2', 'emp-3', Role.EMPLOYEE),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.leaveApplication.findMany).not.toHaveBeenCalled();
     });
   });
 });

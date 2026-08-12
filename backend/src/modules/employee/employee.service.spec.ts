@@ -1,8 +1,14 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { EmployeeStatus, Gender, Prisma, Role } from '@prisma/client';
 import { EmployeeService } from './employee.service';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
+import { EmailService } from '../../shared/email/email.service';
+import { hashInvitationToken } from './invitation-token.util';
 
 function createMockPrisma() {
   return {
@@ -29,12 +35,23 @@ function createMockPrisma() {
       findFirst: jest.fn(),
       create: jest.fn(),
     },
+    employeeInvitation: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      findMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 }
 
 function createMockNotifications() {
   return { send: jest.fn().mockResolvedValue(undefined) };
+}
+
+function createMockEmail() {
+  return { send: jest.fn().mockResolvedValue({ sent: true }) };
 }
 
 const VALID_ACTIVE_FIELDS = {
@@ -55,14 +72,17 @@ const VALID_ACTIVE_FIELDS = {
 describe('EmployeeService', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
   let notifications: ReturnType<typeof createMockNotifications>;
+  let email: ReturnType<typeof createMockEmail>;
   let service: EmployeeService;
 
   beforeEach(() => {
     prisma = createMockPrisma();
     notifications = createMockNotifications();
+    email = createMockEmail();
     service = new EmployeeService(
       prisma as unknown as PrismaService,
       notifications as unknown as NotificationService,
+      email as unknown as EmailService,
     );
     prisma.company.findFirst.mockResolvedValue({ id: 'company-1' });
     prisma.employee.count.mockResolvedValue(0);
@@ -499,6 +519,655 @@ describe('EmployeeService', () => {
       await expect(
         service.findOne('emp-9', { userId: 'mgr-1', role: Role.MANAGER }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Auth Phase 2: employee invitation', () => {
+    it('creates an INVITED employee, an invitation record, and sends the email', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null); // no email/code conflict
+      prisma.employee.create.mockResolvedValue({
+        id: 'emp-1',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        workEmail: 'jane@co.com',
+        employeeCode: 'EMP-9999',
+        status: EmployeeStatus.INVITED,
+      });
+
+      const result = await service.inviteEmployee(
+        {
+          email: 'jane@co.com',
+          employeeCode: 'EMP-9999',
+          firstName: 'Jane',
+          lastName: 'Doe',
+        },
+        'actor-1',
+      );
+
+      expect(prisma.employee.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: EmployeeStatus.INVITED }),
+        }),
+      );
+      expect(prisma.employeeInvitation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ employeeId: 'emp-1' }),
+        }),
+      );
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'jane@co.com' }),
+      );
+      expect(result.emailSent).toBe(true);
+      expect(
+        (result.employee as { passwordHash?: string }).passwordHash,
+      ).toBeUndefined();
+    });
+
+    it('never accepts a role field from the caller (server-controlled, defaults to EMPLOYEE)', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({ id: 'emp-1' });
+
+      await service.inviteEmployee(
+        {
+          email: 'x@co.com',
+          employeeCode: 'EMP-1',
+          firstName: 'X',
+          lastName: 'Y',
+        },
+        'actor-1',
+      );
+
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.role).toBeUndefined();
+    });
+
+    it('rejects inviting a duplicate email', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: 'existing-1' });
+      await expect(
+        service.inviteEmployee(
+          {
+            email: 'dup@co.com',
+            employeeCode: 'EMP-2',
+            firstName: 'A',
+            lastName: 'B',
+          },
+          'actor-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects inviting a duplicate employee code', async () => {
+      prisma.employee.findUnique
+        .mockResolvedValueOnce(null) // email check passes
+        .mockResolvedValueOnce({ id: 'existing-1' }); // code check fails
+      await expect(
+        service.inviteEmployee(
+          {
+            email: 'new@co.com',
+            employeeCode: 'EMP-DUP',
+            firstName: 'A',
+            lastName: 'B',
+          },
+          'actor-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('reports emailSent=false without throwing when email delivery fails', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({
+        id: 'emp-1',
+        firstName: 'Jane',
+      });
+      email.send.mockResolvedValue({ sent: false });
+
+      const result = await service.inviteEmployee(
+        {
+          email: 'jane@co.com',
+          employeeCode: 'EMP-1',
+          firstName: 'Jane',
+          lastName: 'Doe',
+        },
+        'actor-1',
+      );
+
+      expect(result.emailSent).toBe(false);
+    });
+
+    it('this task: connects department/location/reportingManager when provided', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({ id: 'emp-1' });
+
+      await service.inviteEmployee(
+        {
+          email: 'x@co.com',
+          employeeCode: 'EMP-1',
+          firstName: 'X',
+          lastName: 'Y',
+          departmentId: 'dept-1',
+          locationId: 'loc-1',
+          reportingManagerId: 'mgr-1',
+        },
+        'actor-1',
+        Role.HR_ADMIN,
+      );
+
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.department).toEqual({ connect: { id: 'dept-1' } });
+      expect(createArg.data.location).toEqual({ connect: { id: 'loc-1' } });
+      expect(createArg.data.reportingManager).toEqual({
+        connect: { id: 'mgr-1' },
+      });
+    });
+
+    it('this task: an HR_ADMIN caller may assign the MANAGER role', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({ id: 'emp-1' });
+
+      await service.inviteEmployee(
+        {
+          email: 'x@co.com',
+          employeeCode: 'EMP-1',
+          firstName: 'X',
+          lastName: 'Y',
+          role: Role.MANAGER,
+        },
+        'actor-1',
+        Role.HR_ADMIN,
+      );
+
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.role).toBe(Role.MANAGER);
+    });
+
+    it('this task: an HR_ADMIN caller CANNOT assign the SUPER_ADMIN role (privilege-escalation guard)', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(
+        service.inviteEmployee(
+          {
+            email: 'x@co.com',
+            employeeCode: 'EMP-1',
+            firstName: 'X',
+            lastName: 'Y',
+            role: Role.SUPER_ADMIN,
+          },
+          'actor-1',
+          Role.HR_ADMIN,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.employee.create).not.toHaveBeenCalled();
+    });
+
+    it('this task: an HR_ADMIN caller CANNOT assign the HR_ADMIN role either', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(
+        service.inviteEmployee(
+          {
+            email: 'x@co.com',
+            employeeCode: 'EMP-1',
+            firstName: 'X',
+            lastName: 'Y',
+            role: Role.HR_ADMIN,
+          },
+          'actor-1',
+          Role.HR_ADMIN,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('this task: a SUPER_ADMIN caller MAY assign the SUPER_ADMIN role', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({ id: 'emp-1' });
+
+      await service.inviteEmployee(
+        {
+          email: 'x@co.com',
+          employeeCode: 'EMP-1',
+          firstName: 'X',
+          lastName: 'Y',
+          role: Role.SUPER_ADMIN,
+        },
+        'actor-1',
+        Role.SUPER_ADMIN,
+      );
+
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.role).toBe(Role.SUPER_ADMIN);
+    });
+  });
+
+  describe('Auth Phase 2: resend invitation', () => {
+    it('deletes previous unused invitations and issues a new one', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.INVITED,
+        workEmail: 'jane@co.com',
+        firstName: 'Jane',
+      });
+
+      await service.resendInvitation('emp-1', 'actor-1');
+
+      expect(prisma.employeeInvitation.deleteMany).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1', usedAt: null },
+      });
+      expect(prisma.employeeInvitation.create).toHaveBeenCalled();
+    });
+
+    it('rejects resending for an already-active employee', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.ACTIVE,
+        workEmail: 'jane@co.com',
+      });
+      await expect(
+        service.resendInvitation('emp-1', 'actor-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException for an unknown employee', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(
+        service.resendInvitation('missing', 'actor-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('Auth Phase 2: account activation', () => {
+    it('activates on a valid token: sets passwordHash + ACTIVE status, marks the token used', async () => {
+      const tokenHash = hashInvitationToken('raw-token-abc');
+      prisma.employeeInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1',
+        employeeId: 'emp-1',
+        tokenHash,
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        employee: { status: EmployeeStatus.INVITED },
+      });
+      prisma.employee.update.mockReturnValue({ id: 'emp-1' });
+      prisma.employeeInvitation.update.mockReturnValue({ id: 'inv-1' });
+      prisma.$transaction.mockResolvedValue([{}, {}]);
+
+      const result = await service.activateAccount({
+        token: 'raw-token-abc',
+        password: 'SuperSecret1!',
+        confirmPassword: 'SuperSecret1!',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'emp-1' },
+          data: expect.objectContaining({ status: EmployeeStatus.ACTIVE }),
+        }),
+      );
+      const [employeeUpdate, invitationUpdate] =
+        prisma.$transaction.mock.calls[0][0];
+      expect(employeeUpdate).toBeDefined();
+      expect(invitationUpdate).toBeDefined();
+    });
+
+    it('rejects when password and confirmPassword do not match', async () => {
+      await expect(
+        service.activateAccount({
+          token: 'raw-token-abc',
+          password: 'SuperSecret1!',
+          confirmPassword: 'Different1!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.employeeInvitation.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid/unknown token', async () => {
+      prisma.employeeInvitation.findUnique.mockResolvedValue(null);
+      await expect(
+        service.activateAccount({
+          token: 'nope',
+          password: 'SuperSecret1!',
+          confirmPassword: 'SuperSecret1!',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects an already-used token', async () => {
+      prisma.employeeInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1',
+        employeeId: 'emp-1',
+        tokenHash: hashInvitationToken('used-token'),
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        employee: { status: EmployeeStatus.ACTIVE },
+      });
+      await expect(
+        service.activateAccount({
+          token: 'used-token',
+          password: 'SuperSecret1!',
+          confirmPassword: 'SuperSecret1!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an expired token', async () => {
+      prisma.employeeInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1',
+        employeeId: 'emp-1',
+        tokenHash: hashInvitationToken('expired-token'),
+        usedAt: null,
+        expiresAt: new Date(Date.now() - 60_000),
+        employee: { status: EmployeeStatus.INVITED },
+      });
+      await expect(
+        service.activateAccount({
+          token: 'expired-token',
+          password: 'SuperSecret1!',
+          confirmPassword: 'SuperSecret1!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('this task: rejects activation via an old invitation once the employee has been terminated', async () => {
+      prisma.employeeInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1',
+        employeeId: 'emp-1',
+        tokenHash: hashInvitationToken('terminated-token'),
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        employee: { status: EmployeeStatus.TERMINATED },
+      });
+      await expect(
+        service.activateAccount({
+          token: 'terminated-token',
+          password: 'SuperSecret1!',
+          confirmPassword: 'SuperSecret1!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('validateInvitationToken returns only safe identity fields for a valid token', async () => {
+      prisma.employeeInvitation.findUnique.mockResolvedValue({
+        id: 'inv-1',
+        employeeId: 'emp-1',
+        tokenHash: hashInvitationToken('raw-token-xyz'),
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        employee: {
+          firstName: 'Jane',
+          lastName: 'Doe',
+          employeeCode: 'EMP-1',
+          workEmail: 'jane@co.com',
+          passwordHash: 'should-not-appear',
+        },
+      });
+
+      const result = await service.validateInvitationToken('raw-token-xyz');
+
+      expect(result).toEqual({
+        firstName: 'Jane',
+        lastName: 'Doe',
+        employeeCode: 'EMP-1',
+        email: 'jane@co.com',
+        expiresAt: expect.any(Date),
+      });
+      expect(
+        (result as { passwordHash?: string }).passwordHash,
+      ).toBeUndefined();
+    });
+  });
+
+  describe('Auth Phase 3: getMyProfile', () => {
+    it('returns the employee, completion info, and never passwordHash', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        dob: null,
+        gender: null,
+        phone: null,
+        addressLine: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        pan: null,
+        bankAccountNumber: null,
+        emergencyContactName: null,
+        emergencyContactPhone: null,
+        passwordHash: 'super-secret-hash',
+      });
+
+      const result = await service.getMyProfile('emp-1');
+
+      expect(result.completionPercentage).toBe(0);
+      expect(result.isComplete).toBe(false);
+      expect(
+        (result.employee as { passwordHash?: string }).passwordHash,
+      ).toBeUndefined();
+    });
+
+    it('throws NotFoundException for a missing employee id', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(service.getMyProfile('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('is scoped to the id passed in — never a param the caller does not control', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1' });
+      await service.getMyProfile('emp-1');
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+        where: { id: 'emp-1' },
+      });
+    });
+  });
+
+  describe('Auth Phase 3: updateMyProfile', () => {
+    it('writes only whitelisted fields and returns updated completion', async () => {
+      prisma.employee.update.mockResolvedValue({
+        id: 'emp-1',
+        dob: new Date('1990-01-01'),
+        gender: 'MALE',
+        phone: '9999999999',
+        addressLine: '123 Main St',
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        postalCode: '560001',
+        pan: 'ABCDE1234F',
+        bankAccountNumber: '000111222333',
+        emergencyContactName: 'John Doe',
+        emergencyContactPhone: '8888888888',
+      });
+
+      const result = await service.updateMyProfile('emp-1', {
+        dob: '1990-01-01',
+        phone: '9999999999',
+      });
+
+      expect(prisma.employee.update).toHaveBeenCalledWith({
+        where: { id: 'emp-1' },
+        data: expect.objectContaining({ phone: '9999999999' }),
+      });
+      expect(result.completionPercentage).toBeGreaterThan(0);
+    });
+
+    it('SECURITY: ignores role/departmentId/companyId/reportingManagerId/status even if somehow present on the dto object', async () => {
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
+
+      const maliciousDto = {
+        phone: '9999999999',
+        role: 'SUPER_ADMIN',
+        departmentId: 'dept-evil',
+        companyId: 'company-evil',
+        reportingManagerId: 'mgr-evil',
+        status: 'ACTIVE',
+      } as unknown as Parameters<typeof service.updateMyProfile>[1];
+
+      await service.updateMyProfile('emp-1', maliciousDto);
+
+      const updateArg = prisma.employee.update.mock.calls[0][0];
+      expect(updateArg.data).not.toHaveProperty('role');
+      expect(updateArg.data).not.toHaveProperty('departmentId');
+      expect(updateArg.data).not.toHaveProperty('companyId');
+      expect(updateArg.data).not.toHaveProperty('reportingManagerId');
+      expect(updateArg.data).not.toHaveProperty('status');
+      expect(updateArg.data).not.toHaveProperty('employeeCode');
+      expect(updateArg.data).not.toHaveProperty('passwordHash');
+    });
+
+    it('SECURITY: passwordHash cannot be set through this endpoint even if present on the dto object', async () => {
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
+      const maliciousDto = {
+        passwordHash: 'attacker-controlled-hash',
+      } as unknown as Parameters<typeof service.updateMyProfile>[1];
+
+      await service.updateMyProfile('emp-1', maliciousDto);
+
+      const updateArg = prisma.employee.update.mock.calls[0][0];
+      expect(updateArg.data).not.toHaveProperty('passwordHash');
+    });
+
+    it('never returns passwordHash after an update', async () => {
+      prisma.employee.update.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: 'super-secret-hash',
+      });
+      const result = await service.updateMyProfile('emp-1', { phone: '123' });
+      expect(
+        (result.employee as { passwordHash?: string }).passwordHash,
+      ).toBeUndefined();
+    });
+
+    it('scopes the write to the given employeeId only', async () => {
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
+      await service.updateMyProfile('emp-1', { phone: '123' });
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'emp-1' } }),
+      );
+    });
+  });
+
+  describe('This task: employee dismissal/termination', () => {
+    it('sets status to TERMINATED and invalidates any unused invitation, without deleting the record', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.ACTIVE,
+        employeeCode: 'EMP-1',
+      });
+      prisma.$transaction.mockResolvedValue([
+        {
+          id: 'emp-1',
+          employeeCode: 'EMP-1',
+          status: EmployeeStatus.TERMINATED,
+        },
+        { count: 1 },
+      ]);
+
+      const result = await service.dismissEmployee('emp-1', 'actor-1');
+
+      const ops = prisma.$transaction.mock.calls[0][0];
+      expect(ops).toHaveLength(2);
+      expect(prisma.employee.update).toHaveBeenCalledWith({
+        where: { id: 'emp-1' },
+        data: { status: EmployeeStatus.TERMINATED },
+      });
+      expect(prisma.employeeInvitation.deleteMany).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1', usedAt: null },
+      });
+      expect(result.status).toBe(EmployeeStatus.TERMINATED);
+      expect(result.employeeCode).toBe('EMP-1');
+      expect(
+        (result as { passwordHash?: string }).passwordHash,
+      ).toBeUndefined();
+    });
+
+    it('rejects dismissing an already-terminated employee (idempotency guard)', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.TERMINATED,
+      });
+      await expect(service.dismissEmployee('emp-1', 'actor-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for an unknown employee', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(
+        service.dismissEmployee('missing', 'actor-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('never hard-deletes the employee record', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.ACTIVE,
+      });
+      prisma.$transaction.mockResolvedValue([
+        { id: 'emp-1', status: EmployeeStatus.TERMINATED },
+        { count: 0 },
+      ]);
+      await service.dismissEmployee('emp-1', 'actor-1');
+      expect(
+        (prisma.employee as unknown as Record<string, unknown>).delete,
+      ).toBeUndefined();
+    });
+  });
+
+  describe('This task: admin employee-profile completion (reuses Auth Phase 3 calculation)', () => {
+    it('a SUPER_ADMIN can view another employee’s completion breakdown', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-2',
+        dob: null,
+        gender: null,
+        phone: null,
+        addressLine: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        pan: null,
+        bankAccountNumber: null,
+        emergencyContactName: null,
+        emergencyContactPhone: null,
+      });
+
+      const result = await service.getProfileCompletionForEmployee('emp-2', {
+        userId: 'admin-1',
+        role: Role.SUPER_ADMIN,
+      });
+
+      expect(result.completionPercentage).toBe(0);
+      expect(result.isComplete).toBe(false);
+      expect(result.missingFields.length).toBeGreaterThan(0);
+    });
+
+    it('a plain EMPLOYEE cannot view another employee’s completion breakdown', async () => {
+      await expect(
+        service.getProfileCompletionForEmployee('emp-2', {
+          userId: 'emp-3',
+          role: Role.EMPLOYEE,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('an employee can view their own completion breakdown', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-3',
+        dob: new Date('1990-01-01'),
+        gender: Gender.FEMALE,
+        phone: '9999999999',
+        addressLine: 'Line 1',
+        city: 'City',
+        state: 'State',
+        postalCode: '000000',
+        pan: 'ABCDE1234F',
+        bankAccountNumber: '123456',
+        emergencyContactName: 'Contact',
+        emergencyContactPhone: '8888888888',
+      });
+
+      const result = await service.getProfileCompletionForEmployee('emp-3', {
+        userId: 'emp-3',
+        role: Role.EMPLOYEE,
+      });
+
+      expect(result.isComplete).toBe(true);
     });
   });
 });

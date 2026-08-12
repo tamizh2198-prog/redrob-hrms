@@ -80,6 +80,7 @@ describe('AnalyticsService', () => {
       prisma.candidate.groupBy.mockResolvedValue([]);
       prisma.jobRequisition.count.mockResolvedValue(0);
       prisma.leaveBalance.findMany.mockResolvedValue([]);
+      prisma.attendanceRecord.groupBy.mockResolvedValue([]);
 
       const result = (await service.getDashboard('sa-1', 'SUPER_ADMIN')) as any;
       expect(result.role).toBe('SUPER_ADMIN');
@@ -155,6 +156,7 @@ describe('AnalyticsService', () => {
         { openingBalance: 2, accrued: 5, carriedForward: 1, used: 3 },
         { openingBalance: 0, accrued: 4, carriedForward: 0, used: 1 },
       ]);
+      prisma.attendanceRecord.groupBy.mockResolvedValue([]);
 
       const result = (await service.getDashboard('hr-1', 'HR_ADMIN')) as any;
 
@@ -165,6 +167,52 @@ describe('AnalyticsService', () => {
       expect(result.attritionLast90Days).toBe(1);
       expect(result.hiringFunnel).toEqual([{ stage: 'OFFER', count: 2 }]);
       expect(result.openRequisitions).toBe(4);
+    });
+
+    it('Phase 6C: computes a company-wide attendance summary + percentage for today', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'hr-1',
+        companyId: 'co-1',
+      });
+      prisma.employee.groupBy.mockResolvedValue([]);
+      prisma.resignation.count.mockResolvedValue(0);
+      prisma.candidate.groupBy.mockResolvedValue([]);
+      prisma.jobRequisition.count.mockResolvedValue(0);
+      prisma.leaveBalance.findMany.mockResolvedValue([]);
+      prisma.attendanceRecord.groupBy.mockResolvedValue([
+        { status: 'PRESENT', _count: 6 },
+        { status: 'ABSENT', _count: 2 },
+        { status: 'ON_LEAVE', _count: 1 },
+        { status: 'HALF_DAY', _count: 1 },
+      ]);
+
+      const result = (await service.getDashboard('hr-1', 'HR_ADMIN')) as any;
+
+      expect(result.attendanceToday).toEqual([
+        { status: 'PRESENT', count: 6 },
+        { status: 'ABSENT', count: 2 },
+        { status: 'ON_LEAVE', count: 1 },
+        { status: 'HALF_DAY', count: 1 },
+      ]);
+      // present-like = PRESENT(6) + HALF_DAY(1) = 7 of 10 total
+      expect(result.attendancePercentToday).toBe(70);
+    });
+
+    it('Phase 6C: reports null attendance percentage when no records exist for today', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'hr-1',
+        companyId: 'co-1',
+      });
+      prisma.employee.groupBy.mockResolvedValue([]);
+      prisma.resignation.count.mockResolvedValue(0);
+      prisma.candidate.groupBy.mockResolvedValue([]);
+      prisma.jobRequisition.count.mockResolvedValue(0);
+      prisma.leaveBalance.findMany.mockResolvedValue([]);
+      prisma.attendanceRecord.groupBy.mockResolvedValue([]);
+
+      const result = (await service.getDashboard('hr-1', 'HR_ADMIN')) as any;
+
+      expect(result.attendancePercentToday).toBeNull();
     });
   });
 

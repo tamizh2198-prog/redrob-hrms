@@ -9,10 +9,24 @@ import { plainToInstance } from 'class-transformer';
 import { Employee, EmployeeStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
+import { EmailService } from '../../shared/email/email.service';
+import { hashPassword } from '../../shared/auth/password.util';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
+import { InviteEmployeeDto } from './dto/invite-employee.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import type { ActivateAccountDto } from '../../shared/auth/dto/activate-account.dto';
 import { RequesterContext, SELF_SERVICE_FIELDS } from './employee.types';
+import {
+  generateInvitationToken,
+  hashInvitationToken,
+} from './invitation-token.util';
+import { computeProfileCompletion } from './profile-completion.util';
+
+const INVITATION_TTL_HOURS = 72;
+
+type SafeEmployee = Omit<Employee, 'passwordHash'>;
 
 const ACTIVE_STATUSES: EmployeeStatus[] = [
   EmployeeStatus.ACTIVE,
@@ -36,21 +50,34 @@ export class EmployeeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly email: EmailService,
   ) {}
 
+  // Auth Phase 2 fix: passwordHash (added in Auth Phase 1) was never
+  // stripped from Employee API responses — this is the single choke point
+  // every read path (findAll/findOne/update, and now invite) already
+  // passes through, so removing it here closes that gap everywhere at once
+  // without changing any other field.
   maskSensitiveFields(
     employee: Employee,
     requester: RequesterContext,
-  ): Employee {
+  ): SafeEmployee {
     const isSelf = requester.userId === employee.id;
+    const safe = this.stripPasswordHash(employee);
     if (isPrivilegedRole(requester.role) || isSelf) {
-      return employee;
+      return safe;
     }
-    const masked = { ...employee };
+    const masked = { ...safe };
     for (const field of SENSITIVE_FIELDS) {
       masked[field] = maskValue(employee[field]);
     }
     return masked;
+  }
+
+  private stripPasswordHash(employee: Employee): SafeEmployee {
+    const safe: Partial<Employee> = { ...employee };
+    delete safe.passwordHash;
+    return safe as SafeEmployee;
   }
 
   private assertMandatoryFieldsForActive(
@@ -189,7 +216,7 @@ export class EmployeeService {
     };
   }
 
-  async create(dto: CreateEmployeeDto, actorId: string): Promise<Employee> {
+  async create(dto: CreateEmployeeDto, actorId: string): Promise<SafeEmployee> {
     const companyId = dto.companyId ?? (await this.getDefaultCompanyId());
     const status = dto.status ?? EmployeeStatus.ACTIVE_PROBATION;
 
@@ -228,7 +255,354 @@ export class EmployeeService {
       data: { createdBy: actorId },
     });
 
-    return employee;
+    return this.stripPasswordHash(employee);
+  }
+
+  // ---------------------------------------------------------------------
+  // Auth Phase 2: employee invitation + account activation. Deliberately
+  // separate from create() above — that method's mandatory-for-active
+  // field set (dob, PAN, bank details, ...) doesn't apply to an
+  // invited-but-not-onboarded account, and the input shape (admin-supplied
+  // employeeCode, no profile fields) is genuinely different.
+  // ---------------------------------------------------------------------
+
+  // actorRole guards dto.role below (this task's single-create-path
+  // change): without it, any HR_ADMIN able to call this endpoint could
+  // invite a new SUPER_ADMIN. Optional only so existing call sites/tests
+  // that never pass a role remain unaffected.
+  async inviteEmployee(
+    dto: InviteEmployeeDto,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    const existingByEmail = await this.prisma.employee.findUnique({
+      where: { workEmail: dto.email },
+    });
+    if (existingByEmail) {
+      throw new BadRequestException(
+        'An employee with this email already exists',
+      );
+    }
+    const existingByCode = await this.prisma.employee.findUnique({
+      where: { employeeCode: dto.employeeCode },
+    });
+    if (existingByCode) {
+      throw new BadRequestException(
+        'An employee with this employee code already exists',
+      );
+    }
+
+    let role: Role | undefined;
+    if (dto.role) {
+      const isPrivilegedRoleRequested =
+        dto.role === Role.SUPER_ADMIN || dto.role === Role.HR_ADMIN;
+      if (isPrivilegedRoleRequested && actorRole !== Role.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Only a Super Admin can assign the HR Admin or Super Admin role',
+        );
+      }
+      role = dto.role;
+    }
+
+    await this.assertNoCircularManager(null, dto.reportingManagerId);
+
+    const companyId = await this.getDefaultCompanyId();
+    const employee = await this.prisma.employee.create({
+      data: {
+        company: { connect: { id: companyId } },
+        employeeCode: dto.employeeCode,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        workEmail: dto.email,
+        status: EmployeeStatus.INVITED,
+        // role: EMPLOYEE (Prisma schema default) unless explicitly
+        // requested and permitted above — never accepted unguarded.
+        role,
+        department: dto.departmentId
+          ? { connect: { id: dto.departmentId } }
+          : undefined,
+        location: dto.locationId
+          ? { connect: { id: dto.locationId } }
+          : undefined,
+        reportingManager: dto.reportingManagerId
+          ? { connect: { id: dto.reportingManagerId } }
+          : undefined,
+      },
+    });
+
+    const { rawToken, expiresAt } = await this.createInvitationToken(
+      employee.id,
+    );
+    const emailSent = await this.sendInvitationEmail(
+      employee.firstName,
+      dto.email,
+      rawToken,
+      false,
+    );
+
+    await this.notifications.send({
+      recipientId: employee.id,
+      template: 'employee.invited',
+      data: { invitedBy: actorId },
+    });
+
+    return {
+      employee: this.stripPasswordHash(employee),
+      invitation: { expiresAt },
+      emailSent,
+    };
+  }
+
+  // Business rule: only an employee still in the INVITED state can be
+  // re-invited (an already-active account has nothing to activate).
+  // Previous unused invitations are deleted outright so a stale link stops
+  // working the instant a new one is issued, rather than merely aging out.
+  async resendInvitation(employeeId: string, actorId: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.status !== EmployeeStatus.INVITED) {
+      throw new BadRequestException(
+        'Only invited (not yet activated) employees can be re-invited',
+      );
+    }
+    if (!employee.workEmail) {
+      throw new BadRequestException(
+        'This employee has no email on file to invite',
+      );
+    }
+
+    await this.prisma.employeeInvitation.deleteMany({
+      where: { employeeId, usedAt: null },
+    });
+
+    const { rawToken, expiresAt } =
+      await this.createInvitationToken(employeeId);
+    const emailSent = await this.sendInvitationEmail(
+      employee.firstName,
+      employee.workEmail,
+      rawToken,
+      true,
+    );
+
+    await this.notifications.send({
+      recipientId: employee.id,
+      template: 'employee.invited',
+      data: { invitedBy: actorId, resend: true },
+    });
+
+    return { invitation: { expiresAt }, emailSent };
+  }
+
+  // This task: employee dismissal/deactivation. Never a hard delete —
+  // Employee is historical HR data (attendance/leave/performance rows all
+  // reference it by id). Reuses the existing TERMINATED status rather than
+  // introducing a new one, and reuses the same "delete unused invitations"
+  // step resendInvitation already relies on to invalidate any pending
+  // invite, so a terminated employee's old invitation link stops working
+  // immediately rather than merely failing the status check in
+  // findValidInvitationOrThrow as a fallback.
+  async dismissEmployee(id: string, actorId: string): Promise<SafeEmployee> {
+    const employee = await this.prisma.employee.findUnique({ where: { id } });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.status === EmployeeStatus.TERMINATED) {
+      throw new BadRequestException('Employee is already terminated');
+    }
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.employee.update({
+        where: { id },
+        data: { status: EmployeeStatus.TERMINATED },
+      }),
+      this.prisma.employeeInvitation.deleteMany({
+        where: { employeeId: id, usedAt: null },
+      }),
+    ]);
+
+    await this.notifications.send({
+      recipientId: id,
+      template: 'employee.terminated',
+      data: { terminatedBy: actorId },
+    });
+
+    return this.stripPasswordHash(updated);
+  }
+
+  listPendingInvitations() {
+    return this.prisma.employeeInvitation.findMany({
+      where: { usedAt: null },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            employeeCode: true,
+            workEmail: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Read-only check used by the public activation page to render the
+  // employee's name before they submit a password — never returns
+  // passwordHash or any field beyond basic identity.
+  async validateInvitationToken(rawToken: string) {
+    const invitation = await this.findValidInvitationOrThrow(rawToken);
+    return {
+      firstName: invitation.employee.firstName,
+      lastName: invitation.employee.lastName,
+      employeeCode: invitation.employee.employeeCode,
+      email: invitation.employee.workEmail,
+      expiresAt: invitation.expiresAt,
+    };
+  }
+
+  // Security requirements (Auth Phase 2 #8): role/employeeCode/company/
+  // department/manager are never touched here — activation only ever sets
+  // passwordHash + status, both derived server-side.
+  async activateAccount(dto: ActivateAccountDto): Promise<{ success: true }> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const invitation = await this.findValidInvitationOrThrow(dto.token);
+    const passwordHash = await hashPassword(dto.password);
+
+    await this.prisma.$transaction([
+      this.prisma.employee.update({
+        where: { id: invitation.employeeId },
+        data: { passwordHash, status: EmployeeStatus.ACTIVE },
+      }),
+      this.prisma.employeeInvitation.update({
+        where: { id: invitation.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    return { success: true };
+  }
+
+  private async findValidInvitationOrThrow(rawToken: string) {
+    const tokenHash = hashInvitationToken(rawToken);
+    const invitation = await this.prisma.employeeInvitation.findUnique({
+      where: { tokenHash },
+      include: { employee: true },
+    });
+    if (!invitation) {
+      throw new NotFoundException('Invalid or expired invitation link');
+    }
+    if (invitation.employee.status === EmployeeStatus.TERMINATED) {
+      throw new BadRequestException('This invitation link is no longer valid');
+    }
+    if (invitation.usedAt) {
+      throw new BadRequestException(
+        'This invitation link has already been used',
+      );
+    }
+    if (invitation.expiresAt < new Date()) {
+      throw new BadRequestException('This invitation link has expired');
+    }
+    return invitation;
+  }
+
+  private async createInvitationToken(employeeId: string) {
+    const rawToken = generateInvitationToken();
+    const tokenHash = hashInvitationToken(rawToken);
+    const expiresAt = new Date(
+      Date.now() + INVITATION_TTL_HOURS * 60 * 60 * 1000,
+    );
+    await this.prisma.employeeInvitation.create({
+      data: { employeeId, tokenHash, expiresAt },
+    });
+    return { rawToken, expiresAt };
+  }
+
+  private async sendInvitationEmail(
+    firstName: string,
+    email: string,
+    rawToken: string,
+    isResend: boolean,
+  ): Promise<boolean> {
+    const baseUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+    const invitationUrl = `${baseUrl}/activate-account?token=${rawToken}`;
+    const result = await this.email.send({
+      to: email,
+      subject: 'You are invited to Redrob HRMS',
+      text: [
+        `Hi ${firstName},`,
+        '',
+        isResend
+          ? 'Here is a new invitation link to activate your Redrob HRMS account.'
+          : 'You have been invited to activate your Redrob HRMS account.',
+        `Activate your account: ${invitationUrl}`,
+        `This link expires in ${INVITATION_TTL_HOURS} hours.`,
+        '',
+        'If you were not expecting this invitation, you can ignore this email.',
+      ].join('\n'),
+    });
+    return result.sent;
+  }
+
+  // ---------------------------------------------------------------------
+  // Auth Phase 3: employee profile completion. employeeId always comes
+  // from the authenticated CurrentUser (see controller) — never from a
+  // param or body — so this pair of methods can only ever read/write the
+  // caller's own record.
+  // ---------------------------------------------------------------------
+
+  async getMyProfile(employeeId: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    return {
+      employee: this.stripPasswordHash(employee),
+      ...computeProfileCompletion(employee),
+    };
+  }
+
+  // Deliberately a DIRECT write, not routed through the change-request/
+  // HR-approval path that the generic PATCH /employees/:id self-service
+  // update uses (see createChangeRequestsFromDto) — that flow exists for
+  // employees CHANGING an already-established master-record value.
+  // Profile completion is filling in blank fields that don't have an
+  // established value yet, and Auth Phase 3 explicitly requires the save
+  // to take effect immediately (Save & Continue / Save & Complete Later),
+  // not sit pending HR approval. The dto only ever declares the fields
+  // below (see update-my-profile.dto.ts) — role/company/department/
+  // designation/reportingManager/status/employeeCode/passwordHash are
+  // never accepted here.
+  async updateMyProfile(employeeId: string, dto: UpdateMyProfileDto) {
+    const updated = await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        dob: dto.dob !== undefined ? new Date(dto.dob) : undefined,
+        gender: dto.gender,
+        phone: dto.phone,
+        personalEmail: dto.personalEmail,
+        addressLine: dto.addressLine,
+        city: dto.city,
+        state: dto.state,
+        country: dto.country,
+        postalCode: dto.postalCode,
+        pan: dto.pan,
+        aadhaar: dto.aadhaar,
+        bankAccountNumber: dto.bankAccountNumber,
+        emergencyContactName: dto.emergencyContactName,
+        emergencyContactPhone: dto.emergencyContactPhone,
+      },
+    });
+
+    return {
+      employee: this.stripPasswordHash(updated),
+      ...computeProfileCompletion(updated),
+    };
   }
 
   async getReferenceData() {
@@ -306,7 +680,10 @@ export class EmployeeService {
     };
   }
 
-  async findOne(id: string, requester: RequesterContext): Promise<Employee> {
+  async findOne(
+    id: string,
+    requester: RequesterContext,
+  ): Promise<SafeEmployee> {
     const employee = await this.prisma.employee.findUnique({ where: { id } });
     if (!employee) throw new NotFoundException('Employee not found');
     await this.assertReadScope(id, requester);
@@ -345,6 +722,21 @@ export class EmployeeService {
       if (currentId === managerId) return true;
     }
     return false;
+  }
+
+  // This task: lets the admin employee-profile view show the same
+  // completion percentage/missing-fields breakdown Auth Phase 3 already
+  // computes for self-service — reuses computeProfileCompletion() directly
+  // rather than recalculating it, scoped by the same read-access rule as
+  // findOne/getOrgChart (self, privileged, or the target's manager).
+  async getProfileCompletionForEmployee(
+    id: string,
+    requester: RequesterContext,
+  ) {
+    await this.assertReadScope(id, requester);
+    const employee = await this.prisma.employee.findUnique({ where: { id } });
+    if (!employee) throw new NotFoundException('Employee not found');
+    return computeProfileCompletion(employee);
   }
 
   async revealSensitiveFields(id: string, requester: RequesterContext) {

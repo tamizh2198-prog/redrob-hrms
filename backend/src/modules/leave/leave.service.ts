@@ -195,9 +195,12 @@ export class LeaveService {
     return count;
   }
 
-  private async findHrAdminId(): Promise<string | null> {
+  private async findHrAdminId(excludeId?: string): Promise<string | null> {
     const hrAdmin = await this.prisma.employee.findFirst({
-      where: { role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] } },
+      where: {
+        role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] },
+        ...(excludeId && { id: { not: excludeId } }),
+      },
     });
     return hrAdmin?.id ?? null;
   }
@@ -219,8 +222,20 @@ export class LeaveService {
       throw new BadRequestException('endDate cannot be before startDate');
     }
 
+    // Phase 6E: half-day is a DURATION, not a separate LeaveType — it only
+    // ever applies to a single date, since "half of a multi-day range"
+    // isn't a coherent request.
+    const isHalfDay = dto.duration === 'HALF_DAY';
+    if (isHalfDay && startDate.getTime() !== endDate.getTime()) {
+      throw new BadRequestException(
+        'Half-day leave can only be applied for a single date',
+      );
+    }
+
     // Business Rule: applications overlapping an already-approved/pending
-    // leave are rejected rather than silently adjusted.
+    // leave are rejected rather than silently adjusted. Unchanged for
+    // half-day — the same date-range overlap check already catches a
+    // half-day request landing on a date that's already leave-covered.
     const overlapping = await this.prisma.leaveApplication.findFirst({
       where: {
         employeeId,
@@ -237,15 +252,29 @@ export class LeaveService {
       );
     }
 
-    const daysCount = await this.countDeductibleDays(
-      employeeId,
-      startDate,
-      endDate,
-    );
-    if (daysCount === 0) {
-      throw new BadRequestException(
-        'This range contains no deductible days (all holidays/week-offs)',
+    let daysCount: number;
+    if (isHalfDay) {
+      const nonWorking = await this.calendar.isNonWorkingDay(
+        employeeId,
+        startDate,
       );
+      if (nonWorking) {
+        throw new BadRequestException(
+          'This date is not a working day (holiday/week-off)',
+        );
+      }
+      daysCount = 0.5;
+    } else {
+      daysCount = await this.countDeductibleDays(
+        employeeId,
+        startDate,
+        endDate,
+      );
+      if (daysCount === 0) {
+        throw new BadRequestException(
+          'This range contains no deductible days (all holidays/week-offs)',
+        );
+      }
     }
 
     const year = startDate.getFullYear();
@@ -270,7 +299,24 @@ export class LeaveService {
       );
     }
 
-    const approverIds: (string | null)[] = [employee.reportingManagerId];
+    // This task: an employee with no reportingManagerId (e.g. Super Admin)
+    // previously got an empty approvalSteps array — the application sat
+    // PENDING forever with no one able to decide it. Reuses the existing
+    // HR/Super Admin lookup already used for the >5-day escalation case
+    // below, excluding the applicant themselves — never inventing a new
+    // approver concept. If no other HR Admin/Super Admin exists at all,
+    // fail explicitly rather than silently leaving it undecidable.
+    let firstApproverId = employee.reportingManagerId;
+    if (!firstApproverId) {
+      firstApproverId = await this.findHrAdminId(employeeId);
+      if (!firstApproverId) {
+        throw new BadRequestException(
+          'No approver is configured for this employee: they have no reporting manager, and no other HR Admin/Super Admin exists in the company to fall back to. Assign a reporting manager, or add a second HR Admin/Super Admin, before applying for leave.',
+        );
+      }
+    }
+
+    const approverIds: (string | null)[] = [firstApproverId];
     if (daysCount > CONSECUTIVE_DAY_ESCALATION_THRESHOLD) {
       const manager = employee.reportingManagerId
         ? await this.prisma.employee.findUnique({
@@ -497,8 +543,23 @@ export class LeaveService {
     });
   }
 
+  // This task: passwordHash was being returned unstripped through every
+  // method here that includes `employee` — discovered live while testing
+  // the new pending-requests admin view. Fixed at the one place all three
+  // affected methods can share it, rather than three separate patches.
+  private stripEmployeePasswordHash<
+    T extends { employee?: { passwordHash?: string | null } | null },
+  >(applications: T[]): T[] {
+    return applications.map((application) => {
+      if (!application.employee) return application;
+      const safeEmployee: Record<string, unknown> = { ...application.employee };
+      delete safeEmployee.passwordHash;
+      return { ...application, employee: safeEmployee };
+    });
+  }
+
   async listPendingApprovals(approverId: string) {
-    return this.prisma.leaveApplication.findMany({
+    const applications = await this.prisma.leaveApplication.findMany({
       where: {
         status: LeaveApplicationStatus.PENDING,
         approvalSteps: { some: { approverId, decision: 'PENDING' } },
@@ -506,6 +567,50 @@ export class LeaveService {
       include: { employee: true, leaveType: true },
       orderBy: { createdAt: 'desc' },
     });
+    return this.stripEmployeePasswordHash(applications);
+  }
+
+  // Phase 6A: unlike listPendingApprovals above (scoped to one assigned
+  // approver), this is the company-wide list — SUPER_ADMIN is already an
+  // authorized decider for any pending application via decideLeave()'s
+  // isPrivileged() escalation, but had no way to see the full list before
+  // this. Controller restricts this to SUPER_ADMIN.
+  async listAllPendingApplications() {
+    const applications = await this.prisma.leaveApplication.findMany({
+      where: { status: LeaveApplicationStatus.PENDING },
+      include: { employee: true, leaveType: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.stripEmployeePasswordHash(applications);
+  }
+
+  // Phase 6B: reuses the exact same authorization shape already used by
+  // cancelLeave() above (self, privileged, or the employee's direct
+  // manager) rather than inventing a new scope rule.
+  private async assertCanViewLeaveHistory(
+    employeeId: string,
+    actorId: string,
+    actorRole?: Role,
+  ): Promise<void> {
+    if (isPrivileged(actorRole)) return;
+    if (actorId === employeeId) return;
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { reportingManagerId: true },
+    });
+    if (employee?.reportingManagerId === actorId) return;
+    throw new ForbiddenException(
+      "Not authorized to view this employee's leave history",
+    );
+  }
+
+  async listApplicationsForEmployee(
+    employeeId: string,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    await this.assertCanViewLeaveHistory(employeeId, actorId, actorRole);
+    return this.listMyApplications(employeeId);
   }
 
   async getTeamCalendar(managerId: string, from: Date, to: Date) {
@@ -513,7 +618,7 @@ export class LeaveService {
       where: { reportingManagerId: managerId },
       select: { id: true },
     });
-    return this.prisma.leaveApplication.findMany({
+    const applications = await this.prisma.leaveApplication.findMany({
       where: {
         employeeId: { in: reports.map((r) => r.id) },
         status: LeaveApplicationStatus.APPROVED,
@@ -522,6 +627,7 @@ export class LeaveService {
       },
       include: { employee: true, leaveType: true },
     });
+    return this.stripEmployeePasswordHash(applications);
   }
 
   // Section 7.3 Acceptance Criteria: "Carry-forward cap and auto-encashment/

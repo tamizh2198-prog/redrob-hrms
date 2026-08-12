@@ -18,7 +18,7 @@ function createMockPrisma() {
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
-      findMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     employee: { findUnique: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
@@ -74,6 +74,45 @@ describe('AttendanceService', () => {
       await expect(service.punch('emp-1', 'OUT')).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('Phase 6D: minimum 5-minute interval between Punch In and Punch Out', () => {
+    it('rejects a punch-out 3 minutes after punch-in', async () => {
+      prisma.attendanceRecord.findUnique.mockResolvedValue({
+        checkInTime: new Date(Date.now() - 3 * 60 * 1000),
+        checkOutTime: null,
+      });
+
+      await expect(service.punch('emp-1', 'OUT')).rejects.toThrow(
+        'Punch out must be at least 5 minutes after punch in',
+      );
+      expect(prisma.attendanceRecord.update).not.toHaveBeenCalled();
+    });
+
+    it('allows a punch-out exactly 5 minutes after punch-in', async () => {
+      prisma.attendanceRecord.findUnique.mockResolvedValue({
+        checkInTime: new Date(Date.now() - 5 * 60 * 1000),
+        checkOutTime: null,
+      });
+      prisma.attendanceRecord.update.mockResolvedValue({
+        status: AttendanceStatus.PRESENT,
+      });
+
+      await expect(service.punch('emp-1', 'OUT')).resolves.toBeDefined();
+      expect(prisma.attendanceRecord.update).toHaveBeenCalled();
+    });
+
+    it('allows a punch-out well after the 5-minute minimum', async () => {
+      prisma.attendanceRecord.findUnique.mockResolvedValue({
+        checkInTime: new Date(Date.now() - 20 * 60 * 1000),
+        checkOutTime: null,
+      });
+      prisma.attendanceRecord.update.mockResolvedValue({
+        status: AttendanceStatus.PRESENT,
+      });
+
+      await expect(service.punch('emp-1', 'OUT')).resolves.toBeDefined();
     });
   });
 
@@ -290,6 +329,110 @@ describe('AttendanceService', () => {
 
       expect(result.matchedCount).toBe(1);
       expect(result.unmatchedCount).toBe(0);
+    });
+  });
+
+  describe('This task: getCalendar returns check-in/out, duration, and regularization info', () => {
+    it('includes checkInTime/checkOutTime/workHours for a day with a record', async () => {
+      const checkInTime = new Date('2026-01-05T09:00:00Z');
+      const checkOutTime = new Date('2026-01-05T18:00:00Z');
+      prisma.attendanceRecord.findMany.mockResolvedValue([
+        {
+          date: new Date('2026-01-05T00:00:00Z'),
+          status: AttendanceStatus.PRESENT,
+          checkInTime,
+          checkOutTime,
+          workHours: 9,
+        },
+      ]);
+
+      const days = await service.getCalendar('emp-1', 2026, 1);
+      const jan5 = days.find((d) => d.date === '2026-01-05');
+
+      expect(jan5?.checkInTime).toBe(checkInTime);
+      expect(jan5?.checkOutTime).toBe(checkOutTime);
+      expect(jan5?.workHours).toBe(9);
+    });
+
+    it('attaches the most recent regularization for a date, when one exists', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+      prisma.regularizationRequest.findMany.mockResolvedValue([
+        {
+          date: new Date('2026-01-05T00:00:00Z'),
+          status: 'PENDING',
+          requestedStatus: AttendanceStatus.WFH,
+          reason: 'Worked from client site',
+          createdAt: new Date('2026-01-06T00:00:00Z'),
+        },
+      ]);
+
+      const days = await service.getCalendar('emp-1', 2026, 1);
+      const jan5 = days.find((d) => d.date === '2026-01-05');
+
+      expect(jan5?.regularization).toEqual({
+        status: 'PENDING',
+        requestedStatus: AttendanceStatus.WFH,
+        reason: 'Worked from client site',
+      });
+    });
+
+    it('reports null regularization for a date with no request', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+
+      const days = await service.getCalendar('emp-1', 2026, 1);
+      const jan10 = days.find((d) => d.date === '2026-01-10');
+
+      expect(jan10?.regularization).toBeNull();
+    });
+  });
+
+  describe('This task: a day with no record is only ABSENT if it has already happened', () => {
+    it('reports ABSENT for a past date with no record (unchanged behavior)', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+
+      const days = await service.getCalendar('emp-1', 2026, 1);
+      const jan10 = days.find((d) => d.date === '2026-01-10');
+
+      expect(jan10?.status).toBe(AttendanceStatus.ABSENT);
+    });
+
+    it('reports UPCOMING (not ABSENT) for a future date with no record', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+
+      const days = await service.getCalendar('emp-1', 2099, 1);
+      const jan15 = days.find((d) => d.date === '2099-01-15');
+
+      expect(jan15?.status).toBe('UPCOMING');
+    });
+
+    it('still reports HOLIDAY/WEEK_OFF/WFH for a future date, not UPCOMING', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+      calendar.isWeekOff.mockResolvedValue(true);
+
+      const days = await service.getCalendar('emp-1', 2099, 1);
+      const jan15 = days.find((d) => d.date === '2099-01-15');
+
+      expect(jan15?.status).toBe(AttendanceStatus.WEEK_OFF);
+    });
+  });
+
+  describe('SECURITY: listRegularizations never leaks the included employee passwordHash', () => {
+    it('strips passwordHash from every returned request', async () => {
+      prisma.regularizationRequest.findMany.mockResolvedValue([
+        {
+          id: 'reg-1',
+          employee: {
+            id: 'emp-1',
+            firstName: 'Jane',
+            passwordHash: 'super-secret-hash',
+          },
+        },
+      ]);
+
+      const result = await service.listRegularizations({ status: 'PENDING' });
+
+      expect(result[0].employee).not.toHaveProperty('passwordHash');
+      expect(result[0].employee.firstName).toBe('Jane');
     });
   });
 

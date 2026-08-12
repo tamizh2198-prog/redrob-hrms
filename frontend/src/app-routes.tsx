@@ -1,9 +1,13 @@
 import { Route, Routes, Navigate } from 'react-router-dom'
 
-import { EmployeePage, EmployeeDetailPage, ChangeRequestsPage } from '@/modules/employee'
+import {
+  EmployeePage,
+  EmployeeDetailPage,
+  ChangeRequestsPage,
+  ProfileCompletionPage,
+} from '@/modules/employee'
 import { RequireRole } from '@/shared/routes/RequireRole'
-import { AttendancePage } from '@/modules/attendance'
-import { LeavePage } from '@/modules/leave'
+import { AttendanceLeavePage } from '@/modules/attendance'
 import { ShiftPage } from '@/modules/shift'
 import { HolidayPage } from '@/modules/holiday'
 import { AtsPage } from '@/modules/ats'
@@ -19,11 +23,15 @@ import { WorkflowPage } from '@/modules/workflow'
 import { NotificationsPage } from '@/modules/notifications'
 import { SettingsPage } from '@/modules/settings'
 import { AuditPage } from '@/modules/audit'
+import { RolesPermissionsPage } from '@/modules/permissions'
 
 export const MODULE_NAV = [
   { path: '/employee', label: 'Employee', Component: EmployeePage },
-  { path: '/attendance', label: 'Attendance', Component: AttendancePage },
-  { path: '/leave', label: 'Leave', Component: LeavePage },
+  // This task: ONE combined employee self-service nav item, replacing the
+  // previously separate Attendance and Leave items. Available to every
+  // role (no `roles` restriction) — the page itself shows admin-only
+  // sections conditionally based on the logged-in user's role.
+  { path: '/attendance-leave', label: 'Attendance & Leave', Component: AttendanceLeavePage },
   { path: '/shift', label: 'Shift & Roster', Component: ShiftPage },
   { path: '/holiday', label: 'Holiday Calendar', Component: HolidayPage },
   { path: '/ats', label: 'Recruitment (ATS)', Component: AtsPage },
@@ -39,6 +47,15 @@ export const MODULE_NAV = [
   { path: '/notifications', label: 'Notifications', Component: NotificationsPage },
   { path: '/settings', label: 'Settings', Component: SettingsPage },
   { path: '/audit', label: 'Audit Logs', Component: AuditPage },
+  // Auth Phase 5: SUPER_ADMIN only. `roles` is optional on every other
+  // entry above (undefined = always visible), so this is additive and
+  // does not change how any existing nav item renders.
+  {
+    path: '/roles-permissions',
+    label: 'Roles & Permissions',
+    Component: RolesPermissionsPage,
+    roles: ['SUPER_ADMIN'],
+  },
 ] as const
 
 export function AppRoutes() {
@@ -47,6 +64,7 @@ export function AppRoutes() {
       <Route path="/" element={<Navigate to="/employee" replace />} />
       <Route path="/employee" element={<EmployeePage />} />
       <Route path="/employee/:id" element={<EmployeeDetailPage />} />
+      <Route path="/my-profile" element={<ProfileCompletionPage />} />
       <Route
         path="/employee/change-requests"
         element={
@@ -71,8 +89,21 @@ export function AppRoutes() {
           </RequireRole>
         }
       />
+      <Route
+        path="/roles-permissions"
+        element={
+          <RequireRole roles={['SUPER_ADMIN']}>
+            <RolesPermissionsPage />
+          </RequireRole>
+        }
+      />
+      {/* This task: /attendance and /leave are compatibility redirects —
+          the unified page now lives at /attendance-leave and is reachable
+          by every role, so no RequireRole wrapper is needed here. */}
+      <Route path="/attendance" element={<Navigate to="/attendance-leave" replace />} />
+      <Route path="/leave" element={<Navigate to="/attendance-leave" replace />} />
       {MODULE_NAV.filter(
-        ({ path }) => !['/employee', '/settings', '/audit'].includes(path),
+        ({ path }) => !['/employee', '/settings', '/audit', '/roles-permissions'].includes(path),
       ).map(({ path, Component }) => (
         <Route key={path} path={path} element={<Component />} />
       ))}

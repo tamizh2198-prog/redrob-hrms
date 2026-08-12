@@ -31,6 +31,13 @@ export interface LeaveApplication {
   createdAt: string
 }
 
+// Phase 6E: daysCount === 0.5 unambiguously means a half-day application —
+// only a HALF_DAY request can ever produce a non-integer daysCount, so no
+// new field/column is needed to represent it for display.
+export function isHalfDayApplication(a: LeaveApplication): boolean {
+  return a.daysCount === 0.5
+}
+
 export function listLeaveTypes() {
   return api<LeaveType[]>('/leave/types')
 }
@@ -45,7 +52,13 @@ export function getBalances(employeeId: string, year?: number) {
   })
 }
 
-export function applyLeave(data: { leaveTypeId: string; startDate: string; endDate: string; reason?: string }) {
+export function applyLeave(data: {
+  leaveTypeId: string
+  startDate: string
+  endDate: string
+  reason?: string
+  duration?: 'FULL_DAY' | 'HALF_DAY'
+}) {
   return api<LeaveApplication>('/leave/apply', { method: 'POST', body: data })
 }
 
@@ -66,6 +79,17 @@ export function myApplications() {
 
 export function pendingApprovals() {
   return api<LeaveApplication[]>('/leave/pending-approvals')
+}
+
+// Phase 6A: company-wide pending list — SUPER_ADMIN only, backend-enforced.
+export function listPendingRequests() {
+  return api<LeaveApplication[]>('/leave/pending-requests')
+}
+
+// Phase 6B: Employee Profile → Leave history for an arbitrary employee.
+// Backend enforces scope (self / privileged / direct manager).
+export function getApplicationsForEmployee(employeeId: string) {
+  return api<LeaveApplication[]>(`/leave/applications/${employeeId}`)
 }
 
 export function teamCalendar(from: string, to: string) {

@@ -24,6 +24,9 @@ export interface HrAdminDashboard {
   hiringFunnel: Array<{ stage: string; count: number }>
   openRequisitions: number
   leaveLiabilityDays: number
+  // Phase 6C
+  attendanceToday: Array<{ status: string; count: number }>
+  attendancePercentToday: number | null
 }
 
 export type Dashboard = EmployeeDashboard | ManagerDashboard | HrAdminDashboard

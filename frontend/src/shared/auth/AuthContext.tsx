@@ -13,14 +13,14 @@ export interface AuthUser {
   role: Role
 }
 
-interface DevLoginResponse {
+interface LoginResponse {
   accessToken: string
   user: AuthUser
 }
 
 interface AuthContextValue {
   user: AuthUser | null
-  login: (employeeCode: string) => Promise<void>
+  loginWithPassword: (email: string, password: string) => Promise<void>
   logout: () => void
 }
 
@@ -34,11 +34,18 @@ function restoreUser(): AuthUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(restoreUser)
 
-  async function login(employeeCode: string) {
-    const res = await api<DevLoginResponse>('/auth/dev-login', {
+  // Auth Phase 1: real email+password login — reuses the same
+  // token/response shape as dev-login so no other frontend code needs to
+  // change.
+  async function loginWithPassword(email: string, password: string) {
+    const res = await api<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: { employeeCode },
+      body: { email, password },
     })
+    persistSession(res)
+  }
+
+  function persistSession(res: LoginResponse) {
     localStorage.setItem('accessToken', res.accessToken)
     localStorage.setItem('authUser', JSON.stringify(res.user))
     setUser(res.user)
@@ -51,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, loginWithPassword, logout }}>
       {children}
     </AuthContext.Provider>
   )

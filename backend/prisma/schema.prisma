@@ -49,6 +49,11 @@ enum EmploymentType {
 }
 
 enum EmployeeStatus {
+  // Auth Phase 2: account created by an admin, invitation email sent, no
+  // password set yet — distinct from PREBOARDING (Section 7.7's post-offer,
+  // pre-Day-1 flow), which is about onboarding-task completion, not login
+  // credentials. INVITED -> ACTIVE once the employee sets a password.
+  INVITED
   // Pre-Day-1 state from offer-accept through Preboarding portal completion
   // (Section 7.7) — precedes ACTIVE_PROBATION, which starts once onboarding
   // is done and the employee is actually working.
@@ -203,6 +208,11 @@ model Employee {
   // System role for RBAC (Section 6) — every employee is also a system user.
   role Role @default(EMPLOYEE)
 
+  // Auth Phase 1: bcrypt hash for email+password login. Nullable — most
+  // employees are provisioned without one until the later activation/
+  // invitation phase; only Super Admin is seeded with a password today.
+  passwordHash String?
+
   // Statutory / sensitive fields — masked in API responses per Section 7.1
   // Business Rules unless the requester is HR Admin, Super Admin, or self.
   pan               String?
@@ -214,6 +224,14 @@ model Employee {
 
   emergencyContactName  String?
   emergencyContactPhone String?
+
+  // Auth Phase 3: profile-completion address fields — none of these
+  // existed anywhere on Employee before this phase.
+  addressLine String?
+  city        String?
+  state       String?
+  country     String?
+  postalCode  String?
 
   documents      EmployeeDocument[]
   historyEntries EmployeeHistory[]
@@ -266,12 +284,30 @@ model Employee {
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
   notificationLogs        NotificationLog[]
+  invitations             EmployeeInvitation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId])
   @@index([reportingManagerId])
+}
+
+// Auth Phase 2: dedicated single-use invitation record — deliberately NOT
+// reusing the existing stateless-JWT MagicLinkService (used by ATS/
+// Onboarding), since that mechanism has no DB-backed "used" state and stays
+// valid for repeated use until it expires. Only tokenHash is stored; the
+// raw token goes out in the email link and is never persisted.
+model EmployeeInvitation {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([employeeId])
 }
 
 model EmployeeDocument {
@@ -1673,4 +1709,36 @@ model AuditLog {
   @@index([companyId, createdAt])
   @@index([actorId])
   @@index([module])
+}
+
+// ---------------------------------------------------------------------------
+// Auth Phase 5: Roles & Permissions administration.
+// Reuses the existing `Role` enum directly rather than introducing a
+// separate Roles table — RolePermission.role stores one of the four
+// existing enum values. This catalog is administrative only for now: it is
+// not yet consulted by any existing module's authorization checks (those
+// remain governed by @Roles()/RolesGuard), so future phases can adopt it
+// without a breaking change.
+// ---------------------------------------------------------------------------
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  category    String
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  role         Role
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@unique([role, permissionId])
+  @@index([role])
 }

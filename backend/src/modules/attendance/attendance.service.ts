@@ -26,6 +26,10 @@ import { ImportBiometricDto } from './dto/import-biometric.dto';
 const REGULARIZATION_WINDOW_DAYS = 7;
 // Escalate to HR Admin if the manager hasn't acted within this SLA.
 const REGULARIZATION_SLA_HOURS = 48;
+// Phase 6D: minimum gap between Punch In and Punch Out, to reject
+// unrealistically short work sessions. No prior rule existed for this —
+// value confirmed by the business (5 minutes) rather than invented here.
+const MIN_PUNCH_INTERVAL_MS = 5 * 60 * 1000;
 
 // Normalizes to UTC midnight, not local midnight — see calendar.service.ts
 // for why: date-only ISO strings parse as UTC, so a local boundary here
@@ -179,6 +183,15 @@ export class AttendanceService {
       throw new BadRequestException('Cannot check out before checking in');
     }
 
+    if (
+      now.getTime() - existing.checkInTime.getTime() <
+      MIN_PUNCH_INTERVAL_MS
+    ) {
+      throw new BadRequestException(
+        'Punch out must be at least 5 minutes after punch in',
+      );
+    }
+
     const shift = await this.calendar.getActiveShift(employeeId, date);
     const { status, workHours, overtimeHours } = this.computeStatus(
       existing.checkInTime,
@@ -193,6 +206,11 @@ export class AttendanceService {
     });
   }
 
+  // This task: extended to also return checkInTime/checkOutTime/workHours
+  // (already stored on AttendanceRecord, previously dropped from this
+  // response) and a per-day regularization summary — so the frontend's
+  // Monthly Attendance table can show Check In/Check Out/Duration/Remarks
+  // without a second endpoint or re-deriving any of this itself.
   async getCalendar(
     employeeId: string,
     year: number,
@@ -203,19 +221,65 @@ export class AttendanceService {
     const from = new Date(Date.UTC(year, month - 1, 1));
     const to = new Date(Date.UTC(year, month, 0));
 
-    const records = await this.prisma.attendanceRecord.findMany({
-      where: { employeeId, date: { gte: from, lte: to } },
-    });
+    const [records, regularizations] = await Promise.all([
+      this.prisma.attendanceRecord.findMany({
+        where: { employeeId, date: { gte: from, lte: to } },
+      }),
+      this.prisma.regularizationRequest.findMany({
+        where: { employeeId, date: { gte: from, lte: to } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
     const byDate = new Map(
       records.map((r) => [r.date.toISOString().slice(0, 10), r]),
     );
+    // orderBy desc + Map.set-once-wins below keeps the MOST RECENT
+    // regularization per date if more than one was ever submitted for it.
+    const regByDate = new Map<string, (typeof regularizations)[number]>();
+    for (const reg of regularizations) {
+      const key = reg.date.toISOString().slice(0, 10);
+      if (!regByDate.has(key)) regByDate.set(key, reg);
+    }
 
-    const days: Array<{ date: string; status: AttendanceStatus }> = [];
+    const days: Array<{
+      date: string;
+      // This task: widened (not a schema change — this literal never hits
+      // the DB) so a day that hasn't happened yet can be reported as
+      // "UPCOMING" instead of the misleading ABSENT default below. Every
+      // caller of this single shared function — the unified page's Monthly
+      // Attendance table and the Employee Profile Attendance section alike
+      // — gets the fix for free without touching either of them.
+      status: AttendanceStatus | 'UPCOMING';
+      checkInTime: Date | null;
+      checkOutTime: Date | null;
+      workHours: number | null;
+      regularization: {
+        status: string;
+        requestedStatus: AttendanceStatus;
+        reason: string;
+      } | null;
+    }> = [];
+    const todayStart = startOfDay(new Date());
     for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
       const key = d.toISOString().slice(0, 10);
       const existing = byDate.get(key);
+      const reg = regByDate.get(key);
+      const regularization = reg
+        ? {
+            status: reg.status,
+            requestedStatus: reg.requestedStatus,
+            reason: reg.reason,
+          }
+        : null;
       if (existing) {
-        days.push({ date: key, status: existing.status });
+        days.push({
+          date: key,
+          status: existing.status,
+          checkInTime: existing.checkInTime,
+          checkOutTime: existing.checkOutTime,
+          workHours: existing.workHours,
+          regularization,
+        });
         continue;
       }
       const [isHoliday, isWeekOff, isWFH] = await Promise.all([
@@ -225,13 +289,24 @@ export class AttendanceService {
       ]);
       days.push({
         date: key,
+        checkInTime: null,
+        checkOutTime: null,
+        workHours: null,
+        regularization,
         status: isHoliday
           ? AttendanceStatus.HOLIDAY
           : isWeekOff
             ? AttendanceStatus.WEEK_OFF
             : isWFH
               ? AttendanceStatus.WFH
-              : AttendanceStatus.ABSENT,
+              : // This task: a day later than today hasn't happened yet, so
+                // it was never actually "absent" — only the no-record/
+                // no-holiday/no-week-off/no-WFH fallback for a future date
+                // changes; past and today keep the exact same ABSENT
+                // calculation as before.
+                d > todayStart
+                ? 'UPCOMING'
+                : AttendanceStatus.ABSENT,
       });
     }
     return days;
@@ -416,12 +491,15 @@ export class AttendanceService {
     return { lockedRecords: result.count, year, month };
   }
 
+  // This task: found live while testing the new unified page — this
+  // endpoint was returning the included employee's passwordHash unstripped,
+  // same class of bug as the one just fixed in LeaveService.
   async listRegularizations(filter: {
     employeeId?: string;
     approverId?: string;
     status?: 'PENDING' | 'APPROVED' | 'REJECTED';
   }) {
-    return this.prisma.regularizationRequest.findMany({
+    const requests = await this.prisma.regularizationRequest.findMany({
       where: {
         employeeId: filter.employeeId,
         approverId: filter.approverId,
@@ -429,6 +507,12 @@ export class AttendanceService {
       },
       include: { employee: true },
       orderBy: { createdAt: 'desc' },
+    });
+    return requests.map((r) => {
+      if (!r.employee) return r;
+      const safeEmployee: Partial<typeof r.employee> = { ...r.employee };
+      delete safeEmployee.passwordHash;
+      return { ...r, employee: safeEmployee };
     });
   }
 

@@ -1,1 +1,1 @@
-export { AttendancePage } from './pages/AttendancePage'
+export { AttendanceLeavePage } from './pages/AttendanceLeavePage'

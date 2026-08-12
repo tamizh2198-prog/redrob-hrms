@@ -81,6 +81,12 @@ function HrAdminDashboardView({ d }: { d: Dashboard & { role: 'HR_ADMIN' | 'SUPE
       <p>{d.hiringFunnel.map((h) => `${label(h.stage)}: ${h.count}`).join(', ') || '—'}</p>
       <p>Open requisitions: {d.openRequisitions}</p>
       <p>Leave liability: {d.leaveLiabilityDays} days</p>
+      <p className="mt-2 font-medium">Attendance Today</p>
+      <p>
+        {d.attendanceToday.map((a) => `${label(a.status)}: ${a.count}`).join(', ') || '—'}
+        {' · '}
+        Attendance %: {d.attendancePercentToday ?? '—'}
+      </p>
     </div>
   )
 }
