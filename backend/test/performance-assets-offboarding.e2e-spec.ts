@@ -193,6 +193,9 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
     await prisma.notificationLog.deleteMany({
       where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
     });
+    await prisma.refreshToken.deleteMany({
+      where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
+    });
     await prisma.employee.deleteMany({
       where: { id: { in: [employeeId, managerId, hrAdminId] } },
     });
@@ -330,6 +333,9 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
         })
         .expect(403);
 
+      await prisma.refreshToken.deleteMany({
+        where: { employeeId: someoneElse.id },
+      });
       await prisma.employee.delete({ where: { id: someoneElse.id } });
     });
 
@@ -409,6 +415,9 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(403);
 
+      await prisma.refreshToken.deleteMany({
+        where: { employeeId: someoneElse.id },
+      });
       await prisma.employee.delete({ where: { id: someoneElse.id } });
     });
 
@@ -663,6 +672,9 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
         .send({ newDate: ADJUSTED_LWD_ISO, reason: 'Trying to interfere' })
         .expect(403);
 
+      await prisma.refreshToken.deleteMany({
+        where: { employeeId: someoneElse.id },
+      });
       await prisma.employee.delete({ where: { id: someoneElse.id } });
     });
 

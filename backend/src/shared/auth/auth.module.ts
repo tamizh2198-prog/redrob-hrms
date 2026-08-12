@@ -6,6 +6,8 @@ import { JwtStrategy } from './jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthController } from './auth.controller';
 import { MagicLinkService } from './magic-link.service';
+import { MfaService } from './mfa.service';
+import { RefreshTokenService } from './refresh-token.service';
 import { EmployeeModule } from '../../modules/employee/employee.module';
 
 @Module({
@@ -29,8 +31,10 @@ import { EmployeeModule } from '../../modules/employee/employee.module';
   providers: [
     JwtStrategy,
     MagicLinkService,
+    MfaService,
+    RefreshTokenService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
-  exports: [JwtModule, MagicLinkService],
+  exports: [JwtModule, MagicLinkService, RefreshTokenService],
 })
 export class AuthModule {}

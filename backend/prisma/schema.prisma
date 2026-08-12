@@ -213,6 +213,15 @@ model Employee {
   // invitation phase; only Super Admin is seeded with a password today.
   passwordHash String?
 
+  // Section 11 Application Security Controls: MFA mandatory for Super
+  // Admin/HR Admin. mfaSecret is set (but mfaEnabled stays false) the
+  // moment enrollment starts at login, so the same secret backs the QR
+  // code shown to the user and the code they immediately submit to
+  // confirm it.
+  mfaSecret     String?
+  mfaEnabled    Boolean        @default(false)
+  refreshTokens RefreshToken[]
+
   // Statutory / sensitive fields — masked in API responses per Section 7.1
   // Business Rules unless the requester is HR Admin, Super Admin, or self.
   pan               String?
@@ -305,6 +314,24 @@ model EmployeeInvitation {
   tokenHash  String    @unique
   expiresAt  DateTime
   usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([employeeId])
+}
+
+// Section 11 Application Security Controls: "short-lived access tokens;
+// refresh-token rotation on use." Same shape as EmployeeInvitation above —
+// only a hash of the token is stored, never the raw value, so a database
+// leak alone can't be replayed as a live session. Each successful
+// /auth/refresh revokes the row it was issued from and creates a new one;
+// presenting an already-revoked token is a signal of token theft/reuse.
+model RefreshToken {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
   createdAt  DateTime  @default(now())
 
   @@index([employeeId])

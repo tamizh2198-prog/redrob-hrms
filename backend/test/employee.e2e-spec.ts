@@ -180,6 +180,9 @@ describe('Employee Management (e2e)', () => {
     await prisma.notificationLog.deleteMany({
       where: { employeeId: { in: allTestEmployeeIds } },
     });
+    await prisma.refreshToken.deleteMany({
+      where: { employeeId: { in: allTestEmployeeIds } },
+    });
     await prisma.employee.deleteMany({
       where: { id: { in: allTestEmployeeIds } },
     });

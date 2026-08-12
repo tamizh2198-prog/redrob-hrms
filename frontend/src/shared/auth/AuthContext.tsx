@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from 'react'
@@ -13,15 +14,29 @@ export interface AuthUser {
   role: Role
 }
 
-interface LoginResponse {
+interface SessionResponse {
+  status: 'OK'
   accessToken: string
+  refreshToken: string
   user: AuthUser
 }
 
+export type LoginResponse =
+  | SessionResponse
+  | { status: 'MFA_REQUIRED'; mfaToken: string }
+  | {
+      status: 'MFA_ENROLL_REQUIRED'
+      mfaToken: string
+      secret: string
+      qrCodeDataUrl: string
+    }
+
 interface AuthContextValue {
   user: AuthUser | null
-  loginWithPassword: (email: string, password: string) => Promise<void>
-  logout: () => void
+  loginWithPassword: (email: string, password: string) => Promise<LoginResponse>
+  verifyMfa: (mfaToken: string, code: string) => Promise<void>
+  confirmMfaEnrollment: (mfaToken: string, code: string) => Promise<void>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -31,34 +46,79 @@ function restoreUser(): AuthUser | null {
   return raw ? (JSON.parse(raw) as AuthUser) : null
 }
 
+function persistSession(res: SessionResponse) {
+  localStorage.setItem('accessToken', res.accessToken)
+  localStorage.setItem('refreshToken', res.refreshToken)
+  localStorage.setItem('authUser', JSON.stringify(res.user))
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(restoreUser)
 
-  // Auth Phase 1: real email+password login — reuses the same
-  // token/response shape as dev-login so no other frontend code needs to
-  // change.
+  useEffect(() => {
+    // Fired by lib/api.ts when a refresh-token round-trip fails (expired
+    // or revoked) — the local session is already cleared by then, this
+    // just syncs React state to match.
+    function handleForcedLogout() {
+      setUser(null)
+    }
+    window.addEventListener('auth:logout', handleForcedLogout)
+    return () => window.removeEventListener('auth:logout', handleForcedLogout)
+  }, [])
+
+  // Auth Phase 1: real email+password login. Section 11: Super Admin/HR
+  // Admin don't get a session back directly — the caller (LoginPage) has
+  // to branch on `status` and walk through MFA verify/enroll first.
   async function loginWithPassword(email: string, password: string) {
     const res = await api<LoginResponse>('/auth/login', {
       method: 'POST',
       body: { email, password },
     })
-    persistSession(res)
+    if (res.status === 'OK') {
+      persistSession(res)
+      setUser(res.user)
+    }
+    return res
   }
 
-  function persistSession(res: LoginResponse) {
-    localStorage.setItem('accessToken', res.accessToken)
-    localStorage.setItem('authUser', JSON.stringify(res.user))
+  async function verifyMfa(mfaToken: string, code: string) {
+    const res = await api<SessionResponse>('/auth/mfa/verify', {
+      method: 'POST',
+      body: { mfaToken, code },
+    })
+    persistSession(res)
     setUser(res.user)
   }
 
-  function logout() {
+  async function confirmMfaEnrollment(mfaToken: string, code: string) {
+    const res = await api<SessionResponse>('/auth/mfa/enroll/confirm', {
+      method: 'POST',
+      body: { mfaToken, code },
+    })
+    persistSession(res)
+    setUser(res.user)
+  }
+
+  async function logout() {
+    const refreshToken = localStorage.getItem('refreshToken')
+    if (refreshToken) {
+      try {
+        await api('/auth/logout', { method: 'POST', body: { refreshToken } })
+      } catch {
+        // Best-effort — clear the local session regardless of whether the
+        // server round-trip succeeded.
+      }
+    }
     localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
     localStorage.removeItem('authUser')
     setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, loginWithPassword, logout }}>
+    <AuthContext.Provider
+      value={{ user, loginWithPassword, verifyMfa, confirmMfaEnrollment, logout }}
+    >
       {children}
     </AuthContext.Provider>
   )

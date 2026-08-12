@@ -197,6 +197,9 @@ describe('Attendance + Leave + Shift + Holiday (e2e)', () => {
     await prisma.notificationLog.deleteMany({
       where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
     });
+    await prisma.refreshToken.deleteMany({
+      where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
+    });
     await prisma.employee.deleteMany({
       where: { id: { in: [employeeId, managerId, hrAdminId] } },
     });
@@ -326,6 +329,17 @@ describe('Attendance + Leave + Shift + Holiday (e2e)', () => {
         .set('Authorization', `Bearer ${employeeToken}`)
         .send({ type: 'IN' })
         .expect(400);
+
+      // Punch-out has a minimum 5-minute-after-check-in rule — back-date
+      // check-in instead of actually waiting 5 minutes in the test.
+      const record = await prisma.attendanceRecord.findFirst({
+        where: { employeeId, checkOutTime: null },
+        orderBy: { date: 'desc' },
+      });
+      await prisma.attendanceRecord.update({
+        where: { id: record!.id },
+        data: { checkInTime: new Date(Date.now() - 6 * 60 * 1000) },
+      });
 
       await request(app.getHttpServer())
         .post('/api/v1/attendance/punch')
