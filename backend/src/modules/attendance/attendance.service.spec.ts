@@ -346,7 +346,10 @@ describe('AttendanceService', () => {
         },
       ]);
 
-      const days = await service.getCalendar('emp-1', 2026, 1);
+      const days = await service.getCalendar('emp-1', 2026, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan5 = days.find((d) => d.date === '2026-01-05');
 
       expect(jan5?.checkInTime).toBe(checkInTime);
@@ -366,7 +369,10 @@ describe('AttendanceService', () => {
         },
       ]);
 
-      const days = await service.getCalendar('emp-1', 2026, 1);
+      const days = await service.getCalendar('emp-1', 2026, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan5 = days.find((d) => d.date === '2026-01-05');
 
       expect(jan5?.regularization).toEqual({
@@ -379,7 +385,10 @@ describe('AttendanceService', () => {
     it('reports null regularization for a date with no request', async () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
 
-      const days = await service.getCalendar('emp-1', 2026, 1);
+      const days = await service.getCalendar('emp-1', 2026, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan10 = days.find((d) => d.date === '2026-01-10');
 
       expect(jan10?.regularization).toBeNull();
@@ -390,7 +399,10 @@ describe('AttendanceService', () => {
     it('reports ABSENT for a past date with no record (unchanged behavior)', async () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
 
-      const days = await service.getCalendar('emp-1', 2026, 1);
+      const days = await service.getCalendar('emp-1', 2026, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan10 = days.find((d) => d.date === '2026-01-10');
 
       expect(jan10?.status).toBe(AttendanceStatus.ABSENT);
@@ -399,7 +411,10 @@ describe('AttendanceService', () => {
     it('reports UPCOMING (not ABSENT) for a future date with no record', async () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
 
-      const days = await service.getCalendar('emp-1', 2099, 1);
+      const days = await service.getCalendar('emp-1', 2099, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan15 = days.find((d) => d.date === '2099-01-15');
 
       expect(jan15?.status).toBe('UPCOMING');
@@ -409,7 +424,10 @@ describe('AttendanceService', () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
       calendar.isWeekOff.mockResolvedValue(true);
 
-      const days = await service.getCalendar('emp-1', 2099, 1);
+      const days = await service.getCalendar('emp-1', 2099, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
       const jan15 = days.find((d) => d.date === '2099-01-15');
 
       expect(jan15?.status).toBe(AttendanceStatus.WEEK_OFF);

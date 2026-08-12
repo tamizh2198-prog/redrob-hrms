@@ -73,7 +73,10 @@ describe('AuditService', () => {
           where: {
             module: 'settings',
             actorId: 'emp-1',
-            createdAt: { gte: new Date('2026-01-01'), lte: new Date('2026-01-31') },
+            createdAt: {
+              gte: new Date('2026-01-01'),
+              lte: new Date('2026-01-31'),
+            },
           },
         }),
       );

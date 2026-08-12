@@ -23,7 +23,7 @@ export function LoginPage() {
     setLoading(true)
     try {
       await loginWithPassword(email, password)
-      navigate('/employee')
+      navigate('/dashboard')
     } catch (err) {
       setError(
         err instanceof Error && err.message

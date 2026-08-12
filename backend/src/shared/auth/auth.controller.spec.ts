@@ -1,4 +1,5 @@
 import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { PrismaService } from '../database/prisma.service';
@@ -17,20 +18,26 @@ function createMockEmployeeService() {
     activateAccount: jest.fn(),
   };
 }
+function createMockConfig(nodeEnv = 'test') {
+  return { get: jest.fn().mockReturnValue(nodeEnv) };
+}
 
 describe('AuthController (Auth Phase 1)', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
   let jwt: ReturnType<typeof createMockJwt>;
+  let config: ReturnType<typeof createMockConfig>;
   let employeeService: ReturnType<typeof createMockEmployeeService>;
   let controller: AuthController;
 
   beforeEach(() => {
     prisma = createMockPrisma();
     jwt = createMockJwt();
+    config = createMockConfig();
     employeeService = createMockEmployeeService();
     controller = new AuthController(
       prisma as unknown as PrismaService,
       jwt as unknown as JwtService,
+      config as unknown as ConfigService,
       employeeService as unknown as EmployeeService,
     );
   });

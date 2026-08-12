@@ -71,7 +71,9 @@ export async function parseHybridScheduleWorkbook(
     const year = yearCol ? Number(row.getCell(yearCol).value) : NaN;
     const month = monthCol ? Number(row.getCell(monthCol).value) : NaN;
     const officeWeekdays = weekdayCols
-      .filter(({ col }) => col !== undefined && isOfficeDay(row.getCell(col).value))
+      .filter(
+        ({ col }) => col !== undefined && isOfficeDay(row.getCell(col).value),
+      )
       .map(({ day }) => day);
 
     rows.push({ employeeCode, year, month, officeWeekdays });

@@ -35,7 +35,9 @@ function redact(value: unknown): unknown {
 function deriveModule(path: string): string {
   const segments = path.split('?')[0].split('/').filter(Boolean);
   const withoutPrefix =
-    segments[0] === 'api' && segments[1] === 'v1' ? segments.slice(2) : segments;
+    segments[0] === 'api' && segments[1] === 'v1'
+      ? segments.slice(2)
+      : segments;
   return withoutPrefix[0] ?? 'unknown';
 }
 

@@ -82,7 +82,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <p className="text-muted-foreground">{user?.role}</p>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/analytics')}>
+              <DropdownMenuItem onClick={() => navigate('/dashboard')}>
                 <LayoutDashboard /> My Dashboard
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/my-profile')}>

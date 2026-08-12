@@ -16,9 +16,24 @@ function createMockPrisma() {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
-    location: { findMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
-    designation: { findMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
-    grade: { findMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    location: {
+      findMany: jest.fn(),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    designation: {
+      findMany: jest.fn(),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    grade: {
+      findMany: jest.fn(),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
     integrationConfig: {
       findMany: jest.fn(),
       upsert: jest.fn(),
@@ -47,7 +62,9 @@ describe('SettingsService', () => {
   describe('Section 7.17 Data Entities: CompanySettings', () => {
     it('creates a default row with sane defaults on first read', async () => {
       prisma.companySettings.findUnique.mockResolvedValue(null);
-      prisma.companySettings.create.mockResolvedValue({ companyId: 'company-1' });
+      prisma.companySettings.create.mockResolvedValue({
+        companyId: 'company-1',
+      });
 
       await service.getCompanySettings();
 
@@ -133,7 +150,10 @@ describe('SettingsService', () => {
           isActive: true,
           employees: [{ id: 'emp-1' }],
         });
-        prisma.designation.update.mockResolvedValue({ id: 'des-1', isActive: false });
+        prisma.designation.update.mockResolvedValue({
+          id: 'des-1',
+          isActive: false,
+        });
 
         await service.updateOrgUnit('designation', 'des-1', {
           isActive: false,
@@ -141,13 +161,21 @@ describe('SettingsService', () => {
         });
 
         expect(prisma.designation.update).toHaveBeenCalledWith(
-          expect.objectContaining({ data: expect.objectContaining({ isActive: false }) }),
+          expect.objectContaining({
+            data: expect.objectContaining({ isActive: false }),
+          }),
         );
       });
 
       it('allows deactivation without force when no employees are assigned', async () => {
-        prisma.location.findUnique.mockResolvedValue({ isActive: true, employees: [] });
-        prisma.location.update.mockResolvedValue({ id: 'loc-1', isActive: false });
+        prisma.location.findUnique.mockResolvedValue({
+          isActive: true,
+          employees: [],
+        });
+        prisma.location.update.mockResolvedValue({
+          id: 'loc-1',
+          isActive: false,
+        });
 
         await service.updateOrgUnit('location', 'loc-1', { isActive: false });
 
@@ -163,7 +191,9 @@ describe('SettingsService', () => {
       const result = await service.listIntegrations();
 
       expect(result.length).toBeGreaterThan(0);
-      expect(result.every((r: any) => r.status === 'NOT_CONFIGURED')).toBe(true);
+      expect(result.every((r: any) => r.status === 'NOT_CONFIGURED')).toBe(
+        true,
+      );
     });
 
     it('rejects an unknown integration type', async () => {
@@ -173,10 +203,13 @@ describe('SettingsService', () => {
     });
 
     it('upserts status/metadata for a known integration type', async () => {
-      prisma.integrationConfig.upsert.mockResolvedValue({ type: 'SLACK', status: 'CONFIGURED' });
+      prisma.integrationConfig.upsert.mockResolvedValue({
+        type: 'SLACK',
+        status: 'CONFIGURED',
+      });
 
       await service.updateIntegration('SLACK', {
-        status: 'CONFIGURED' as any,
+        status: 'CONFIGURED',
         metadata: { webhookUrl: 'https://example.test/hook' },
       });
 

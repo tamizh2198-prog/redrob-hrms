@@ -271,7 +271,7 @@ describe('EmployeeService', () => {
       );
     });
 
-    it('treats a new hire\'s own PAN/bank/IFSC/blood-group entry as a self-service change request too', async () => {
+    it("treats a new hire's own PAN/bank/IFSC/blood-group entry as a self-service change request too", async () => {
       prisma.employee.findUnique.mockResolvedValueOnce({
         id: 'emp-1',
         status: EmployeeStatus.PREBOARDING,
@@ -290,7 +290,7 @@ describe('EmployeeService', () => {
           pan: 'ABCDE1234F',
           bankAccountNumber: '1234567890',
           ifscCode: 'HDFC0001234',
-          bloodGroup: 'O_POSITIVE' as never,
+          bloodGroup: 'O_POSITIVE',
         },
         { userId: 'emp-1', role: Role.EMPLOYEE },
       );
@@ -299,7 +299,10 @@ describe('EmployeeService', () => {
       expect(prisma.profileChangeRequest.createMany).toHaveBeenCalledWith({
         data: expect.arrayContaining([
           expect.objectContaining({ fieldName: 'pan', newValue: 'ABCDE1234F' }),
-          expect.objectContaining({ fieldName: 'bloodGroup', newValue: 'O_POSITIVE' }),
+          expect.objectContaining({
+            fieldName: 'bloodGroup',
+            newValue: 'O_POSITIVE',
+          }),
         ]),
       });
     });
@@ -451,7 +454,7 @@ describe('EmployeeService', () => {
   });
 
   describe('Section 6 data-scope: an Employee only sees their own record in the directory list', () => {
-    it('returns just the requester\'s own record for an EMPLOYEE, ignoring list filters', async () => {
+    it("returns just the requester's own record for an EMPLOYEE, ignoring list filters", async () => {
       prisma.employee.findUnique.mockResolvedValueOnce({
         id: 'emp-1',
         pan: 'ABCDE1234F',
@@ -473,17 +476,26 @@ describe('EmployeeService', () => {
     it('returns an empty list rather than throwing if the employee record is somehow missing', async () => {
       prisma.employee.findUnique.mockResolvedValueOnce(null);
 
-      const result = await service.findAll({}, { userId: 'emp-1', role: Role.EMPLOYEE });
+      const result = await service.findAll(
+        {},
+        { userId: 'emp-1', role: Role.EMPLOYEE },
+      );
 
       expect(result.items).toEqual([]);
       expect(result.total).toBe(0);
     });
 
     it('still returns the full directory for HR Admin', async () => {
-      prisma.employee.findMany.mockResolvedValue([{ id: 'emp-1' }, { id: 'emp-2' }]);
+      prisma.employee.findMany.mockResolvedValue([
+        { id: 'emp-1' },
+        { id: 'emp-2' },
+      ]);
       prisma.employee.count.mockResolvedValueOnce(2);
 
-      const result = await service.findAll({}, { userId: 'hr-1', role: Role.HR_ADMIN });
+      const result = await service.findAll(
+        {},
+        { userId: 'hr-1', role: Role.HR_ADMIN },
+      );
 
       expect(prisma.employee.findUnique).not.toHaveBeenCalled();
       expect(result.items).toHaveLength(2);

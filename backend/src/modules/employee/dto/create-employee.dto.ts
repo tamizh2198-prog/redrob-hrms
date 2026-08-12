@@ -6,7 +6,12 @@ import {
   IsString,
   IsUUID,
 } from 'class-validator';
-import { BloodGroup, EmploymentType, Gender, EmployeeStatus } from '@prisma/client';
+import {
+  BloodGroup,
+  EmploymentType,
+  Gender,
+  EmployeeStatus,
+} from '@prisma/client';
 
 export class CreateEmployeeDto {
   @IsOptional()

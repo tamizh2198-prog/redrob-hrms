@@ -7,6 +7,7 @@ import {
   ProfileCompletionPage,
 } from '@/modules/employee'
 import { RequireRole } from '@/shared/routes/RequireRole'
+import { DashboardPage } from '@/modules/dashboard'
 import { AttendanceLeavePage } from '@/modules/attendance'
 import { ShiftPage } from '@/modules/shift'
 import { HolidayPage } from '@/modules/holiday'
@@ -26,12 +27,17 @@ import { AuditPage } from '@/modules/audit'
 import { RolesPermissionsPage } from '@/modules/permissions'
 
 export const MODULE_NAV = [
+  // This task: the app's landing page after login — separate from
+  // Analytics, which stays as its own nav item below.
+  { path: '/dashboard', label: 'Dashboard', Component: DashboardPage },
   { path: '/employee', label: 'Employee', Component: EmployeePage },
   // This task: ONE combined employee self-service nav item, replacing the
   // previously separate Attendance and Leave items. Available to every
   // role (no `roles` restriction) — the page itself shows admin-only
-  // sections conditionally based on the logged-in user's role.
-  { path: '/attendance-leave', label: 'Attendance & Leave', Component: AttendanceLeavePage },
+  // sections conditionally based on the logged-in user's role. Nav label
+  // shortened to "Attendance" — same route/page/functionality, including
+  // Leave, unchanged.
+  { path: '/attendance-leave', label: 'Attendance', Component: AttendanceLeavePage },
   { path: '/shift', label: 'Shift & Roster', Component: ShiftPage },
   { path: '/holiday', label: 'Holiday Calendar', Component: HolidayPage },
   { path: '/ats', label: 'Recruitment (ATS)', Component: AtsPage },

@@ -40,7 +40,10 @@ describe('NotificationsService', () => {
     it('is a no-op when the recipient does not resolve to a real employee', async () => {
       prisma.employee.findUnique.mockResolvedValue(null);
 
-      await service.dispatch({ recipientId: 'hr-admin', template: 'helpdesk.ticket-created' });
+      await service.dispatch({
+        recipientId: 'hr-admin',
+        template: 'helpdesk.ticket-created',
+      });
 
       expect(prisma.notification.create).not.toHaveBeenCalled();
       expect(prisma.notificationLog.createMany).not.toHaveBeenCalled();
@@ -87,7 +90,10 @@ describe('NotificationsService', () => {
         channelsEnabled: ['EMAIL'],
       });
 
-      await service.dispatch({ recipientId: 'emp-1', template: 'leave.decision-made' });
+      await service.dispatch({
+        recipientId: 'emp-1',
+        template: 'leave.decision-made',
+      });
 
       expect(prisma.notification.create).not.toHaveBeenCalled();
       expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(
@@ -122,7 +128,9 @@ describe('NotificationsService', () => {
   describe('inbox', () => {
     it('scopes listInbox to the requesting employee and reports the unread count', async () => {
       prisma.notification.findMany.mockResolvedValue([]);
-      prisma.notification.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+      prisma.notification.count
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(3);
 
       const result = await service.listInbox('emp-1', {});
 
@@ -132,7 +140,7 @@ describe('NotificationsService', () => {
       expect(result.unreadCount).toBe(3);
     });
 
-    it('rejects marking another employee\'s notification as read', async () => {
+    it("rejects marking another employee's notification as read", async () => {
       prisma.notification.findUnique.mockResolvedValue({
         id: 'notif-1',
         employeeId: 'someone-else',
@@ -153,7 +161,11 @@ describe('NotificationsService', () => {
     });
 
     it('is idempotent when marking an already-read notification as read', async () => {
-      const existing = { id: 'notif-1', employeeId: 'emp-1', readAt: new Date() };
+      const existing = {
+        id: 'notif-1',
+        employeeId: 'emp-1',
+        readAt: new Date(),
+      };
       prisma.notification.findUnique.mockResolvedValue(existing);
 
       const result = await service.markRead('notif-1', 'emp-1');
@@ -169,9 +181,9 @@ describe('NotificationsService', () => {
 
       const result = await service.getPreferences('emp-1');
 
-      expect(result.find((r) => r.eventCategory === 'LEAVE')?.channelsEnabled).toEqual(
-        ['IN_APP', 'EMAIL', 'SLACK', 'SMS'],
-      );
+      expect(
+        result.find((r) => r.eventCategory === 'LEAVE')?.channelsEnabled,
+      ).toEqual(['IN_APP', 'EMAIL', 'SLACK', 'SMS']);
     });
 
     it('upserts a preference row for the given employee/category', async () => {
@@ -183,7 +195,10 @@ describe('NotificationsService', () => {
       expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            employeeId_eventCategory: { employeeId: 'emp-1', eventCategory: 'LEAVE' },
+            employeeId_eventCategory: {
+              employeeId: 'emp-1',
+              eventCategory: 'LEAVE',
+            },
           },
         }),
       );
