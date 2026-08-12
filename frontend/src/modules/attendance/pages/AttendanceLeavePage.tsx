@@ -54,7 +54,6 @@ import {
   cancelLeave,
   myApplications,
   pendingApprovals,
-  listPendingRequests,
   isHalfDayApplication,
   type LeaveType,
   type LeaveBalanceEntry,
@@ -144,7 +143,6 @@ export function AttendanceLeavePage() {
   const [balances, setBalances] = useState<LeaveBalanceEntry[]>([])
   const [myApps, setMyApps] = useState<LeaveApplication[]>([])
   const [pendingApprovalsList, setPendingApprovalsList] = useState<LeaveApplication[]>([])
-  const [companyPending, setCompanyPending] = useState<LeaveApplication[]>([])
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
 
   const [leaveTypeId, setLeaveTypeId] = useState('')
@@ -209,10 +207,7 @@ export function AttendanceLeavePage() {
       pendingApprovals().then(setPendingApprovalsList).catch(() => setPendingApprovalsList([])),
     ]
     if (isSuperAdmin) {
-      tasks.push(
-        listPendingRequests().then(setCompanyPending).catch(() => setCompanyPending([])),
-        getDashboard().then(setDashboard).catch(() => setDashboard(null)),
-      )
+      tasks.push(getDashboard().then(setDashboard).catch(() => setDashboard(null)))
     }
     await Promise.all(tasks)
   }
@@ -773,66 +768,6 @@ export function AttendanceLeavePage() {
             </PanelSection>
           )}
 
-          {isSuperAdmin && (
-            <PanelSection>
-              <h2 className="mb-2 font-medium">Pending Leave Requests (Company-wide)</h2>
-              <div className="overflow-x-auto rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Leave Type</TableHead>
-                      <TableHead>From</TableHead>
-                      <TableHead>To</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Applied On</TableHead>
-                      <TableHead>Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {companyPending.map((a) => (
-                      <TableRow key={a.id}>
-                        <TableCell>
-                          {a.employee?.firstName} {a.employee?.lastName}
-                        </TableCell>
-                        <TableCell>{a.leaveType?.name ?? '—'}</TableCell>
-                        <TableCell>{a.startDate.slice(0, 10)}</TableCell>
-                        <TableCell>{a.endDate.slice(0, 10)}</TableCell>
-                        <TableCell>{isHalfDayApplication(a) ? 'Half Day' : 'Full Day'}</TableCell>
-                        <TableCell>{a.reason ?? '—'}</TableCell>
-                        <TableCell>{a.createdAt.slice(0, 10)}</TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button
-                            size="sm"
-                            disabled={decidingId === a.id}
-                            onClick={() => handleLeaveDecision(a.id, true)}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={decidingId === a.id}
-                            onClick={() => handleLeaveDecision(a.id, false)}
-                          >
-                            Reject
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {companyPending.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground">
-                          No pending leave requests.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </PanelSection>
-          )}
         </Panel>
 
         {isHrAdmin && (
