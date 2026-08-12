@@ -24,6 +24,18 @@ if (!process.env.SUPER_ADMIN_SEED_PASSWORD) {
   );
 }
 
+// Same reasoning as above, for the other three demo seed users (HR Admin,
+// Manager, Employee) — a single shared password is fine for these since
+// they're lower-privilege than Super Admin, and this is purely a local
+// demo convenience so every role can be logged into directly instead of
+// only being reachable via dev-login or a real invitation.
+const DEMO_SEED_PASSWORD = process.env.DEMO_SEED_PASSWORD ?? 'Demo@123456';
+if (!process.env.DEMO_SEED_PASSWORD) {
+  console.warn(
+    'DEMO_SEED_PASSWORD not set — seeding HR Admin/Manager/Employee with the dev-only default password. Set this env var for any non-local environment.',
+  );
+}
+
 async function main() {
   const company = await prisma.company.upsert({
     where: { id: 'seed-company' },
@@ -145,7 +157,15 @@ async function main() {
   const superAdminPasswordHash = await hashPassword(SUPER_ADMIN_SEED_PASSWORD);
   const superAdmin = await prisma.employee.upsert({
     where: { employeeCode: 'EMP-SEED-0001' },
-    update: { passwordHash: superAdminPasswordHash },
+    // Section 11: MFA state is reset on every seed run too, not just the
+    // password — otherwise re-seeding leaves this account demanding a
+    // TOTP code from whatever authenticator last enrolled it, which a
+    // fresh environment has no way to produce.
+    update: {
+      passwordHash: superAdminPasswordHash,
+      mfaEnabled: false,
+      mfaSecret: null,
+    },
     create: {
       ...baseFields,
       employeeCode: 'EMP-SEED-0001',
@@ -158,9 +178,15 @@ async function main() {
     },
   });
 
+  const demoPasswordHash = await hashPassword(DEMO_SEED_PASSWORD);
+
   const hrAdmin = await prisma.employee.upsert({
     where: { employeeCode: 'EMP-SEED-0002' },
-    update: {},
+    update: {
+      passwordHash: demoPasswordHash,
+      mfaEnabled: false,
+      mfaSecret: null,
+    },
     create: {
       ...baseFields,
       employeeCode: 'EMP-SEED-0002',
@@ -170,12 +196,13 @@ async function main() {
       role: Role.HR_ADMIN,
       designationId: designationHr.id,
       reportingManagerId: superAdmin.id,
+      passwordHash: demoPasswordHash,
     },
   });
 
   const manager = await prisma.employee.upsert({
     where: { employeeCode: 'EMP-SEED-0003' },
-    update: {},
+    update: { passwordHash: demoPasswordHash },
     create: {
       ...baseFields,
       employeeCode: 'EMP-SEED-0003',
@@ -185,12 +212,13 @@ async function main() {
       role: Role.MANAGER,
       designationId: designationManager.id,
       reportingManagerId: superAdmin.id,
+      passwordHash: demoPasswordHash,
     },
   });
 
   await prisma.employee.upsert({
     where: { employeeCode: 'EMP-SEED-0004' },
-    update: {},
+    update: { passwordHash: demoPasswordHash },
     create: {
       ...baseFields,
       employeeCode: 'EMP-SEED-0004',
@@ -200,6 +228,7 @@ async function main() {
       role: Role.EMPLOYEE,
       designationId: designationEngineer.id,
       reportingManagerId: manager.id,
+      passwordHash: demoPasswordHash,
     },
   });
 
@@ -234,6 +263,23 @@ async function main() {
   }
 
   console.log('Seed complete.');
+  console.log('');
+  console.log('Demo login credentials (sign in with work email + password):');
+  console.log(
+    `  Super Admin — aditi.rao@redrob.seed / ${SUPER_ADMIN_SEED_PASSWORD}`,
+  );
+  console.log(
+    `  HR Admin    — priya.sharma@redrob.seed / ${DEMO_SEED_PASSWORD}`,
+  );
+  console.log(
+    `  Manager     — karan.mehta@redrob.seed / ${DEMO_SEED_PASSWORD}`,
+  );
+  console.log(
+    `  Employee    — rahul.verma@redrob.seed / ${DEMO_SEED_PASSWORD}`,
+  );
+  console.log(
+    'Super Admin and HR Admin will be prompted to set up MFA on first login.',
+  );
 }
 
 main()
