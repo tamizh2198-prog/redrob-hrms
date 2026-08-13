@@ -312,6 +312,31 @@ async function main() {
     });
   }
 
+  // Section 7.5: a reasonable India 2026 national holiday list for the
+  // seeded location — fixed-date statutory holidays only (no lunar-
+  // calendar festivals guessed here). This is the ONLY holiday data
+  // source: Dashboard's "Upcoming Holidays" and Attendance's calendar
+  // both read the same Holiday rows via HolidayService/CalendarService.
+  const INDIA_HOLIDAYS_2026 = [
+    { date: '2026-01-26', name: 'Republic Day' },
+    { date: '2026-08-15', name: 'Independence Day' },
+    { date: '2026-10-02', name: 'Gandhi Jayanti' },
+    { date: '2026-12-25', name: 'Christmas' },
+  ];
+  for (const h of INDIA_HOLIDAYS_2026) {
+    await prisma.holiday.upsert({
+      where: { locationId_date: { locationId: location.id, date: new Date(h.date) } },
+      update: { name: h.name },
+      create: {
+        locationId: location.id,
+        year: 2026,
+        date: new Date(h.date),
+        name: h.name,
+        isOptional: false,
+      },
+    });
+  }
+
   console.log('Seed complete.');
   console.log('');
   console.log('Demo login credentials (sign in with work email + password):');

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { Bell, LayoutDashboard, LogOut, Settings, User, UserCircle } from 'lucide-react'
 import { MODULE_NAV } from '@/app-routes'
+import { FloatingAssistant } from '@/modules/assistant'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/shared/auth/AuthContext'
-import { AssistantBubble } from '@/modules/assistant'
 import logo from '@/assets/logo.jpg'
 
 // This task: Profile, Notifications, and Settings move from the sidebar
@@ -110,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
-      <AssistantBubble />
+      <FloatingAssistant />
     </div>
   )
 }

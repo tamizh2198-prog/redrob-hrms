@@ -33,6 +33,7 @@ function createMockCalendar() {
   return {
     getActiveShift: jest.fn().mockResolvedValue(null),
     isHoliday: jest.fn().mockResolvedValue(false),
+    getHoliday: jest.fn().mockResolvedValue(null),
     isWeekOff: jest.fn().mockResolvedValue(false),
     isWFH: jest.fn().mockResolvedValue(false),
     isNonWorkingDay: jest.fn().mockResolvedValue(false),
@@ -455,9 +456,9 @@ describe('AttendanceService', () => {
   });
 
   describe('Integration point: Holiday exclusion — never marks a holiday as Absent', () => {
-    it('reports HOLIDAY status for a day with no attendance record on a holiday', async () => {
+    it('reports HOLIDAY status and the holiday name for a day with no attendance record on a holiday', async () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([]);
-      calendar.isHoliday.mockResolvedValue(true);
+      calendar.getHoliday.mockResolvedValue({ id: 'hol-1', name: 'Republic Day' });
 
       const days = await service.getCalendar('emp-1', 2026, 1, {
         userId: 'emp-1',
@@ -466,6 +467,27 @@ describe('AttendanceService', () => {
       const jan26 = days.find((d) => d.date === '2026-01-26');
 
       expect(jan26?.status).toBe(AttendanceStatus.HOLIDAY);
+      expect(jan26?.holidayName).toBe('Republic Day');
+    });
+
+    it('reports HOLIDAY (not UPCOMING) for a future date that is a holiday', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+      calendar.getHoliday.mockImplementation((_id: string, date: Date) =>
+        date.getUTCDate() === 15
+          ? Promise.resolve({ id: 'hol-2', name: 'Independence Day' })
+          : Promise.resolve(null),
+      );
+
+      const days = await service.getCalendar('emp-1', 2099, 1, {
+        userId: 'emp-1',
+        role: Role.EMPLOYEE,
+      });
+      const jan15 = days.find((d) => d.date === '2099-01-15');
+      const jan16 = days.find((d) => d.date === '2099-01-16');
+
+      expect(jan15?.status).toBe(AttendanceStatus.HOLIDAY);
+      expect(jan15?.holidayName).toBe('Independence Day');
+      expect(jan16?.status).toBe('UPCOMING');
     });
   });
 

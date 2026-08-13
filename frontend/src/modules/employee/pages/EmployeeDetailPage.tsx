@@ -467,7 +467,7 @@ export function EmployeeDetailPage() {
             <div
               key={d.date}
               className={`rounded-md p-2 text-center text-xs ${ATTENDANCE_STATUS_COLOR[d.status]}`}
-              title={d.status}
+              title={d.status === 'HOLIDAY' && d.holidayName ? `${d.status} — ${d.holidayName}` : d.status}
             >
               <div>{d.date.slice(-2)}</div>
               <div className="truncate">{d.status}</div>

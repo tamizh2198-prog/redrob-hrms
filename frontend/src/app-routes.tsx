@@ -61,6 +61,9 @@ export const MODULE_NAV = [
   // Leave, unchanged.
   { path: '/attendance-leave', label: 'Attendance', Component: AttendanceLeavePage, icon: Clock, color: 'text-emerald-500' },
   { path: '/shift', label: 'Shift & Roster', Component: ShiftPage, icon: CalendarClock, color: 'text-amber-500' },
+  // Holiday Calendar: viewable by every authenticated role — HolidayPage
+  // itself gates the Publish/Create controls to HR_ADMIN/SUPER_ADMIN
+  // internally (isHrAdmin), so no `roles` restriction here or on the route.
   { path: '/holiday', label: 'Holiday Calendar', Component: HolidayPage, icon: CalendarDays, color: 'text-rose-500' },
   // Matches the backend's own @Roles() gate on every ATS endpoint — plain
   // EMPLOYEE accounts have no recruitment access at all, so the nav item
@@ -80,6 +83,8 @@ export const MODULE_NAV = [
   { path: '/helpdesk', label: 'Helpdesk', Component: HelpdeskPage, icon: LifeBuoy, color: 'text-sky-500' },
   { path: '/announcements', label: 'Announcements', Component: AnnouncementsPage, icon: Megaphone, color: 'text-fuchsia-500' },
   { path: '/analytics', label: 'Analytics', Component: AnalyticsPage, icon: BarChart3, color: 'text-blue-600' },
+  // AI Assistant is a floating chat widget (AppShell), not a sidebar page —
+  // no MODULE_NAV entry here on purpose.
   { path: '/workflow', label: 'Workflow', Component: WorkflowPage, icon: GitBranch, color: 'text-lime-600' },
   { path: '/notifications', label: 'Notifications', Component: NotificationsPage, icon: Bell, color: 'text-yellow-500' },
   // Settings is visible to every role — the page itself only fetches/shows

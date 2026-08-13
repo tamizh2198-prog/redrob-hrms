@@ -1,1 +1,1 @@
-export { AssistantBubble } from './components/AssistantBubble'
+export { FloatingAssistant } from './components/FloatingAssistant'

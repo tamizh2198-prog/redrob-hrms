@@ -28,6 +28,9 @@ export interface CalendarDay {
     requestedStatus: AttendanceStatus
     reason: string
   } | null
+  // Set when status is HOLIDAY — the Holiday Calendar entry's name, from
+  // the same Holiday source Dashboard/HolidayPage read from.
+  holidayName: string | null
 }
 
 export function formatDuration(workHours: number | null): string {

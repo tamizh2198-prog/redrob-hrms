@@ -4,6 +4,7 @@ import { Users, CalendarCheck, Palmtree, UserPlus, type LucideIcon } from 'lucid
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { WelcomeBanner } from '../components/WelcomeBanner'
+import { Badge } from '@/components/ui/badge'
 import {
   Table,
   TableBody,
@@ -20,9 +21,11 @@ import { decideLeave, listPendingRequests, isHalfDayApplication, type LeaveAppli
 import {
   listEmployees,
   listPendingInvitations,
+  getMyProfile,
   computeDisplayCompletionPercentage,
   type PendingInvitation,
 } from '@/modules/employee/api'
+import { listCalendar, type Holiday } from '@/modules/holiday/api'
 
 // This task: a simple landing page, separate from Analytics — the
 // role-specific content here is just a placeholder message, not a
@@ -54,7 +57,73 @@ export function DashboardPage() {
           </p>
         </CardContent>
       </Card>
+      <UpcomingHolidays />
     </div>
+  )
+}
+
+function formatHolidayDate(iso: string): string {
+  const d = new Date(iso)
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })
+  return `${day} ${month}`
+}
+
+// This task: every authenticated user gets a read-only "Upcoming Holidays"
+// summary, reusing the same GET /holidays/calendar endpoint and Holiday
+// Calendar page already built — not a new holiday API or a second data
+// source.
+function UpcomingHolidays() {
+  const [holidays, setHolidays] = useState<Holiday[]>([])
+
+  useEffect(() => {
+    getMyProfile()
+      .then((profile) => {
+        const locationId = profile.employee.locationId
+        if (!locationId) {
+          setHolidays([])
+          return
+        }
+        const year = new Date().getFullYear()
+        Promise.all([listCalendar(locationId, year), listCalendar(locationId, year + 1)])
+          .then(([thisYear, nextYear]) => setHolidays([...thisYear, ...nextYear]))
+          .catch(() => setHolidays([]))
+      })
+      .catch(() => setHolidays([]))
+  }, [])
+
+  const today = new Date().toISOString().slice(0, 10)
+  const upcoming = holidays
+    .filter((h) => h.date.slice(0, 10) >= today)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 5)
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Upcoming Holidays</CardTitle>
+          <Link to="/holiday">
+            <Button variant="outline" size="sm">
+              View Holiday Calendar
+            </Button>
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {upcoming.map((h) => (
+          <div key={h.id} className="flex items-center justify-between text-sm">
+            <span>
+              {formatHolidayDate(h.date)} — {h.name}
+            </span>
+            {h.isOptional && <Badge variant="outline">Optional</Badge>}
+          </div>
+        ))}
+        {upcoming.length === 0 && (
+          <p className="text-sm text-muted-foreground">No upcoming holidays.</p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -157,6 +226,8 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
           </div>
         </CardContent>
       </Card>
+
+      <UpcomingHolidays />
 
       {/* Pending Leave Requests — moved here from Attendance (Super Admin only) */}
       <Card>
