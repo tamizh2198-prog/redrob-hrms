@@ -65,7 +65,7 @@ export function createAssetRequest(data: { assetCategory: string; justification?
   return api<AssetRequest>('/assets/requests', { method: 'POST', body: data })
 }
 
-export function listAssetRequests(params: { employeeId?: string; approverId?: string } = {}) {
+export function listAssetRequests(params: { employeeId?: string } = {}) {
   return api<AssetRequest[]>('/assets/requests', { params })
 }
 

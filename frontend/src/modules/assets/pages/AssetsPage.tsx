@@ -32,7 +32,6 @@ import {
 export function AssetsPage() {
   const { user } = useAuth()
   const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
-  const isManager = user?.role === 'MANAGER'
 
   const [people, setPeople] = useState<ManagerOption[]>([])
   const [myAssignments, setMyAssignments] = useState<AssetAssignment[]>([])
@@ -62,8 +61,10 @@ export function AssetsPage() {
   useEffect(() => {
     getReferenceData().then((r) => setPeople(r.managers))
     refreshMine()
-    if (isHrAdmin) refreshAllAssets()
-    if (isManager || isHrAdmin) refreshDecidable()
+    if (isHrAdmin) {
+      refreshAllAssets()
+      refreshDecidable()
+    }
   }, [])
 
   function refreshMine() {
@@ -71,11 +72,10 @@ export function AssetsPage() {
     if (user) listAssetRequests({ employeeId: user.id }).then(setMyRequests).catch(() => setMyRequests([]))
   }
 
+  // Asset request approval is HR Admin/Super Admin only — a Manager never
+  // has requests to decide here, regardless of their reporting line.
   function refreshDecidable() {
-    if (!user) return
-    listAssetRequests(isHrAdmin ? {} : { approverId: user.id })
-      .then(setDecidableRequests)
-      .catch(() => setDecidableRequests([]))
+    listAssetRequests().then(setDecidableRequests).catch(() => setDecidableRequests([]))
   }
 
   function refreshAllAssets() {
@@ -234,7 +234,7 @@ export function AssetsPage() {
             </ul>
           </div>
 
-          {(isManager || isHrAdmin) && (
+          {isHrAdmin && (
             <div className="rounded-md border p-4">
               <h2 className="mb-2 font-medium">Requests To Decide</h2>
               <ul className="flex flex-col gap-2 text-sm">

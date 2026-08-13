@@ -28,7 +28,7 @@ function createMockPrisma() {
       update: jest.fn(),
       findMany: jest.fn(),
     },
-    employee: { findUnique: jest.fn() },
+    employee: { findUnique: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
   };
 }
@@ -200,35 +200,80 @@ describe('AssetsService', () => {
     });
   });
 
-  describe('Asset requests', () => {
-    it('rejects a decision from someone who is neither the approver nor privileged', async () => {
-      prisma.assetRequest.findUnique.mockResolvedValue({
-        id: 'req-1',
-        status: 'PENDING',
-        approverId: 'mgr-1',
-      });
-
+  describe('Asset requests: approval is HR Admin/Super Admin only', () => {
+    it('rejects a decision from an Employee', async () => {
       await expect(
-        service.decideAssetRequest(
-          'req-1',
-          true,
-          'someone-else',
-          Role.EMPLOYEE,
-        ),
+        service.decideAssetRequest('req-1', true, 'someone-else', Role.EMPLOYEE),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.assetRequest.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects a decision from a Manager, even the requester’s own reporting manager', async () => {
+      await expect(
+        service.decideAssetRequest('req-1', true, 'mgr-1', Role.MANAGER),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('lets HR Admin decide even when not the original approver', async () => {
+    it('lets HR Admin decide', async () => {
       prisma.assetRequest.findUnique.mockResolvedValue({
         id: 'req-1',
         status: 'PENDING',
-        approverId: 'mgr-1',
       });
       prisma.assetRequest.update.mockResolvedValue({ status: 'APPROVED' });
 
       await expect(
         service.decideAssetRequest('req-1', true, 'hr-1', Role.HR_ADMIN),
       ).resolves.toEqual({ status: 'APPROVED' });
+    });
+
+    it('lets Super Admin decide', async () => {
+      prisma.assetRequest.findUnique.mockResolvedValue({
+        id: 'req-1',
+        status: 'PENDING',
+      });
+      prisma.assetRequest.update.mockResolvedValue({ status: 'REJECTED' });
+
+      await expect(
+        service.decideAssetRequest('req-1', false, 'admin-1', Role.SUPER_ADMIN),
+      ).resolves.toEqual({ status: 'REJECTED' });
+    });
+  });
+
+  describe('Asset requests: notifies HR Admin/Super Admin, not the reporting manager', () => {
+    it('creates the request without an approverId and notifies every HR Admin/Super Admin in the company', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        companyId: 'co-1',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.employee.findMany.mockResolvedValue([
+        { id: 'hr-1' },
+        { id: 'admin-1' },
+      ]);
+      prisma.assetRequest.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'req-1', ...data }),
+      );
+
+      const result = await service.createAssetRequest(
+        { assetCategory: 'Laptop' },
+        'emp-1',
+      );
+
+      expect(result).not.toHaveProperty('approverId');
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { companyId: 'co-1', role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] } },
+        }),
+      );
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'hr-1' }),
+      );
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'admin-1' }),
+      );
+      expect(notifications.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'mgr-1' }),
+      );
     });
   });
 });

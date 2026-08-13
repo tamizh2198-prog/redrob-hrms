@@ -58,6 +58,9 @@ export class AssetsService {
     });
   }
 
+  // Business Rule: asset request approval is HR Admin/Super Admin only —
+  // the reporting manager is never the approver and is never notified,
+  // regardless of who the employee reports to.
   async createAssetRequest(dto: CreateAssetRequestDto, actorId: string) {
     const employee = await this.prisma.employee.findUnique({
       where: { id: actorId },
@@ -67,41 +70,44 @@ export class AssetsService {
         employeeId: actorId,
         assetCategory: dto.assetCategory,
         justification: dto.justification,
-        approverId: employee?.reportingManagerId,
       },
     });
 
-    if (employee?.reportingManagerId) {
-      await this.notifications.send({
-        recipientId: employee.reportingManagerId,
-        template: 'assets.request-pending-approval',
-        data: { requestId: request.id },
+    if (employee) {
+      const approvers = await this.prisma.employee.findMany({
+        where: {
+          companyId: employee.companyId,
+          role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] },
+        },
+        select: { id: true },
       });
+      await Promise.all(
+        approvers.map((approver) =>
+          this.notifications.send({
+            recipientId: approver.id,
+            template: 'assets.request-pending-approval',
+            data: { requestId: request.id },
+          }),
+        ),
+      );
     }
     return request;
   }
 
-  // Non-privileged callers can't trust their own employeeId/approverId query
-  // params — those get overridden to the caller's own id so one employee
-  // can't read another's asset requests (their "mine" view) or another
-  // manager's approval queue (the "to decide" view) by supplying someone
-  // else's id.
+  // Non-privileged callers can't trust their own employeeId query param —
+  // it's overridden to the caller's own id so one employee can't read
+  // another's asset requests. There's no approver-scoped view anymore:
+  // approval is HR Admin/Super Admin only, and they can already see every
+  // request.
   listAssetRequests(
-    filter: { employeeId?: string; approverId?: string },
+    filter: { employeeId?: string },
     requester: EmployeeDataRequester,
   ) {
-    let { employeeId, approverId } = filter;
-    if (!isPrivileged(requester.role)) {
-      if (approverId !== undefined) {
-        approverId = requester.userId;
-        employeeId = undefined;
-      } else {
-        employeeId = requester.userId;
-        approverId = undefined;
-      }
-    }
+    const employeeId = isPrivileged(requester.role)
+      ? filter.employeeId
+      : requester.userId;
     return this.prisma.assetRequest.findMany({
-      where: { employeeId, approverId },
+      where: { employeeId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -112,17 +118,17 @@ export class AssetsService {
     actorId: string,
     actorRole?: Role,
   ) {
+    if (!isPrivileged(actorRole)) {
+      throw new ForbiddenException(
+        'Only HR Admin or Super Admin can decide an asset request',
+      );
+    }
     const request = await this.prisma.assetRequest.findUnique({
       where: { id: requestId },
     });
     if (!request) throw new NotFoundException('Asset request not found');
     if (request.status !== 'PENDING') {
       throw new BadRequestException('This request was already decided');
-    }
-    if (request.approverId !== actorId && !isPrivileged(actorRole)) {
-      throw new ForbiddenException(
-        'Not authorized to decide this asset request',
-      );
     }
 
     return this.prisma.assetRequest.update({

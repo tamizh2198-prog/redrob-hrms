@@ -25,7 +25,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <nav className="flex w-56 shrink-0 flex-col border-r border-border p-4">
+      {/* Dark navy chrome (matches the WelcomeBanner/login hero and
+          redrob.io's own dark sections) against the lighter content pane —
+          gives the app a distinct, branded identity instead of blending
+          into an all-white page. */}
+      <nav className="flex w-56 shrink-0 flex-col bg-[#0b1220] p-4 text-slate-300 dark:bg-[#070c16]">
         <div className="mb-4 flex items-center gap-2">
           <img
             key={user?.id}
@@ -33,7 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             alt="Redrob HRMS"
             className="animate-logo-welcome h-8 w-8 rounded-md"
           />
-          <span className="text-lg font-semibold">Redrob HRMS</span>
+          <span className="text-lg font-semibold text-white">Redrob HRMS</span>
         </div>
         <ul className="flex flex-col gap-1">
           {MODULE_NAV.filter((item) =>
@@ -46,10 +50,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <NavLink
                   to={item.path}
                   className={({ isActive }) =>
-                    `flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                    `flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ${
                       isActive
-                        ? 'bg-secondary text-secondary-foreground'
-                        : 'text-muted-foreground hover:bg-muted'
+                        ? 'bg-white/10 text-white'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white'
                     }`
                   }
                 >
@@ -62,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </ul>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-end gap-1 border-b border-border px-4 py-2">
+        <header className="flex items-center justify-end gap-1 border-b border-border bg-card px-4 py-2 shadow-sm">
           <Link
             to="/notifications"
             aria-label="Notifications"

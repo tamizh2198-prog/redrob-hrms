@@ -456,23 +456,29 @@ export class WorkflowService {
       });
     }
 
-    const assetRequests = await this.assetsService.listAssetRequests(
-      { approverId: actorId },
-      { userId: actorId, role },
-    );
-    for (const req of assetRequests as Array<{
-      id: string;
-      status: string;
-      assetCategory: string;
-      createdAt: Date;
-    }>) {
-      if (req.status !== 'PENDING') continue;
-      items.push({
-        source: 'ASSETS',
-        id: req.id,
-        summary: `Asset request: ${req.assetCategory}`,
-        requestedAt: req.createdAt,
-      });
+    // Asset request approval is HR Admin/Super Admin only (see
+    // AssetsService.decideAssetRequest) — a Manager has nothing to approve
+    // here, so this source is skipped entirely for every other role rather
+    // than querying an approver scope that no longer exists.
+    if (role === Role.HR_ADMIN || role === Role.SUPER_ADMIN) {
+      const assetRequests = await this.assetsService.listAssetRequests(
+        {},
+        { userId: actorId, role },
+      );
+      for (const req of assetRequests as Array<{
+        id: string;
+        status: string;
+        assetCategory: string;
+        createdAt: Date;
+      }>) {
+        if (req.status !== 'PENDING') continue;
+        items.push({
+          source: 'ASSETS',
+          id: req.id,
+          summary: `Asset request: ${req.assetCategory}`,
+          requestedAt: req.createdAt,
+        });
+      }
     }
 
     if (role === Role.HR_ADMIN || role === Role.SUPER_ADMIN) {

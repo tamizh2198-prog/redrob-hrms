@@ -443,13 +443,25 @@ describe('WorkflowService (Section 7.15)', () => {
         },
       ]);
 
-      const items = await service.listMyApprovals('mgr-1', 'MANAGER');
+      const items = await service.listMyApprovals('mgr-1', 'HR_ADMIN');
 
       expect(items.map((i) => i.source)).toEqual(
         expect.arrayContaining(['WORKFLOW', 'LEAVE', 'ATTENDANCE', 'ASSETS']),
       );
       // The FULFILLED asset request must be excluded (only PENDING counts).
       expect(items.find((i) => i.id === 'asset-2')).toBeUndefined();
+    });
+
+    it('never includes asset requests for a Manager — asset approval is HR Admin/Super Admin only', async () => {
+      prisma.approvalRequest.findMany.mockResolvedValue([]);
+      assetsService.listAssetRequests.mockResolvedValue([
+        { id: 'asset-1', status: 'PENDING', assetCategory: 'LAPTOP', createdAt: new Date() },
+      ]);
+
+      const items = await service.listMyApprovals('mgr-1', 'MANAGER');
+
+      expect(items.find((i) => i.source === 'ASSETS')).toBeUndefined();
+      expect(assetsService.listAssetRequests).not.toHaveBeenCalled();
     });
 
     it('only includes ATS requisitions/offers for HR_ADMIN/SUPER_ADMIN or the relevant hiring manager', async () => {

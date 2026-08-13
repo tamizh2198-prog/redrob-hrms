@@ -40,16 +40,16 @@ export class AssetsController {
   @Get('requests')
   listRequests(
     @Query('employeeId') employeeId: string | undefined,
-    @Query('approverId') approverId: string | undefined,
     @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.assetsService.listAssetRequests(
-      { employeeId, approverId },
+      { employeeId },
       { userId: user.userId, role: user.role as Role },
     );
   }
 
   @Post('requests/:id/decision')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   decideRequest(
     @Param('id') id: string,
     @Body('approve') approve: boolean,

@@ -90,8 +90,16 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
-      <Card className="w-full max-w-sm">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#0b1220] via-[#122a52] to-[#2563eb] px-4">
+      <span
+        aria-hidden="true"
+        className="animate-welcome-glow-a absolute -left-20 top-0 size-80 rounded-full bg-blue-400/25 blur-3xl"
+      />
+      <span
+        aria-hidden="true"
+        className="animate-welcome-glow-b absolute bottom-0 right-0 size-96 rounded-full bg-indigo-400/20 blur-3xl"
+      />
+      <Card className="relative w-full max-w-sm shadow-2xl">
         <CardHeader className="items-center text-center">
           <img src={logo} alt="Redrob HRMS" className="mb-2 h-12 w-12 rounded-xl" />
           <CardTitle className="text-lg font-semibold tracking-tight">Redrob HRMS</CardTitle>

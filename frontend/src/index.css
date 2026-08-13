@@ -9,9 +9,12 @@
    rather than a generic admin theme. */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
+  /* A soft blue-tinted off-white, not pure white — --card stays pure white
+     below, so every card visibly "floats" above the page instead of
+     blending into it (the actual cause of the app looking flat/all-white). */
+  --background: #f2f6fc;
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: #ffffff;
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
