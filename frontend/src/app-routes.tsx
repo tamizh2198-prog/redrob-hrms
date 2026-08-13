@@ -82,8 +82,27 @@ export const MODULE_NAV = [
   { path: '/analytics', label: 'Analytics', Component: AnalyticsPage, icon: BarChart3, color: 'text-blue-600' },
   { path: '/workflow', label: 'Workflow', Component: WorkflowPage, icon: GitBranch, color: 'text-lime-600' },
   { path: '/notifications', label: 'Notifications', Component: NotificationsPage, icon: Bell, color: 'text-yellow-500' },
-  { path: '/settings', label: 'Settings', Component: SettingsPage, icon: Settings, color: 'text-slate-500' },
-  { path: '/audit', label: 'Audit Logs', Component: AuditPage, icon: ShieldCheck, color: 'text-red-500' },
+  // Both match the RequireRole guard already on their <Route> below —
+  // without this, a non-admin who clicks either link gets silently bounced
+  // by RequireRole to "/", which (for an incomplete profile) lands them on
+  // the profile-completion page with no explanation of why they ended up
+  // there instead of just never seeing a link they can't use.
+  {
+    path: '/settings',
+    label: 'Settings',
+    Component: SettingsPage,
+    icon: Settings,
+    color: 'text-slate-500',
+    roles: ['HR_ADMIN', 'SUPER_ADMIN'],
+  },
+  {
+    path: '/audit',
+    label: 'Audit Logs',
+    Component: AuditPage,
+    icon: ShieldCheck,
+    color: 'text-red-500',
+    roles: ['HR_ADMIN', 'SUPER_ADMIN'],
+  },
   // Auth Phase 5: SUPER_ADMIN only. `roles` is optional on every other
   // entry above (undefined = always visible), so this is additive and
   // does not change how any existing nav item renders.

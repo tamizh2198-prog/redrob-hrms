@@ -22,6 +22,7 @@ const HEADER_ONLY_NAV_PATHS = new Set(['/notifications', '/settings'])
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const canSeeSettings = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   return (
     <div className="flex min-h-screen">
@@ -93,9 +94,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               <DropdownMenuItem onClick={() => navigate('/my-profile')}>
                 <UserCircle /> My Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/settings')}>
-                <Settings /> Settings
-              </DropdownMenuItem>
+              {canSeeSettings && (
+                <DropdownMenuItem onClick={() => navigate('/settings')}>
+                  <Settings /> Settings
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={logout}>
                 <LogOut /> Sign Out
