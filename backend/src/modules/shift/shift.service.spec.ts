@@ -1,4 +1,3 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ShiftService } from './shift.service';
 import { PrismaService } from '../../shared/database/prisma.service';
@@ -19,11 +18,6 @@ function createMockPrisma() {
       findUnique: jest.fn(),
     },
     employee: { findUnique: jest.fn() },
-    shiftSwapRequest: {
-      create: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-    },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
   };
 }
@@ -67,64 +61,6 @@ describe('ShiftService', () => {
 
       expect(prisma.rosterEntry.upsert).toHaveBeenCalledTimes(1);
       expect(result.successCount).toBe(1);
-    });
-  });
-
-  describe('Business Rule: shift swaps must be between same-department employees unless overridden', () => {
-    it('rejects a cross-department swap without override', async () => {
-      prisma.employee.findUnique
-        .mockResolvedValueOnce({
-          id: 'emp-1',
-          departmentId: 'dept-A',
-          reportingManagerId: 'mgr-1',
-        })
-        .mockResolvedValueOnce({ id: 'emp-2', departmentId: 'dept-B' });
-
-      await expect(
-        service.requestSwap(
-          'emp-1',
-          { counterpartId: 'emp-2', date: '2026-03-01' },
-          Role.EMPLOYEE,
-        ),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('allows a cross-department swap when HR Admin overrides', async () => {
-      prisma.employee.findUnique
-        .mockResolvedValueOnce({
-          id: 'emp-1',
-          departmentId: 'dept-A',
-          reportingManagerId: 'mgr-1',
-        })
-        .mockResolvedValueOnce({ id: 'emp-2', departmentId: 'dept-B' });
-      prisma.shiftSwapRequest.create.mockResolvedValue({ id: 'swap-1' });
-
-      await expect(
-        service.requestSwap(
-          'emp-1',
-          { counterpartId: 'emp-2', date: '2026-03-01', override: true },
-          Role.HR_ADMIN,
-        ),
-      ).resolves.toBeDefined();
-    });
-
-    it('allows a same-department swap without override', async () => {
-      prisma.employee.findUnique
-        .mockResolvedValueOnce({
-          id: 'emp-1',
-          departmentId: 'dept-A',
-          reportingManagerId: 'mgr-1',
-        })
-        .mockResolvedValueOnce({ id: 'emp-2', departmentId: 'dept-A' });
-      prisma.shiftSwapRequest.create.mockResolvedValue({ id: 'swap-1' });
-
-      await expect(
-        service.requestSwap(
-          'emp-1',
-          { counterpartId: 'emp-2', date: '2026-03-01' },
-          Role.EMPLOYEE,
-        ),
-      ).resolves.toBeDefined();
     });
   });
 
@@ -421,40 +357,6 @@ describe('ShiftService', () => {
       expect(result.dryRun).toBe(true);
       expect(prisma.employeeHybridSchedule.upsert).not.toHaveBeenCalled();
       expect(prisma.rosterEntry.upsert).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Acceptance Criteria: shift swaps cannot bypass manager approval', () => {
-    it('rejects a decision from someone who is not the approver', async () => {
-      prisma.shiftSwapRequest.findUnique.mockResolvedValue({
-        id: 'swap-1',
-        status: 'PENDING',
-        approverId: 'mgr-1',
-        requesterId: 'emp-1',
-        counterpartId: 'emp-2',
-      });
-
-      await expect(
-        service.decideSwap('swap-1', 'someone-else', true, Role.EMPLOYEE),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    it('allows the assigned approver to decide', async () => {
-      prisma.shiftSwapRequest.findUnique.mockResolvedValue({
-        id: 'swap-1',
-        status: 'PENDING',
-        approverId: 'mgr-1',
-        requesterId: 'emp-1',
-        counterpartId: 'emp-2',
-        date: new Date('2026-03-01'),
-      });
-      prisma.rosterEntry.findUnique.mockResolvedValue(null);
-      prisma.rosterEntry.upsert.mockResolvedValue({});
-      prisma.shiftSwapRequest.update.mockResolvedValue({});
-
-      await expect(
-        service.decideSwap('swap-1', 'mgr-1', true, Role.MANAGER),
-      ).resolves.toEqual({ status: 'APPROVED' });
     });
   });
 });

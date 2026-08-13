@@ -16,7 +16,6 @@ import { Roles } from '../../shared/rbac/roles.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { ShiftService } from './shift.service';
 import { AssignRosterDto } from './dto/assign-roster.dto';
-import { RequestShiftSwapDto } from './dto/request-shift-swap.dto';
 import { SetHybridScheduleDto } from './dto/set-hybrid-schedule.dto';
 import {
   buildHybridScheduleTemplate,
@@ -37,20 +36,8 @@ export class RosterController {
     return this.shiftService.assignRoster(dto, user.role as Role);
   }
 
-  @Get('swap')
-  listSwaps(
-    @Query('employeeId') employeeId: string | undefined,
-    @Query('approverId') approverId: string | undefined,
-    @CurrentUser() user: { userId: string; role: string },
-  ) {
-    return this.shiftService.listSwaps(
-      { employeeId, approverId },
-      { userId: user.userId, role: user.role as Role },
-    );
-  }
-
   // Registered before the ':employeeId' route below so the literal path
-  // segment isn't swallowed as an employee id (see roster/swap fix).
+  // segment isn't swallowed as an employee id.
   @Get('hybrid-schedule')
   getHybridSchedule(
     @Query('employeeId') employeeId: string,
@@ -118,28 +105,6 @@ export class RosterController {
       new Date(from),
       new Date(to),
       { userId: user.userId, role: user.role as Role },
-    );
-  }
-
-  @Post('swap')
-  requestSwap(
-    @Body() dto: RequestShiftSwapDto,
-    @CurrentUser() user: { userId: string; role: string },
-  ) {
-    return this.shiftService.requestSwap(user.userId, dto, user.role as Role);
-  }
-
-  @Post('swap/:id/decision')
-  decideSwap(
-    @Param('id') id: string,
-    @Body('approve') approve: boolean,
-    @CurrentUser() user: { userId: string; role: string },
-  ) {
-    return this.shiftService.decideSwap(
-      id,
-      user.userId,
-      approve,
-      user.role as Role,
     );
   }
 }

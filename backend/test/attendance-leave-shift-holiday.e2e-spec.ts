@@ -179,11 +179,6 @@ describe('Attendance + Leave + Shift + Holiday (e2e)', () => {
     await prisma.leaveApplication.deleteMany({ where: { employeeId } });
     await prisma.leaveBalance.deleteMany({ where: { employeeId } });
     await prisma.leaveType.delete({ where: { id: leaveTypeId } });
-    await prisma.shiftSwapRequest.deleteMany({
-      where: {
-        OR: [{ requesterId: employeeId }, { counterpartId: employeeId }],
-      },
-    });
     await prisma.rosterEntry.deleteMany({
       where: { employeeId: { in: [employeeId, managerId, hrAdminId] } },
     });
@@ -560,28 +555,6 @@ describe('Attendance + Leave + Shift + Holiday (e2e)', () => {
       await request(app.getHttpServer())
         .post(`/api/v1/attendance/regularize/${regRes.body.id}/decision`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
-        .send({ approve: true })
-        .expect(201);
-    });
-  });
-
-  describe('POST /api/v1/roster/swap', () => {
-    it('allows a same-department swap and requires manager approval to decide', async () => {
-      const swapRes = await request(app.getHttpServer())
-        .post('/api/v1/roster/swap')
-        .set('Authorization', `Bearer ${employeeToken}`)
-        .send({ counterpartId: managerId, date: '2027-04-01' })
-        .expect(201);
-
-      await request(app.getHttpServer())
-        .post(`/api/v1/roster/swap/${swapRes.body.id}/decision`)
-        .set('Authorization', `Bearer ${employeeToken}`)
-        .send({ approve: true })
-        .expect(403);
-
-      await request(app.getHttpServer())
-        .post(`/api/v1/roster/swap/${swapRes.body.id}/decision`)
-        .set('Authorization', `Bearer ${managerToken}`)
         .send({ approve: true })
         .expect(201);
     });

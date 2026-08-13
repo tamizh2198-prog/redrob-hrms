@@ -87,12 +87,12 @@ async function main() {
   // pick from immediately, instead of an empty dropdown until HR creates one.
   await prisma.shift.upsert({
     where: { companyId_name: { companyId: company.id, name: 'General Shift' } },
-    update: {},
+    update: { startTime: '10:00', endTime: '19:00' },
     create: {
       companyId: company.id,
       name: 'General Shift',
-      startTime: '09:00',
-      endTime: '18:00',
+      startTime: '10:00',
+      endTime: '19:00',
     },
   });
 

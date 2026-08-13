@@ -18,14 +18,10 @@ import {
   createShift,
   assignRoster,
   getRoster,
-  requestSwap,
-  listSwaps,
-  decideSwap,
   getHybridSchedule,
   setHybridSchedule,
   type Shift,
   type RosterEntry,
-  type ShiftSwapRequest,
 } from '../api'
 import { BulkWfoUploadDialog } from '../components/BulkWfoUploadDialog'
 
@@ -37,20 +33,16 @@ export function ShiftPage() {
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [myRoster, setMyRoster] = useState<RosterEntry[]>([])
-  const [swaps, setSwaps] = useState<ShiftSwapRequest[]>([])
   const [employees, setEmployees] = useState<ManagerOption[]>([])
 
   const [newShiftName, setNewShiftName] = useState('')
-  const [newShiftStart, setNewShiftStart] = useState('09:00')
-  const [newShiftEnd, setNewShiftEnd] = useState('18:00')
+  const [newShiftStart, setNewShiftStart] = useState('10:00')
+  const [newShiftEnd, setNewShiftEnd] = useState('19:00')
 
   const [assignEmployeeId, setAssignEmployeeId] = useState('')
   const [assignDates, setAssignDates] = useState('')
   const [assignShiftId, setAssignShiftId] = useState('')
   const [assignWorkMode, setAssignWorkMode] = useState<'AUTO' | 'OFFICE' | 'WORK_FROM_HOME'>('AUTO')
-
-  const [swapCounterpartId, setSwapCounterpartId] = useState('')
-  const [swapDate, setSwapDate] = useState('')
 
   const [wfoEmployeeId, setWfoEmployeeId] = useState('')
   const [wfoMonth, setWfoMonth] = useState(() => new Date().toISOString().slice(0, 7))
@@ -69,7 +61,6 @@ export function ShiftPage() {
       getRoster(user.id, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10))
         .then(setMyRoster)
         .catch(() => setMyRoster([]))
-      listSwaps({ approverId: user.id }).then(setSwaps).catch(() => setSwaps([]))
     }
   }
 
@@ -143,22 +134,6 @@ export function ShiftPage() {
     }
   }
 
-  async function handleRequestSwap() {
-    setError(null)
-    setMessage(null)
-    try {
-      await requestSwap({ counterpartId: swapCounterpartId, date: swapDate })
-      setMessage('Swap request submitted.')
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to request swap')
-    }
-  }
-
-  async function handleDecideSwap(id: string, approve: boolean) {
-    await decideSwap(id, approve)
-    refresh()
-  }
-
   return (
     <div className="flex flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Shift &amp; Roster</h1>
@@ -182,65 +157,6 @@ export function ShiftPage() {
           {myRoster.length === 0 && <p className="text-muted-foreground">No roster entries yet.</p>}
         </ul>
       </div>
-
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Request Shift Swap</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-1">
-            <Label>Swap with</Label>
-            <Select value={swapCounterpartId} onValueChange={setSwapCounterpartId}>
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder="Select colleague">
-                  {(value: string) => {
-                    const e = employees.find((emp) => emp.id === value)
-                    return e ? `${e.firstName} ${e.lastName}` : 'Select colleague'
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {employees
-                  .filter((e) => e.id !== user?.id)
-                  .map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.firstName} {e.lastName}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Date</Label>
-            <Input type="date" value={swapDate} onChange={(e) => setSwapDate(e.target.value)} />
-          </div>
-          <Button onClick={handleRequestSwap}>Request Swap</Button>
-        </div>
-      </div>
-
-      {swaps.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Swap Requests to Decide</h2>
-          <ul className="flex flex-col gap-2 text-sm">
-            {swaps.map((s) => (
-              <li key={s.id} className="flex items-center justify-between">
-                <span>
-                  {s.requester?.firstName} ↔ {s.counterpart?.firstName} on {s.date.slice(0, 10)}{' '}
-                  <Badge variant="outline">{s.status}</Badge>
-                </span>
-                {s.status === 'PENDING' && (
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleDecideSwap(s.id, true)}>
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleDecideSwap(s.id, false)}>
-                      Reject
-                    </Button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {isHrAdmin && (
         <>

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -10,7 +9,6 @@ import { DefaultCompanyService } from '../../shared/database/default-company.ser
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { AssignRosterDto } from './dto/assign-roster.dto';
-import { RequestShiftSwapDto } from './dto/request-shift-swap.dto';
 import { SetHybridScheduleDto } from './dto/set-hybrid-schedule.dto';
 import { BulkHybridScheduleRow } from './hybrid-schedule-upload.util';
 import {
@@ -25,10 +23,6 @@ function startOfDay(date: Date): Date {
   const d = new Date(date);
   d.setUTCHours(0, 0, 0, 0);
   return d;
-}
-
-function isPrivileged(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
 }
 
 @Injectable()
@@ -298,176 +292,5 @@ export class ShiftService {
       include: { shift: true },
       orderBy: { date: 'asc' },
     });
-  }
-
-  // Non-privileged callers can only see swaps where they're a participant
-  // (requester/counterpart) or the approver — client-supplied employeeId/
-  // approverId filters are ignored for them, not trusted, so one employee
-  // can't enumerate another's swap requests or approval queue.
-  async listSwaps(
-    filter: { employeeId?: string; approverId?: string },
-    requester: EmployeeDataRequester,
-  ) {
-    if (isPrivileged(requester.role)) {
-      return this.prisma.shiftSwapRequest.findMany({
-        where: {
-          OR: filter.employeeId
-            ? [
-                { requesterId: filter.employeeId },
-                { counterpartId: filter.employeeId },
-              ]
-            : undefined,
-          approverId: filter.approverId,
-        },
-        include: { requester: true, counterpart: true },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-    const selfId = requester.userId;
-    return this.prisma.shiftSwapRequest.findMany({
-      where: {
-        OR: [
-          { requesterId: selfId },
-          { counterpartId: selfId },
-          { approverId: selfId },
-        ],
-      },
-      include: { requester: true, counterpart: true },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async requestSwap(
-    requesterId: string,
-    dto: RequestShiftSwapDto,
-    actorRole?: Role,
-  ) {
-    const [requester, counterpart] = await Promise.all([
-      this.prisma.employee.findUnique({ where: { id: requesterId } }),
-      this.prisma.employee.findUnique({ where: { id: dto.counterpartId } }),
-    ]);
-    if (!requester || !counterpart) {
-      throw new NotFoundException('Employee not found');
-    }
-
-    const sameDept = requester.departmentId === counterpart.departmentId;
-    const overrideAllowed = dto.override && isPrivileged(actorRole);
-    if (!sameDept && !overrideAllowed) {
-      throw new BadRequestException(
-        'Shift swaps must be between employees of the same department unless HR Admin overrides',
-      );
-    }
-
-    const swap = await this.prisma.shiftSwapRequest.create({
-      data: {
-        requesterId,
-        counterpartId: dto.counterpartId,
-        date: startOfDay(new Date(dto.date)),
-        approverId: requester.reportingManagerId,
-      },
-    });
-
-    await Promise.all(
-      [requesterId, dto.counterpartId, requester.reportingManagerId]
-        .filter((id): id is string => !!id)
-        .map((id) =>
-          this.notifications.send({
-            recipientId: id,
-            template: 'shift-swap.requested',
-            data: { swapId: swap.id },
-          }),
-        ),
-    );
-
-    return swap;
-  }
-
-  async decideSwap(
-    swapId: string,
-    approverId: string,
-    approve: boolean,
-    actorRole?: Role,
-  ) {
-    const swap = await this.prisma.shiftSwapRequest.findUnique({
-      where: { id: swapId },
-    });
-    if (!swap) throw new NotFoundException('Shift swap request not found');
-    if (swap.status !== 'PENDING') {
-      throw new BadRequestException('This swap request was already decided');
-    }
-    if (swap.approverId !== approverId && !isPrivileged(actorRole)) {
-      throw new ForbiddenException(
-        'Not authorized to decide this swap request',
-      );
-    }
-
-    if (approve) {
-      const [requesterEntry, counterpartEntry] = await Promise.all([
-        this.prisma.rosterEntry.findUnique({
-          where: {
-            employeeId_date: { employeeId: swap.requesterId, date: swap.date },
-          },
-        }),
-        this.prisma.rosterEntry.findUnique({
-          where: {
-            employeeId_date: {
-              employeeId: swap.counterpartId,
-              date: swap.date,
-            },
-          },
-        }),
-      ]);
-
-      await this.prisma.$transaction([
-        this.prisma.rosterEntry.upsert({
-          where: {
-            employeeId_date: { employeeId: swap.requesterId, date: swap.date },
-          },
-          update: { shiftId: counterpartEntry?.shiftId ?? null },
-          create: {
-            employeeId: swap.requesterId,
-            date: swap.date,
-            shiftId: counterpartEntry?.shiftId,
-          },
-        }),
-        this.prisma.rosterEntry.upsert({
-          where: {
-            employeeId_date: {
-              employeeId: swap.counterpartId,
-              date: swap.date,
-            },
-          },
-          update: { shiftId: requesterEntry?.shiftId ?? null },
-          create: {
-            employeeId: swap.counterpartId,
-            date: swap.date,
-            shiftId: requesterEntry?.shiftId,
-          },
-        }),
-        this.prisma.shiftSwapRequest.update({
-          where: { id: swapId },
-          data: { status: 'APPROVED', decidedAt: new Date() },
-        }),
-      ]);
-    } else {
-      await this.prisma.shiftSwapRequest.update({
-        where: { id: swapId },
-        data: { status: 'REJECTED', decidedAt: new Date() },
-      });
-    }
-
-    await Promise.all(
-      [swap.requesterId, swap.counterpartId, swap.approverId]
-        .filter((id): id is string => !!id)
-        .map((id) =>
-          this.notifications.send({
-            recipientId: id,
-            template: approve ? 'shift-swap.approved' : 'shift-swap.rejected',
-            data: { swapId },
-          }),
-        ),
-    );
-
-    return { status: approve ? 'APPROVED' : 'REJECTED' };
   }
 }

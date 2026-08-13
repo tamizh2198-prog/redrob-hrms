@@ -25,17 +25,6 @@ export interface HybridSchedule {
   officeWeekdays: number[]
 }
 
-export interface ShiftSwapRequest {
-  id: string
-  requesterId: string
-  counterpartId: string
-  requester?: { firstName: string; lastName: string }
-  counterpart?: { firstName: string; lastName: string }
-  date: string
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
-  approverId: string | null
-}
-
 export function listShifts() {
   return api<Shift[]>('/shifts')
 }
@@ -76,21 +65,6 @@ export function setHybridSchedule(data: {
   return api<HybridSchedule & { daysUpdated: number }>('/roster/hybrid-schedule', {
     method: 'POST',
     body: data,
-  })
-}
-
-export function requestSwap(data: { counterpartId: string; date: string; override?: boolean }) {
-  return api<ShiftSwapRequest>('/roster/swap', { method: 'POST', body: data })
-}
-
-export function listSwaps(params: { employeeId?: string; approverId?: string }) {
-  return api<ShiftSwapRequest[]>('/roster/swap', { params })
-}
-
-export function decideSwap(id: string, approve: boolean) {
-  return api<{ status: string }>(`/roster/swap/${id}/decision`, {
-    method: 'POST',
-    body: { approve },
   })
 }
 
