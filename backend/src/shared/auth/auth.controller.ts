@@ -94,7 +94,11 @@ export class AuthController {
     this.assertNotTerminated(employee);
 
     if (MFA_REQUIRED_ROLES.includes(employee.role)) {
-      if (!employee.mfaEnabled) {
+      // mfaEnabled alone isn't proof of a usable enrollment — if the secret
+      // is missing (e.g. never completed, or lost), route back through
+      // enrollment instead of sending the account to a verify screen it can
+      // never pass.
+      if (!employee.mfaEnabled || !employee.mfaSecret) {
         const secret = this.mfa.generateSecret();
         await this.prisma.employee.update({
           where: { id: employee.id },
