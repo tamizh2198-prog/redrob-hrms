@@ -12,11 +12,11 @@ import {
 import { useAuth } from '@/shared/auth/AuthContext'
 import logo from '@/assets/logo.jpg'
 
-// This task: Profile and Notifications move from the sidebar into a
-// top-right header — same /my-profile and /notifications routes, same
-// MODULE_NAV entries (still rendered by app-routes.tsx), just no longer
-// listed as sidebar links.
-const HEADER_ONLY_NAV_PATHS = new Set(['/notifications'])
+// This task: Profile, Notifications, and Settings move from the sidebar
+// into a top-right header/dropdown — same /my-profile, /notifications, and
+// /settings routes, same MODULE_NAV entries (still rendered by
+// app-routes.tsx), just no longer listed as sidebar links.
+const HEADER_ONLY_NAV_PATHS = new Set(['/notifications', '/settings'])
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
