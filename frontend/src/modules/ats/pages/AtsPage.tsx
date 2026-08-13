@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -203,31 +204,30 @@ export function AtsPage() {
       const offer = await createOffer({ candidateId, ctcBreakup: { ctcLpa } })
       setOfferByCandidate((s) => ({ ...s, [candidateId]: offer.id }))
       setMessage('Offer created.')
+      if (selectedRequisitionId) refreshCandidates(selectedRequisitionId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create offer')
     }
   }
 
-  async function handleApproveOffer(candidateId: string) {
-    const offerId = offerByCandidate[candidateId]
-    if (!offerId) return
+  async function handleApproveOffer(offerId: string) {
     setError(null)
     try {
       await approveOffer(offerId)
       setMessage('Offer sign-off recorded.')
+      if (selectedRequisitionId) refreshCandidates(selectedRequisitionId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to approve offer')
     }
   }
 
-  async function handleSendOffer(candidateId: string) {
-    const offerId = offerByCandidate[candidateId]
-    if (!offerId) return
+  async function handleSendOffer(offerId: string) {
     setError(null)
     try {
       const { responseLink } = await sendOffer(offerId)
       setResponseLinkByOffer((s) => ({ ...s, [offerId]: responseLink }))
-      setMessage('Offer sent — share the response link below with the candidate.')
+      setMessage('Offer sent — the candidate has also been emailed the response link.')
+      if (selectedRequisitionId) refreshCandidates(selectedRequisitionId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to send offer')
     }
@@ -452,32 +452,84 @@ export function AtsPage() {
                             setCtcByCandidate((s) => ({ ...s, [c.id]: e.target.value }))
                           }
                         />
-                        <div className="flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" onClick={() => handleCreateOffer(c.id)}>
-                            Create Offer
-                          </Button>
-                          {offerByCandidate[c.id] && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleApproveOffer(c.id)}
-                              >
-                                Approve (sign-off)
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => handleSendOffer(c.id)}>
-                                Send Offer
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                        {offerByCandidate[c.id] && responseLinkByOffer[offerByCandidate[c.id]] && (
-                          <p className="break-all text-xs text-muted-foreground">
-                            Candidate response link: {responseLinkByOffer[offerByCandidate[c.id]]}
-                          </p>
-                        )}
+                        <Button size="sm" variant="outline" onClick={() => handleCreateOffer(c.id)}>
+                          Create Offer
+                        </Button>
                       </div>
                     )}
+
+                    {/* Reads from the candidate's own offer history (not
+                        just this session's local state), so the full offer
+                        flow — approvals, sent/accepted, the employee it
+                        created — stays visible to Super Admin/HR Admin/the
+                        hiring manager even after a page reload or for
+                        whoever opens this pipeline next. */}
+                    {c.offers.length > 0 &&
+                      (() => {
+                        const offer = offerByCandidate[c.id]
+                          ? c.offers.find((o) => o.id === offerByCandidate[c.id]) ?? c.offers[0]
+                          : c.offers[0]
+                        const responseLink = responseLinkByOffer[offer.id]
+                        return (
+                          <div className="mt-3 flex flex-col gap-2 rounded-md border border-dashed p-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">Offer:</span>
+                              <Badge variant="outline">{offer.status}</Badge>
+                            </div>
+                            <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                              <li>
+                                Hiring manager sign-off:{' '}
+                                {offer.hiringManagerApprovedAt ? '✓ approved' : 'pending'}
+                              </li>
+                              <li>
+                                HR / CTC approval: {offer.hrApprovedAt ? '✓ approved' : 'pending'}
+                              </li>
+                              {offer.sentAt && <li>Sent to candidate: {offer.sentAt.slice(0, 10)}</li>}
+                              {offer.acceptedAt && (
+                                <li>Accepted: {offer.acceptedAt.slice(0, 10)}</li>
+                              )}
+                            </ul>
+                            <div className="flex flex-wrap gap-2">
+                              {canRaiseRequisition &&
+                                offer.status === 'DRAFT' &&
+                                (!offer.hiringManagerApprovedAt || !offer.hrApprovedAt) && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleApproveOffer(offer.id)}
+                                  >
+                                    Approve (sign-off)
+                                  </Button>
+                                )}
+                              {isHrAdmin &&
+                                offer.hiringManagerApprovedAt &&
+                                offer.hrApprovedAt &&
+                                offer.status === 'DRAFT' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleSendOffer(offer.id)}
+                                  >
+                                    Send Offer
+                                  </Button>
+                                )}
+                            </div>
+                            {responseLink && (
+                              <p className="break-all text-xs text-muted-foreground">
+                                Candidate response link: {responseLink}
+                              </p>
+                            )}
+                            {offer.status === 'ACCEPTED' && offer.createdEmployeeId && (
+                              <Link
+                                className="text-xs text-primary hover:underline"
+                                to={`/employee/${offer.createdEmployeeId}`}
+                              >
+                                View the new hire's employee record →
+                              </Link>
+                            )}
+                          </div>
+                        )
+                      })()}
                   </div>
                 ))}
                 {candidates.length === 0 && (

@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { AssistantBubble } from '@/modules/assistant'
 import logo from '@/assets/logo.jpg'
 
 // This task: Profile, Notifications, and Settings move from the sidebar
@@ -38,22 +39,26 @@ export function AppShell({ children }: { children: ReactNode }) {
           {MODULE_NAV.filter((item) =>
             !HEADER_ONLY_NAV_PATHS.has(item.path) &&
             ('roles' in item && item.roles ? (item.roles as readonly string[]).includes(user?.role ?? '') : true),
-          ).map((item) => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path}
-                className={({ isActive }) =>
-                  `block rounded-md px-2 py-1.5 text-sm ${
-                    isActive
-                      ? 'bg-secondary text-secondary-foreground'
-                      : 'text-muted-foreground hover:bg-muted'
-                  }`
-                }
-              >
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
+          ).map((item) => {
+            const Icon = item.icon
+            return (
+              <li key={item.path}>
+                <NavLink
+                  to={item.path}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                      isActive
+                        ? 'bg-secondary text-secondary-foreground'
+                        : 'text-muted-foreground hover:bg-muted'
+                    }`
+                  }
+                >
+                  <Icon className={`size-4 shrink-0 ${item.color}`} />
+                  {item.label}
+                </NavLink>
+              </li>
+            )
+          })}
         </ul>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -100,6 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <main className="flex-1">{children}</main>
       </div>
+      <AssistantBubble />
     </div>
   )
 }

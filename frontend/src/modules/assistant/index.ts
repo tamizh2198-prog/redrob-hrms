@@ -1,1 +1,1 @@
-export { AssistantPage } from './pages/AssistantPage'
+export { AssistantBubble } from './components/AssistantBubble'

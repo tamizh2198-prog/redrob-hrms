@@ -102,6 +102,56 @@ async function main() {
     create: { companyId: company.id, name: 'Engineering', code: 'ENG' },
   });
 
+  // Section 7.7: a company-wide (departmentId: null) fallback template so
+  // initChecklist() always finds one on offer acceptance, even for a
+  // department that has never had its own template configured — without
+  // this, the new hire's checklist/preboarding link silently fails to be
+  // created (see AtsService.respondOffer's swallowed NotFoundException).
+  // No compound unique key exists on this model, so this is a manual
+  // findFirst-then-create instead of an upsert.
+  const hasDefaultChecklistTemplate =
+    await prisma.onboardingChecklistTemplate.findFirst({
+      where: { companyId: company.id, departmentId: null },
+    });
+  if (!hasDefaultChecklistTemplate) {
+    await prisma.onboardingChecklistTemplate.create({
+      data: {
+        companyId: company.id,
+        name: 'Default Onboarding Checklist',
+        taskTemplates: {
+          create: [
+            {
+              ownerRole: 'HR',
+              description: 'Prepare offer letter and employment contract',
+              dueOffsetDays: 0,
+            },
+            {
+              ownerRole: 'IT',
+              description: 'Provision laptop, email, and system access',
+              dueOffsetDays: 0,
+            },
+            {
+              ownerRole: 'MANAGER',
+              description: 'Plan first-week onboarding schedule',
+              dueOffsetDays: 1,
+            },
+            {
+              ownerRole: 'NEW_HIRE',
+              description:
+                'Submit ID proof, education certificates, bank details, and background-check consent',
+              dueOffsetDays: 3,
+            },
+            {
+              ownerRole: 'HR',
+              description: 'Conduct orientation and policy walkthrough',
+              dueOffsetDays: 5,
+            },
+          ],
+        },
+      },
+    });
+  }
+
   const designationManager = await prisma.designation.upsert({
     where: { companyId_code: { companyId: company.id, code: 'ENG-MGR' } },
     update: {},

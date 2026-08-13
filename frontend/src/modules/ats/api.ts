@@ -36,6 +36,10 @@ export interface Candidate {
   currentStage: CandidateStage
   duplicateOfId: string | null
   appliedAt: string
+  // Most recent first — lets the pipeline view show the full offer flow
+  // (approvals, sent/accepted dates, the employee it created) without a
+  // separate fetch.
+  offers: Offer[]
 }
 
 export interface InterviewRound {
@@ -55,6 +59,7 @@ export interface Offer {
   hrApprovedAt: string | null
   sentAt: string | null
   acceptedAt: string | null
+  createdEmployeeId: string | null
 }
 
 export interface PipelineAnalytics {

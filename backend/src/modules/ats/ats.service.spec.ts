@@ -7,6 +7,7 @@ import { NotificationService } from '../../shared/notifications/notification.ser
 import { MagicLinkService } from '../../shared/auth/magic-link.service';
 import { EmployeeService } from '../employee/employee.service';
 import { OnboardingService } from '../onboarding/onboarding.service';
+import { EmailService } from '../../shared/email/email.service';
 
 function createMockPrisma() {
   return {
@@ -58,12 +59,17 @@ function createMockOnboardingService() {
   };
 }
 
+function createMockEmail() {
+  return { send: jest.fn().mockResolvedValue({ sent: true }) };
+}
+
 describe('AtsService', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
   let notifications: ReturnType<typeof createMockNotifications>;
   let magicLink: ReturnType<typeof createMockMagicLink>;
   let employeeService: ReturnType<typeof createMockEmployeeService>;
   let onboardingService: ReturnType<typeof createMockOnboardingService>;
+  let email: ReturnType<typeof createMockEmail>;
   let service: AtsService;
 
   beforeEach(() => {
@@ -72,6 +78,7 @@ describe('AtsService', () => {
     magicLink = createMockMagicLink();
     employeeService = createMockEmployeeService();
     onboardingService = createMockOnboardingService();
+    email = createMockEmail();
     service = new AtsService(
       prisma as unknown as PrismaService,
       { getOrCreate: jest.fn() } as unknown as DefaultCompanyService,
@@ -79,6 +86,7 @@ describe('AtsService', () => {
       magicLink as unknown as MagicLinkService,
       employeeService as unknown as EmployeeService,
       onboardingService as unknown as OnboardingService,
+      email as unknown as EmailService,
     );
   });
 
@@ -235,18 +243,29 @@ describe('AtsService', () => {
       );
     });
 
-    it('sends the offer and returns a candidate response link once both approvals exist', async () => {
+    it('sends the offer, emails the candidate a response link, and returns it once both approvals exist', async () => {
       prisma.offer.findUnique.mockResolvedValue({
         id: 'offer-1',
         hiringManagerApprovedAt: new Date(),
         hrApprovedAt: new Date(),
-        candidate: { id: 'cand-1', requisition: { hiringManagerId: 'mgr-1' } },
+        candidate: {
+          id: 'cand-1',
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          requisition: { title: 'Software Engineer', hiringManagerId: 'mgr-1' },
+        },
       });
       prisma.offer.update.mockResolvedValue({ id: 'offer-1', status: 'SENT' });
       magicLink.sign.mockReturnValue('respond-token');
 
       const result = await service.sendOffer('offer-1');
       expect(result.responseLink).toBe('respond-token');
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'jane@example.com',
+          text: expect.stringContaining('respond-token'),
+        }),
+      );
     });
   });
 
@@ -281,6 +300,12 @@ describe('AtsService', () => {
         'system:ats',
       );
       expect(onboardingService.initChecklist).toHaveBeenCalledWith('emp-1');
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'jane@example.com',
+          text: expect.stringContaining('preboarding-token'),
+        }),
+      );
       expect(result).toEqual(
         expect.objectContaining({
           status: 'ACCEPTED',
@@ -290,7 +315,7 @@ describe('AtsService', () => {
       );
     });
 
-    it('does not fail offer acceptance when no onboarding template exists yet', async () => {
+    it('does not fail offer acceptance when no onboarding template exists yet, and flags HR instead', async () => {
       prisma.offer.findUnique.mockResolvedValue({
         id: 'offer-1',
         candidateId: 'cand-1',
@@ -315,6 +340,14 @@ describe('AtsService', () => {
       const result = await service.respondOffer('token-1', 'ACCEPT');
       expect(result.status).toBe('ACCEPTED');
       expect(result.preboardingLink).toBeUndefined();
+      expect(email.send).not.toHaveBeenCalled();
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: 'mgr-1',
+          template: 'ats.preboarding-init-failed',
+          data: { employeeId: 'emp-1' },
+        }),
+      );
     });
 
     it('rejects a decision on an offer that is no longer sendable', async () => {

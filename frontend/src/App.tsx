@@ -7,7 +7,6 @@ import { ActivateAccountPage } from '@/shared/auth/ActivateAccountPage'
 import { AppRoutes } from '@/app-routes'
 import { CareersApplyPage, OfferResponsePage } from '@/modules/ats'
 import { PreboardingPortalPage } from '@/modules/onboarding'
-import { ProfileCompletionPage } from '@/modules/employee'
 import { getMyProfile } from '@/modules/employee/api'
 
 // Auth Phase 3: HR_ADMIN/SUPER_ADMIN must never be redirected to profile
@@ -36,11 +35,10 @@ function Gate() {
 
   if (!user) return <LoginPage />
   if (checkingProfile) return null
-  if (profileIncomplete) return <ProfileCompletionPage />
 
   return (
     <AppShell>
-      <AppRoutes />
+      <AppRoutes profileIncomplete={profileIncomplete} />
     </AppShell>
   )
 }

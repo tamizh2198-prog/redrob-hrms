@@ -37,6 +37,7 @@ const ALL_CHANNELS: NotificationChannel[] = [
 const EVENT_CATEGORIES = [
   'EMPLOYEE',
   'PROFILE-CHANGE',
+  'PROFILE-COMPLETION',
   'ATTENDANCE',
   'REGULARIZATION',
   'ROSTER',

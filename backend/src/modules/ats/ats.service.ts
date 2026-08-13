@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
+import { EmailService } from '../../shared/email/email.service';
 import {
   MagicLinkPayload,
   MagicLinkService,
@@ -48,6 +49,7 @@ export class AtsService {
     private readonly magicLink: MagicLinkService,
     private readonly employeeService: EmployeeService,
     private readonly onboardingService: OnboardingService,
+    private readonly email: EmailService,
   ) {}
 
   async createRequisition(dto: CreateRequisitionDto, actorId: string) {
@@ -182,6 +184,11 @@ export class AtsService {
           ? undefined
           : { hiringManagerId: actorId },
       },
+      // So Manager/HR Admin/Super Admin can see the full offer flow (status,
+      // both sign-offs, sent/accepted dates, and the employee it created)
+      // straight from the pipeline view instead of it dead-ending once an
+      // offer exists.
+      include: { offers: { orderBy: { createdAt: 'desc' } } },
       orderBy: { appliedAt: 'desc' },
     });
   }
@@ -383,10 +390,24 @@ export class AtsService {
       data: { offerId },
     });
 
-    // No employee-style recipient exists for an external candidate yet
-    // (see MagicLinkService) — the response link is returned directly so
-    // the caller (HR/recruiter UI) can relay it, rather than silently
-    // dropped.
+    // The candidate has no employee/notification account yet, so the
+    // response link is delivered by real email (not NotificationService,
+    // which only reaches existing Employee rows) — still also returned to
+    // the caller below so HR can relay it manually if delivery fails.
+    const baseUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+    const responseUrl = `${baseUrl}/offers/respond?token=${responseLink}`;
+    await this.email.send({
+      to: offer.candidate.email,
+      subject: `Your offer for ${offer.candidate.requisition.title}`,
+      text: [
+        `Hi ${offer.candidate.name},`,
+        '',
+        `Congratulations! You have an offer for ${offer.candidate.requisition.title}.`,
+        `Review and respond to your offer here: ${responseUrl}`,
+        'This link expires in 14 days.',
+      ].join('\n'),
+    });
+
     return { offer: updated, responseLink };
   }
 
@@ -487,6 +508,25 @@ export class AtsService {
       preboardingLink = this.onboardingService.issuePreboardingLink(
         employee.id,
       );
+
+      // Emailed in addition to the on-page link shown on this same offer-
+      // response screen, since the candidate may close the browser or
+      // return to this link days later — the mailed copy is a durable
+      // fallback and doubles as the "document collection" nudge.
+      const baseUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+      const preboardingUrl = `${baseUrl}/preboard?token=${preboardingLink}`;
+      await this.email.send({
+        to: offer.candidate.email,
+        subject: 'Welcome aboard — complete your preboarding',
+        text: [
+          `Hi ${offer.candidate.name},`,
+          '',
+          'Welcome aboard! Please complete your preboarding by submitting the required documents:',
+          `${preboardingUrl}`,
+          '',
+          'This link expires in 30 days.',
+        ].join('\n'),
+      });
     } catch (err) {
       // A missing template shouldn't roll back a real, already-created
       // Employee record — HR can run POST /onboarding/:employeeId/init
@@ -496,6 +536,11 @@ export class AtsService {
           err instanceof Error ? err.message : String(err)
         }`,
       );
+      await this.notifications.send({
+        recipientId: offer.candidate.requisition.hiringManagerId,
+        template: 'ats.preboarding-init-failed',
+        data: { employeeId: employee.id },
+      });
     }
 
     await this.notifications.send({
