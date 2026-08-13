@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
+import { getProgress, type OnboardingProgress } from '@/modules/onboarding/api'
 import {
   createRequisition,
   approveRequisition,
@@ -55,6 +57,11 @@ export function AtsPage() {
   const [candName, setCandName] = useState('')
   const [candEmail, setCandEmail] = useState('')
   const [candPhone, setCandPhone] = useState('')
+  const [candResumeRef, setCandResumeRef] = useState('')
+
+  const [preboardingByEmployee, setPreboardingByEmployee] = useState<
+    Record<string, OnboardingProgress | 'none'>
+  >({})
 
   const [lastRoundByCandidate, setLastRoundByCandidate] = useState<Record<string, string>>({})
   const [interviewerByCandidate, setInterviewerByCandidate] = useState<Record<string, string>>({})
@@ -80,7 +87,25 @@ export function AtsPage() {
   }
 
   function refreshCandidates(requisitionId: string) {
-    listCandidates(requisitionId).then(setCandidates).catch(() => setCandidates([]))
+    listCandidates(requisitionId)
+      .then((list) => {
+        setCandidates(list)
+        // Preboarding status for every accepted offer's new hire — 404
+        // (no checklist yet) is a real, displayable state, not an error.
+        for (const c of list) {
+          const employeeId = c.offers[0]?.createdEmployeeId
+          if (c.offers[0]?.status === 'ACCEPTED' && employeeId) {
+            getProgress(employeeId)
+              .then((progress) =>
+                setPreboardingByEmployee((s) => ({ ...s, [employeeId]: progress })),
+              )
+              .catch(() =>
+                setPreboardingByEmployee((s) => ({ ...s, [employeeId]: 'none' })),
+              )
+          }
+        }
+      })
+      .catch(() => setCandidates([]))
     getRequisitionAnalytics(requisitionId).then(setAnalytics).catch(() => setAnalytics(null))
   }
 
@@ -141,12 +166,14 @@ export function AtsPage() {
         name: candName,
         email: candEmail,
         phone: candPhone || undefined,
+        resumeRef: candResumeRef || undefined,
         source: 'manual',
       })
       setMessage('Candidate added.')
       setCandName('')
       setCandEmail('')
       setCandPhone('')
+      setCandResumeRef('')
       refreshCandidates(selectedRequisitionId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to add candidate')
@@ -257,6 +284,9 @@ export function AtsPage() {
                     <Badge variant="outline">{r.status}</Badge>
                     <span className="text-muted-foreground">Headcount: {r.headcount}</span>
                   </div>
+                  <span className="text-muted-foreground">
+                    Hiring Manager: {personName(r.hiringManagerId)}
+                  </span>
                   {isHrAdmin && r.status === 'PENDING_APPROVAL' && (
                     <Button size="sm" variant="outline" onClick={() => handleApprove(r.id)}>
                       Approve
@@ -326,6 +356,17 @@ export function AtsPage() {
 
           {selectedRequisitionId && (
             <>
+              {(() => {
+                const requisition = requisitions.find((r) => r.id === selectedRequisitionId)
+                if (!requisition) return null
+                return (
+                  <p className="text-sm text-muted-foreground">
+                    Pipeline for <span className="font-medium text-foreground">{requisition.title}</span>{' '}
+                    — Hiring Manager: {personName(requisition.hiringManagerId)}
+                  </p>
+                )
+              })()}
+
               {analytics && (
                 <div className="rounded-md border p-4 text-sm">
                   <h2 className="mb-2 font-medium">Pipeline Analytics</h2>
@@ -352,6 +393,11 @@ export function AtsPage() {
                     value={candPhone}
                     onChange={(e) => setCandPhone(e.target.value)}
                   />
+                  <Input
+                    placeholder="Resume link"
+                    value={candResumeRef}
+                    onChange={(e) => setCandResumeRef(e.target.value)}
+                  />
                   <Button variant="outline" onClick={handleAddCandidate}>
                     Add
                   </Button>
@@ -367,6 +413,18 @@ export function AtsPage() {
                       </span>
                       <Badge variant="outline">{c.currentStage}</Badge>
                     </div>
+                    {c.resumeRef ? (
+                      <a
+                        href={c.resumeRef}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        <FileText className="size-3.5" /> View Resume / CV
+                      </a>
+                    ) : (
+                      <p className="mt-1 text-muted-foreground">No resume on file.</p>
+                    )}
                     {c.duplicateOfId && (
                       <p className="mt-1 text-destructive">
                         Possible duplicate of an earlier applicant.
@@ -470,6 +528,9 @@ export function AtsPage() {
                           ? c.offers.find((o) => o.id === offerByCandidate[c.id]) ?? c.offers[0]
                           : c.offers[0]
                         const responseLink = responseLinkByOffer[offer.id]
+                        const preboarding = offer.createdEmployeeId
+                          ? preboardingByEmployee[offer.createdEmployeeId]
+                          : undefined
                         return (
                           <div className="mt-3 flex flex-col gap-2 rounded-md border border-dashed p-3">
                             <div className="flex items-center gap-2">
@@ -478,11 +539,8 @@ export function AtsPage() {
                             </div>
                             <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                               <li>
-                                Hiring manager sign-off:{' '}
-                                {offer.hiringManagerApprovedAt ? '✓ approved' : 'pending'}
-                              </li>
-                              <li>
-                                HR / CTC approval: {offer.hrApprovedAt ? '✓ approved' : 'pending'}
+                                HR / CTC approval (HR Admin/Super Admin only):{' '}
+                                {offer.hrApprovedAt ? '✓ approved' : 'pending'}
                               </li>
                               {offer.sentAt && <li>Sent to candidate: {offer.sentAt.slice(0, 10)}</li>}
                               {offer.acceptedAt && (
@@ -490,29 +548,24 @@ export function AtsPage() {
                               )}
                             </ul>
                             <div className="flex flex-wrap gap-2">
-                              {canRaiseRequisition &&
-                                offer.status === 'DRAFT' &&
-                                (!offer.hiringManagerApprovedAt || !offer.hrApprovedAt) && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleApproveOffer(offer.id)}
-                                  >
-                                    Approve (sign-off)
-                                  </Button>
-                                )}
-                              {isHrAdmin &&
-                                offer.hiringManagerApprovedAt &&
-                                offer.hrApprovedAt &&
-                                offer.status === 'DRAFT' && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleSendOffer(offer.id)}
-                                  >
-                                    Send Offer
-                                  </Button>
-                                )}
+                              {isHrAdmin && offer.status === 'DRAFT' && !offer.hrApprovedAt && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleApproveOffer(offer.id)}
+                                >
+                                  Approve
+                                </Button>
+                              )}
+                              {isHrAdmin && offer.hrApprovedAt && offer.status === 'DRAFT' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleSendOffer(offer.id)}
+                                >
+                                  Send Offer
+                                </Button>
+                              )}
                             </div>
                             {responseLink && (
                               <p className="break-all text-xs text-muted-foreground">
@@ -520,12 +573,23 @@ export function AtsPage() {
                               </p>
                             )}
                             {offer.status === 'ACCEPTED' && offer.createdEmployeeId && (
-                              <Link
-                                className="text-xs text-primary hover:underline"
-                                to={`/employee/${offer.createdEmployeeId}`}
-                              >
-                                View the new hire's employee record →
-                              </Link>
+                              <>
+                                <Link
+                                  className="text-xs text-primary hover:underline"
+                                  to={`/employee/${offer.createdEmployeeId}`}
+                                >
+                                  View the new hire's employee record →
+                                </Link>
+                                <p className="text-xs text-muted-foreground">
+                                  Preboarding:{' '}
+                                  {preboarding === undefined && 'Loading…'}
+                                  {preboarding === 'none' &&
+                                    'Not started — HR can run "Init checklist" from the Onboarding module.'}
+                                  {preboarding &&
+                                    preboarding !== 'none' &&
+                                    `${preboarding.checklist.status} (${preboarding.completionPercent}% complete)`}
+                                </p>
+                              </>
                             )}
                           </div>
                         )

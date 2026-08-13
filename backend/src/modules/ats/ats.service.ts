@@ -319,39 +319,24 @@ export class AtsService {
     });
   }
 
-  // Business Rule: "Offer approval requires sign-off from Hiring Manager +
-  // HR Admin before the letter is generated/sent" — two independent
-  // approvals, tracked separately rather than as a sequenced chain.
+  // Business Rule: offer approval is HR Admin/Super Admin only — the
+  // hiring manager has no sign-off role in this step (hiringManagerApprovedBy/
+  // At on the Offer model are legacy columns, never written going forward).
   async approveOffer(offerId: string, actorId: string, actorRole?: Role) {
+    if (!isPrivileged(actorRole)) {
+      throw new ForbiddenException(
+        'Only HR Admin or Super Admin can approve an offer',
+      );
+    }
     const offer = await this.prisma.offer.findUnique({
       where: { id: offerId },
-      include: { candidate: { include: { requisition: true } } },
     });
     if (!offer) throw new NotFoundException('Offer not found');
 
-    if (actorRole === Role.MANAGER) {
-      if (offer.candidate.requisition.hiringManagerId !== actorId) {
-        throw new ForbiddenException(
-          'Only this requisition’s hiring manager can give the hiring-manager sign-off',
-        );
-      }
-      return this.prisma.offer.update({
-        where: { id: offerId },
-        data: {
-          hiringManagerApprovedBy: actorId,
-          hiringManagerApprovedAt: new Date(),
-        },
-      });
-    }
-
-    if (isPrivileged(actorRole)) {
-      return this.prisma.offer.update({
-        where: { id: offerId },
-        data: { hrApprovedBy: actorId, hrApprovedAt: new Date() },
-      });
-    }
-
-    throw new ForbiddenException('Not authorized to approve this offer');
+    return this.prisma.offer.update({
+      where: { id: offerId },
+      data: { hrApprovedBy: actorId, hrApprovedAt: new Date() },
+    });
   }
 
   async sendOffer(offerId: string) {
@@ -360,9 +345,9 @@ export class AtsService {
       include: { candidate: { include: { requisition: true } } },
     });
     if (!offer) throw new NotFoundException('Offer not found');
-    if (!offer.hiringManagerApprovedAt || !offer.hrApprovedAt) {
+    if (!offer.hrApprovedAt) {
       throw new BadRequestException(
-        'Offer approval requires sign-off from both the Hiring Manager and HR Admin before it can be sent',
+        'Offer approval by HR Admin or Super Admin is required before it can be sent',
       );
     }
 

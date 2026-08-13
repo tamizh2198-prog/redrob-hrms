@@ -24,12 +24,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       {/* Dark navy chrome (matches the WelcomeBanner/login hero and
           redrob.io's own dark sections) against the lighter content pane —
           gives the app a distinct, branded identity instead of blending
-          into an all-white page. */}
-      <nav className="flex w-56 shrink-0 flex-col bg-[#0b1220] p-4 text-slate-300 dark:bg-[#070c16]">
+          into an all-white page. Fixed to the viewport: only <main> below
+          scrolls, so the sidebar (and header) never move with page content. */}
+      <nav className="flex h-full w-56 shrink-0 flex-col overflow-y-auto bg-[#0b1220] p-4 text-slate-300 dark:bg-[#070c16]">
         <div className="mb-4 flex items-center gap-2">
           <img
             key={user?.id}
@@ -65,8 +66,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </ul>
       </nav>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-end gap-1 border-b border-border bg-card px-4 py-2 shadow-sm">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center justify-end gap-1 border-b border-border bg-card px-4 py-2 shadow-sm">
           <Link
             to="/notifications"
             aria-label="Notifications"
@@ -107,7 +108,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
       <AssistantBubble />
     </div>

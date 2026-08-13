@@ -128,14 +128,12 @@ export class AtsController {
     return this.atsService.createOffer(dto);
   }
 
-  // Two independent sign-offs share this endpoint (see AtsService.approveOffer):
-  // MANAGER can only give the hiring-manager sign-off for their own
-  // requisition; the CTC/compensation sign-off is HR Admin/Super Admin
-  // only — enforced in the service, this decorator just matches those same
-  // roles at the controller for defense-in-depth, instead of relying
-  // solely on the service throwing.
+  // Offer approval is HR Admin/Super Admin only — a Manager (even the
+  // requisition's own hiring manager) has no sign-off role here. Enforced
+  // in the service; this decorator just matches at the controller for
+  // defense-in-depth.
   @Post('offers/:id/approve')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   approveOffer(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string },

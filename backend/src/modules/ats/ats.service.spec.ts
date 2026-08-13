@@ -200,40 +200,38 @@ describe('AtsService', () => {
     });
   });
 
-  describe('Business Rule: offer approval requires sign-off from Hiring Manager + HR Admin', () => {
-    it('rejects a manager approval when the actor is not the requisition’s hiring manager', async () => {
-      prisma.offer.findUnique.mockResolvedValue({
-        id: 'offer-1',
-        candidate: { requisition: { hiringManagerId: 'mgr-1' } },
-      });
-
+  describe('Business Rule: offer approval is HR Admin/Super Admin only', () => {
+    it('rejects an approval attempt from a Manager, even the requisition’s own hiring manager', async () => {
       await expect(
-        service.approveOffer('offer-1', 'someone-else', 'MANAGER'),
+        service.approveOffer('offer-1', 'mgr-1', 'MANAGER'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.offer.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects an approval attempt from an Employee', async () => {
+      await expect(
+        service.approveOffer('offer-1', 'someone-else', 'EMPLOYEE'),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('records the hiring-manager sign-off when the actor matches', async () => {
-      prisma.offer.findUnique.mockResolvedValue({
-        id: 'offer-1',
-        candidate: { requisition: { hiringManagerId: 'mgr-1' } },
-      });
+    it('records the HR sign-off for HR Admin', async () => {
+      prisma.offer.findUnique.mockResolvedValue({ id: 'offer-1' });
       prisma.offer.update.mockResolvedValue({
         id: 'offer-1',
-        hiringManagerApprovedBy: 'mgr-1',
+        hrApprovedBy: 'hr-1',
       });
 
-      await service.approveOffer('offer-1', 'mgr-1', 'MANAGER');
+      await service.approveOffer('offer-1', 'hr-1', 'HR_ADMIN');
       expect(prisma.offer.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ hiringManagerApprovedBy: 'mgr-1' }),
+          data: expect.objectContaining({ hrApprovedBy: 'hr-1' }),
         }),
       );
     });
 
-    it('rejects sending the offer until both approvals are recorded', async () => {
+    it('rejects sending the offer until HR approval is recorded', async () => {
       prisma.offer.findUnique.mockResolvedValue({
         id: 'offer-1',
-        hiringManagerApprovedAt: new Date(),
         hrApprovedAt: null,
         candidate: { id: 'cand-1', requisition: { hiringManagerId: 'mgr-1' } },
       });
@@ -243,10 +241,9 @@ describe('AtsService', () => {
       );
     });
 
-    it('sends the offer, emails the candidate a response link, and returns it once both approvals exist', async () => {
+    it('sends the offer, emails the candidate a response link, and returns it once HR approval exists', async () => {
       prisma.offer.findUnique.mockResolvedValue({
         id: 'offer-1',
-        hiringManagerApprovedAt: new Date(),
         hrApprovedAt: new Date(),
         candidate: {
           id: 'cand-1',

@@ -525,27 +525,22 @@ describe('ATS + Onboarding (e2e)', () => {
     });
   });
 
-  describe('Business Rule: offer approval requires sign-off from Hiring Manager + HR Admin, and sending needs both', () => {
-    it("rejects a hiring-manager sign-off from someone who isn't this requisition's hiring manager", async () => {
-      await request(app.getHttpServer())
-        .post(`/api/v1/ats/offers/${offer1Id}/approve`)
-        .set('Authorization', `Bearer ${otherManagerToken}`)
-        .expect(403);
-    });
-
-    it('rejects sending until both approvals are recorded', async () => {
+  describe('Business Rule: offer approval is HR Admin/Super Admin only, and sending needs it', () => {
+    it('rejects an approval attempt from the hiring manager', async () => {
       await request(app.getHttpServer())
         .post(`/api/v1/ats/offers/${offer1Id}/approve`)
         .set('Authorization', `Bearer ${hiringManagerToken}`)
-        .expect(201);
+        .expect(403);
+    });
 
+    it('rejects sending until HR approval is recorded', async () => {
       await request(app.getHttpServer())
         .post(`/api/v1/ats/offers/${offer1Id}/send`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
         .expect(400);
     });
 
-    it('sends the offer once HR also approves, returning a candidate response link', async () => {
+    it('sends the offer once HR approves, returning a candidate response link', async () => {
       await request(app.getHttpServer())
         .post(`/api/v1/ats/offers/${offer1Id}/approve`)
         .set('Authorization', `Bearer ${hrAdminToken}`)
@@ -561,10 +556,6 @@ describe('ATS + Onboarding (e2e)', () => {
       offerResponseToken = sent.body.responseLink;
 
       // Bring offer #2 (the decline path) fully to SENT the same way.
-      await request(app.getHttpServer())
-        .post(`/api/v1/ats/offers/${offer2Id}/approve`)
-        .set('Authorization', `Bearer ${hiringManagerToken}`)
-        .expect(201);
       await request(app.getHttpServer())
         .post(`/api/v1/ats/offers/${offer2Id}/approve`)
         .set('Authorization', `Bearer ${hrAdminToken}`)

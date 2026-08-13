@@ -508,24 +508,9 @@ export class WorkflowService {
       }
     }
 
-    if (role === Role.MANAGER) {
-      const offersForManager = await this.prisma.offer.findMany({
-        where: {
-          status: 'PENDING_APPROVAL',
-          hiringManagerApprovedAt: null,
-          candidate: { requisition: { hiringManagerId: actorId } },
-        },
-        include: { candidate: true },
-      });
-      for (const o of offersForManager) {
-        items.push({
-          source: 'ATS_OFFER',
-          id: o.id,
-          summary: `Offer (Hiring Manager sign-off): ${o.candidate.name}`,
-          requestedAt: o.createdAt,
-        });
-      }
-    }
+    // No Manager-side offer sign-off block: offer approval is HR Admin/
+    // Super Admin only (see AtsService.approveOffer) — a Manager never has
+    // an offer waiting on their own decision.
 
     return items.sort(
       (a, b) => a.requestedAt.getTime() - b.requestedAt.getTime(),
