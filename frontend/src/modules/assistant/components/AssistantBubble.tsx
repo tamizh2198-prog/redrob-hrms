@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
-import logo from '@/assets/logo.jpg'
+import { AssistantAvatar } from './AssistantAvatar'
 import { AssistantPanel } from './AssistantPanel'
 
 // Replaces the old sidebar "AI Assistant" nav item — a persistent bubble
@@ -16,7 +16,7 @@ export function AssistantBubble() {
         <div className="flex h-[520px] w-[360px] flex-col rounded-lg border border-border bg-background p-4 shadow-2xl">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <img src={logo} alt="" className="h-6 w-6 rounded-md" />
+              <AssistantAvatar className="h-6 w-6 rounded-full" />
               <h2 className="font-semibold">AI Assistant</h2>
             </div>
             <button
@@ -31,14 +31,26 @@ export function AssistantBubble() {
           <AssistantPanel />
         </div>
       )}
-      <button
-        type="button"
-        aria-label={open ? 'Close AI Assistant' : 'Open AI Assistant'}
-        onClick={() => setOpen((v) => !v)}
-        className="flex size-14 items-center justify-center overflow-hidden rounded-full border border-border bg-background shadow-lg transition-transform hover:scale-105"
-      >
-        <img src={logo} alt="AI Assistant" className="h-full w-full object-cover" />
-      </button>
+      <div className="relative flex size-14 items-center justify-center">
+        {/* Attention-getting pulse ring — only while closed, so it never
+            distracts during an actual conversation. */}
+        {!open && (
+          <span
+            aria-hidden="true"
+            className="animate-bubble-ring absolute inset-0 rounded-full bg-primary"
+          />
+        )}
+        <button
+          type="button"
+          aria-label={open ? 'Close AI Assistant' : 'Open AI Assistant'}
+          onClick={() => setOpen((v) => !v)}
+          className={`relative flex size-14 items-center justify-center overflow-hidden rounded-full border border-border bg-background shadow-lg transition-transform hover:scale-110 ${
+            open ? '' : 'animate-bubble-bob'
+          }`}
+        >
+          <AssistantAvatar className="h-full w-full" />
+        </button>
+      </div>
     </div>
   )
 }

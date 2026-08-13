@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { useTheme } from '@/shared/theme/ThemeContext'
 import { ApiError } from '@/lib/api'
 import {
   getCompanySettings,
@@ -42,7 +44,13 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
 
 export function SettingsPage() {
   const { user } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+  // Matches the backend's own @Roles(HR_ADMIN, SUPER_ADMIN) gate on every
+  // GET here — a Manager/Employee calling these would just get 403s, so
+  // skip the fetch (and the cards below) entirely instead of showing sections
+  // stuck on "Loading…" for a role that can never see them.
+  const canViewCompanySettings = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const [company, setCompany] = useState<CompanySettings | null>(null)
   const [logoUrl, setLogoUrl] = useState('')
@@ -63,11 +71,11 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!canViewCompanySettings) return
     refreshCompany()
     refreshOrgStructure()
     refreshIntegrations()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [canViewCompanySettings])
 
   function refreshCompany() {
     getCompanySettings()
@@ -180,6 +188,37 @@ export function SettingsPage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
+      {/* Personal preference, not a company setting — visible to every
+          role, unlike the admin-only cards below. */}
+      <div className="rounded-md border p-4 text-sm">
+        <h2 className="mb-2 font-medium">Preferences</h2>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium">Appearance</p>
+            <p className="text-muted-foreground">Switch between light and dark mode.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={toggleTheme}>
+            {theme === 'dark' ? (
+              <>
+                <Moon className="size-4" /> Dark mode
+              </>
+            ) : (
+              <>
+                <Sun className="size-4" /> Light mode
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {!canViewCompanySettings && (
+        <p className="text-sm text-muted-foreground">
+          Company profile, org structure, and integrations are managed by HR Admin/Super Admin.
+        </p>
+      )}
+
+      {canViewCompanySettings && (
+        <>
       <div className="rounded-md border p-4 text-sm">
         <h2 className="mb-2 font-medium">Company Profile</h2>
         {company ? (
@@ -326,6 +365,8 @@ export function SettingsPage() {
           {integrations.length === 0 && <p className="text-muted-foreground">Loading…</p>}
         </ul>
       </div>
+        </>
+      )}
     </div>
   )
 }

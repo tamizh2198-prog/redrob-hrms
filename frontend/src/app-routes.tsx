@@ -82,19 +82,21 @@ export const MODULE_NAV = [
   { path: '/analytics', label: 'Analytics', Component: AnalyticsPage, icon: BarChart3, color: 'text-blue-600' },
   { path: '/workflow', label: 'Workflow', Component: WorkflowPage, icon: GitBranch, color: 'text-lime-600' },
   { path: '/notifications', label: 'Notifications', Component: NotificationsPage, icon: Bell, color: 'text-yellow-500' },
-  // Both match the RequireRole guard already on their <Route> below —
-  // without this, a non-admin who clicks either link gets silently bounced
-  // by RequireRole to "/", which (for an incomplete profile) lands them on
-  // the profile-completion page with no explanation of why they ended up
-  // there instead of just never seeing a link they can't use.
+  // Settings is visible to every role — the page itself only fetches/shows
+  // company-wide admin sections for HR Admin/Super Admin; everyone else
+  // still gets the personal Preferences section (theme, etc.) at the top.
   {
     path: '/settings',
     label: 'Settings',
     Component: SettingsPage,
     icon: Settings,
     color: 'text-slate-500',
-    roles: ['HR_ADMIN', 'SUPER_ADMIN'],
   },
+  // Audit Logs matches the RequireRole guard already on its <Route> below —
+  // without this, a non-admin who clicks it gets silently bounced by
+  // RequireRole to "/", which (for an incomplete profile) lands them on the
+  // profile-completion page with no explanation of why they ended up there
+  // instead of just never seeing a link they can't use.
   {
     path: '/audit',
     label: 'Audit Logs',
@@ -138,14 +140,10 @@ export function AppRoutes({ profileIncomplete = false }: { profileIncomplete?: b
           </RequireRole>
         }
       />
-      <Route
-        path="/settings"
-        element={
-          <RequireRole roles={['HR_ADMIN', 'SUPER_ADMIN']}>
-            <SettingsPage />
-          </RequireRole>
-        }
-      />
+      {/* No RequireRole here — visible to every role; SettingsPage itself
+          only fetches/renders the company-wide admin sections for HR
+          Admin/Super Admin. */}
+      <Route path="/settings" element={<SettingsPage />} />
       <Route
         path="/audit"
         element={

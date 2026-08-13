@@ -118,3 +118,37 @@
     logo-welcome-glow 1.4s ease-in-out 2;
   animation-delay: 0s, 0.6s;
 }
+
+/* AI assistant bubble: a gentle continuous bob plus a soft pulsing ring
+   behind it, so it draws the eye without being an actual pop-up/toast that
+   interrupts the page. Both stop once the panel is open (see
+   AssistantBubble.tsx), since the goal is to attract a first click, not to
+   keep distracting someone mid-conversation. */
+@keyframes bubble-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes bubble-ring-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+
+.animate-bubble-bob {
+  animation: bubble-bob 2.4s ease-in-out infinite;
+}
+
+.animate-bubble-ring {
+  animation: bubble-ring-pulse 2s ease-out infinite;
+}
