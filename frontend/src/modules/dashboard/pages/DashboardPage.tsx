@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Users, CalendarCheck, Palmtree, UserPlus, type LucideIcon } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { WelcomeBanner } from '../components/WelcomeBanner'
 import {
   Table,
   TableBody,
@@ -41,11 +43,10 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <h1 className="text-xl font-semibold">Dashboard</h1>
+      <WelcomeBanner name={user?.name} role={user?.role} />
       <Card>
         <CardHeader>
-          <CardTitle>Welcome{user?.name ? `, ${user.name}` : ''}</CardTitle>
-          <CardDescription>{user?.role}</CardDescription>
+          <CardTitle>Getting Started</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
@@ -126,20 +127,19 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Welcome, {userName}. Here's what needs attention today.</p>
-      </div>
+      <WelcomeBanner name={userName} role="SUPER_ADMIN" />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Employees" value={totalEmployees} />
+        <KpiCard label="Employees" value={totalEmployees} icon={Users} color="text-indigo-500" />
         <KpiCard
           label="Today's Attendance"
           value={hrDashboard?.attendancePercentToday == null ? '—' : `${hrDashboard.attendancePercentToday}%`}
+          icon={CalendarCheck}
+          color="text-emerald-500"
         />
-        <KpiCard label="On Leave" value={attendanceCount('ON_LEAVE')} />
-        <KpiCard label="Onboarding" value={pendingInvitations.length} />
+        <KpiCard label="On Leave" value={attendanceCount('ON_LEAVE')} icon={Palmtree} color="text-amber-500" />
+        <KpiCard label="Onboarding" value={pendingInvitations.length} icon={UserPlus} color="text-teal-500" />
       </div>
 
       {/* Today's Attendance summary */}
@@ -288,12 +288,27 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
   )
 }
 
-function KpiCard({ label, value }: { label: string; value: number | string }) {
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string
+  value: number | string
+  icon: LucideIcon
+  color: string
+}) {
   return (
     <Card size="sm">
-      <CardContent>
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-2xl font-semibold">{value}</div>
+      <CardContent className="flex items-center gap-3">
+        <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted ${color}`}>
+          <Icon className="size-5" />
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">{label}</div>
+          <div className="text-2xl font-semibold">{value}</div>
+        </div>
       </CardContent>
     </Card>
   )
