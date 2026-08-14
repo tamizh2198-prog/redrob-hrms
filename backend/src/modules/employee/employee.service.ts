@@ -35,6 +35,139 @@ const ACTIVE_STATUSES: EmployeeStatus[] = [
 
 const SENSITIVE_FIELDS = ['pan', 'aadhaar', 'bankAccountNumber'] as const;
 
+// deleteEmployee(): full audit of every Employee foreign-key relationship in
+// the schema, split into three handling strategies. Every employeeId-typed
+// column in this schema is NOT NULL (verified against schema.prisma), so
+// "nullable" here only ever applies to genuine secondary-role columns
+// (`String?`), never to a row's own ownership column.
+
+// 1. Employee-owned data — has no meaning or stakeholder once this specific
+// employee is gone, and no other business process depends on the row
+// surviving. Deleted along with the employee.
+//
+// Order matters: exitInterview/finalSettlement each hold their own FK to
+// Resignation (resignationId), so they must be cleared before resignation
+// itself — deleteEmployee() also explicitly clears ClearanceItem/
+// LwdAdjustment (which reference Resignation, not Employee, so they aren't
+// employeeId-scoped at all) and ChecklistTask (which references
+// OnboardingChecklist) before this loop runs, for the same reason.
+const EMPLOYEE_OWNED_MODELS = [
+  'employeeInvitation',
+  'refreshToken',
+  'employeeDocument',
+  'employeeHistory',
+  'profileChangeRequest',
+  'rosterEntry',
+  'employeeHybridSchedule',
+  'optionalHolidaySelection',
+  'attendanceRecord',
+  'regularizationRequest',
+  'leaveBalance',
+  'leaveApplication',
+  'onboardingChecklist',
+  'preboardingSubmission',
+  'assetAssignment',
+  'assetRequest',
+  'exitInterview',
+  'finalSettlement',
+  'resignation',
+  'announcementAck',
+  'assistantConversation',
+  'notification',
+  'notificationPreference',
+  'notificationLog',
+] as const satisfies readonly (keyof PrismaService)[];
+
+// 2. Nullable secondary-role references — this employee is referenced as a
+// manager/approver/agent on someone else's (or their own historical) row,
+// but the column allows NULL, so the reference is safely cleared instead of
+// blocking the delete or destroying the referencing row. The self-relation
+// (other employees who report to this one) is handled the same way.
+// ShiftSwapRequest/RegularizationRequest.approverId have no Prisma
+// `@relation` (loose string columns, not FK-enforced) but are still cleared
+// for data hygiene.
+const NULLABLE_EMPLOYEE_REFERENCES: ReadonlyArray<{
+  model: keyof PrismaService;
+  field: string;
+}> = [
+  { model: 'employee', field: 'reportingManagerId' },
+  { model: 'assetRequest', field: 'approverId' },
+  { model: 'ticketSlaPolicy', field: 'agentId' },
+  { model: 'ticket', field: 'assignedAgentId' },
+  { model: 'shiftSwapRequest', field: 'approverId' },
+  { model: 'regularizationRequest', field: 'approverId' },
+];
+
+// 3. Required (NOT NULL) references to genuine business records with
+// stakeholders beyond this one employee — job requisitions, tickets,
+// announcements, performance records, recognitions, policy documents,
+// reports, and workflow history. These are never deleted or force-nulled;
+// if any exist, the delete is blocked with a specific, actionable error
+// naming the model and row count (Section: error handling).
+const BLOCKING_EMPLOYEE_REFERENCES: ReadonlyArray<{
+  model: keyof PrismaService;
+  field: string;
+  label: string;
+}> = [
+  { model: 'goal', field: 'employeeId', label: 'performance goal' },
+  { model: 'review', field: 'employeeId', label: 'performance review' },
+  {
+    model: 'monthlyEvaluation',
+    field: 'employeeId',
+    label: 'monthly performance evaluation',
+  },
+  { model: 'ticket', field: 'employeeId', label: 'helpdesk ticket (raised by this employee)' },
+  {
+    model: 'jobRequisition',
+    field: 'hiringManagerId',
+    label: 'job requisition (as hiring manager)',
+  },
+  {
+    model: 'interviewRound',
+    field: 'interviewerId',
+    label: 'interview round (as interviewer)',
+  },
+  {
+    model: 'shiftSwapRequest',
+    field: 'requesterId',
+    label: 'shift swap request (as requester)',
+  },
+  {
+    model: 'shiftSwapRequest',
+    field: 'counterpartId',
+    label: 'shift swap request (as counterpart)',
+  },
+  {
+    model: 'ticketMessage',
+    field: 'senderId',
+    label: 'helpdesk ticket message (as sender)',
+  },
+  { model: 'announcement', field: 'createdBy', label: 'announcement (as creator)' },
+  { model: 'recognition', field: 'senderId', label: 'recognition (as sender)' },
+  { model: 'recognition', field: 'recipientId', label: 'recognition (as recipient)' },
+  {
+    model: 'policyDocument',
+    field: 'uploadedById',
+    label: 'policy document (as uploader)',
+  },
+  { model: 'savedReport', field: 'createdById', label: 'saved report (as creator)' },
+  {
+    model: 'workflowDefinition',
+    field: 'createdById',
+    label: 'workflow definition (as creator)',
+  },
+  {
+    model: 'approvalRequest',
+    field: 'requestedById',
+    label: 'approval request (as requester)',
+  },
+  {
+    model: 'workflowApprovalDecision',
+    field: 'approverId',
+    label: 'workflow approval decision (as approver)',
+  },
+];
+
 function maskValue(value: string | null): string | null {
   if (!value) return value;
   const visible = value.slice(-4);
@@ -434,6 +567,114 @@ export class EmployeeService {
     return this.stripPasswordHash(updated);
   }
 
+  // This task: Super Admin-only permanent removal, for test/development
+  // cleanup only — Dismiss above (TERMINATED) remains the real-world
+  // offboarding path and is completely untouched by this method.
+  //
+  // Three-part strategy (see the constants above for the full per-model
+  // classification): (1) employee-owned rows are deleted with the employee,
+  // (2) nullable secondary-role references pointing at this employee are
+  // cleared to NULL rather than blocking the delete, (3) required
+  // references to genuine business records (job requisitions, tickets,
+  // announcements, performance records, recognitions, reports, workflow
+  // history) are never deleted or force-nulled — if any exist, the whole
+  // operation is rejected up front with a specific, actionable error naming
+  // every blocking model and row count, before any write happens.
+  async deleteEmployee(id: string): Promise<{
+    deleted: true;
+    employeeCode: string;
+  }> {
+    const employee = await this.prisma.employee.findUnique({ where: { id } });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    const blockers: string[] = [];
+    for (const ref of BLOCKING_EMPLOYEE_REFERENCES) {
+      const count = await (
+        this.prisma[ref.model] as unknown as {
+          count: (args: { where: Record<string, string> }) => Promise<number>;
+        }
+      ).count({ where: { [ref.field]: id } });
+      if (count > 0) {
+        blockers.push(`a required ${ref.label} by ${count} record${count > 1 ? 's' : ''}`);
+      }
+    }
+    if (blockers.length > 0) {
+      throw new BadRequestException(
+        `Cannot delete ${employee.firstName} ${employee.lastName}. The employee is referenced as ${blockers.join(', and ')}. Reassign or remove those references before deleting.`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Grandchild cleanup: several employee-owned models (deleted below via
+      // EMPLOYEE_OWNED_MODELS) have their own child rows that reference THEM
+      // — not the employee directly — so they aren't covered by any
+      // employeeId-scoped deleteMany and would otherwise block the parent
+      // row's deletion with a foreign-key violation one level down. Derived
+      // from every model in the schema with a FK to one of the
+      // EMPLOYEE_OWNED_MODELS (verified via Prisma.dmmf, not guessed).
+      const checklist = await tx.onboardingChecklist.findUnique({
+        where: { employeeId: id },
+      });
+      if (checklist) {
+        await tx.checklistTask.deleteMany({ where: { checklistId: checklist.id } });
+      }
+      const resignation = await tx.resignation.findUnique({
+        where: { employeeId: id },
+      });
+      if (resignation) {
+        await tx.clearanceItem.deleteMany({ where: { resignationId: resignation.id } });
+        await tx.lwdAdjustment.deleteMany({ where: { resignationId: resignation.id } });
+      }
+      // LeaveApplication and AssistantConversation are one-to-many (not
+      // unique per employee like the two above), so every matching parent
+      // row's id needs collecting before their own children can be cleared.
+      const leaveApplications = await tx.leaveApplication.findMany({
+        where: { employeeId: id },
+        select: { id: true },
+      });
+      if (leaveApplications.length > 0) {
+        await tx.leaveApprovalStep.deleteMany({
+          where: { applicationId: { in: leaveApplications.map((a) => a.id) } },
+        });
+      }
+      const conversations = await tx.assistantConversation.findMany({
+        where: { employeeId: id },
+        select: { id: true },
+      });
+      if (conversations.length > 0) {
+        await tx.assistantMessage.deleteMany({
+          where: { conversationId: { in: conversations.map((c) => c.id) } },
+        });
+      }
+
+      for (const ref of NULLABLE_EMPLOYEE_REFERENCES) {
+        await (
+          tx[ref.model] as unknown as {
+            updateMany: (args: {
+              where: Record<string, string>;
+              data: Record<string, null>;
+            }) => Promise<unknown>;
+          }
+        ).updateMany({
+          where: { [ref.field]: id },
+          data: { [ref.field]: null },
+        });
+      }
+      for (const model of EMPLOYEE_OWNED_MODELS) {
+        await (
+          tx[model] as unknown as {
+            deleteMany: (args: {
+              where: { employeeId: string };
+            }) => Promise<unknown>;
+          }
+        ).deleteMany({ where: { employeeId: id } });
+      }
+      await tx.employee.delete({ where: { id } });
+    });
+
+    return { deleted: true, employeeCode: employee.employeeCode };
+  }
+
   listPendingInvitations() {
     return this.prisma.employeeInvitation.findMany({
       where: { usedAt: null },
@@ -625,6 +866,15 @@ export class EmployeeService {
             employeeCode: true,
             firstName: true,
             lastName: true,
+            // Additive fields (existing consumers of this shared "managers"
+            // list — ATS, Onboarding, Performance, Assets, Helpdesk,
+            // Announcements, Analytics, Shift — all need the FULL roster,
+            // not just people eligible to be a reporting manager, so this
+            // stays unfiltered here; role/status let the one consumer that
+            // needs eligibility (the Reporting Manager picker) filter
+            // client-side without a second endpoint or a second fetch.
+            role: true,
+            status: true,
           },
           orderBy: { firstName: 'asc' },
         }),

@@ -35,6 +35,7 @@ import {
   type ProfileCompletion,
 } from '../api'
 import { DismissEmployeeDialog } from '../components/DismissEmployeeDialog'
+import { DeleteEmployeeDialog } from '../components/DeleteEmployeeDialog'
 import { getCalendar, ATTENDANCE_STATUS_COLOR, type CalendarDay } from '@/modules/attendance/api'
 import {
   getBalances,
@@ -195,6 +196,12 @@ export function EmployeeDetailPage() {
     navigate('/employee')
   }
 
+  function handleDeleted() {
+    navigate('/employee', {
+      state: { message: `${employee?.firstName} ${employee?.lastName} was permanently deleted.` },
+    })
+  }
+
   if (error && !employee) {
     return (
       <div className="flex flex-col gap-4 p-6">
@@ -240,12 +247,21 @@ export function EmployeeDetailPage() {
           </Badge>
           <span className="text-sm text-muted-foreground">{employee.employeeCode}</span>
         </div>
-        {isSuperAdmin && !isSelf && employee.status !== 'TERMINATED' && (
-          <DismissEmployeeDialog
-            employeeId={employee.id}
-            employeeName={`${employee.firstName} ${employee.lastName}`}
-            onDismissed={handleDismissed}
-          />
+        {isSuperAdmin && !isSelf && (
+          <div className="flex gap-2">
+            {employee.status !== 'TERMINATED' && (
+              <DismissEmployeeDialog
+                employeeId={employee.id}
+                employeeName={`${employee.firstName} ${employee.lastName}`}
+                onDismissed={handleDismissed}
+              />
+            )}
+            <DeleteEmployeeDialog
+              employeeId={employee.id}
+              employeeName={`${employee.firstName} ${employee.lastName}`}
+              onDeleted={handleDeleted}
+            />
+          </div>
         )}
       </div>
 

@@ -10,19 +10,95 @@ import { NotificationService } from '../../shared/notifications/notification.ser
 import { EmailService } from '../../shared/email/email.service';
 import { hashInvitationToken } from './invitation-token.util';
 
+// Every model deleteEmployee() touches, across all three handling
+// strategies (owned/nullable/blocking — see employee.service.ts). Some
+// models appear in more than one strategy (e.g. `ticket` is both nulled on
+// assignedAgentId and a blocking check on employeeId), so every model here
+// gets all three methods stubbed regardless of which it actually needs —
+// simpler than tracking the exact subset per model.
+const EMPLOYEE_OWNED_MODEL_NAMES = [
+  'refreshToken',
+  'employeeDocument',
+  'rosterEntry',
+  'employeeHybridSchedule',
+  'optionalHolidaySelection',
+  'attendanceRecord',
+  'regularizationRequest',
+  'leaveBalance',
+  'leaveApplication',
+  'onboardingChecklist',
+  'preboardingSubmission',
+  'assetAssignment',
+  'assetRequest',
+  'resignation',
+  'exitInterview',
+  'finalSettlement',
+  'announcementAck',
+  'assistantConversation',
+  'notification',
+  'notificationPreference',
+  'notificationLog',
+  // Nullable secondary-role references (updateMany)
+  'ticketSlaPolicy',
+  'ticket',
+  'shiftSwapRequest',
+  // Blocking required references (count)
+  'goal',
+  'review',
+  'monthlyEvaluation',
+  'jobRequisition',
+  'interviewRound',
+  'ticketMessage',
+  'announcement',
+  'recognition',
+  'policyDocument',
+  'savedReport',
+  'workflowDefinition',
+  'approvalRequest',
+  'workflowApprovalDecision',
+] as const;
+
 function createMockPrisma() {
-  return {
+  const dynamicModels: Record<
+    string,
+    {
+      deleteMany: jest.Mock;
+      updateMany: jest.Mock;
+      count: jest.Mock;
+      findUnique: jest.Mock;
+      findMany: jest.Mock;
+    }
+  > = Object.fromEntries(
+    EMPLOYEE_OWNED_MODEL_NAMES.map((name) => [
+      name,
+      {
+        deleteMany: jest.fn(),
+        updateMany: jest.fn(),
+        count: jest.fn(),
+        findUnique: jest.fn(),
+        // Defaults to [] (not undefined) since deleteEmployee()'s grandchild
+        // cleanup for LeaveApplication/AssistantConversation immediately
+        // calls .length on the result — an unconfigured test shouldn't crash.
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    ]),
+  );
+
+  const prisma = {
     employee: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
+      delete: jest.fn(),
       findUniqueOrThrow: jest.fn(),
     },
     employeeHistory: {
       createMany: jest.fn(),
       create: jest.fn(),
+      deleteMany: jest.fn(),
     },
     profileChangeRequest: {
       create: jest.fn(),
@@ -30,6 +106,7 @@ function createMockPrisma() {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      deleteMany: jest.fn(),
     },
     company: {
       findFirst: jest.fn(),
@@ -42,8 +119,42 @@ function createMockPrisma() {
       findMany: jest.fn(),
       deleteMany: jest.fn(),
     },
+    ...dynamicModels,
+    // deleteEmployee()'s grandchild cleanup — these four models only ever
+    // need deleteMany (they're always the leaf being cleared, never
+    // queried first) — the parent-side findUnique/findMany already come
+    // from dynamicModels above (onboardingChecklist, resignation,
+    // leaveApplication, assistantConversation).
+    checklistTask: { deleteMany: jest.fn() },
+    clearanceItem: { deleteMany: jest.fn() },
+    lwdAdjustment: { deleteMany: jest.fn() },
+    leaveApprovalStep: { deleteMany: jest.fn() },
+    assistantMessage: { deleteMany: jest.fn() },
     $transaction: jest.fn(),
   };
+
+  // Supports both call styles the service uses: an array of promises
+  // (dismissEmployee) and a callback receiving the transaction client
+  // (deleteEmployee) — individual tests still override the resolved value
+  // via mockResolvedValue when they need to assert on a specific outcome.
+  prisma.$transaction.mockImplementation((arg: unknown) =>
+    Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(prisma),
+  );
+
+  // Named properties stay dot-accessible as inferred; the intersection adds
+  // index access for the dynamically-named EMPLOYEE_OWNED_MODEL_NAMES
+  // entries spread in above (e.g. prisma.attendanceRecord.deleteMany).
+  return prisma as typeof prisma &
+    Record<
+      string,
+      {
+        deleteMany: jest.Mock;
+        updateMany: jest.Mock;
+        count: jest.Mock;
+        findUnique: jest.Mock;
+        findMany: jest.Mock;
+      }
+    >;
 }
 
 function createMockNotifications() {
@@ -1114,9 +1225,213 @@ describe('EmployeeService', () => {
         { count: 0 },
       ]);
       await service.dismissEmployee('emp-1', 'actor-1');
-      expect(
-        (prisma.employee as unknown as Record<string, unknown>).delete,
-      ).toBeUndefined();
+      // deleteEmployee() (below) is the only method that ever calls
+      // employee.delete — dismiss must never reach it.
+      expect(prisma.employee.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('This task: Super Admin-only permanent delete (test/dev cleanup, separate from dismiss)', () => {
+    it('throws NotFoundException for an unknown employee', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(service.deleteEmployee('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('with no references at all: clears every employee-owned table and deletes the employee row, scoped to that employee only', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'EMP-2026-0010',
+      });
+
+      const result = await service.deleteEmployee('emp-1');
+
+      expect(prisma.employeeInvitation.deleteMany).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1' },
+      });
+      expect(prisma.attendanceRecord.deleteMany).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1' },
+      });
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1' },
+      });
+      expect(prisma.employee.delete).toHaveBeenCalledWith({
+        where: { id: 'emp-1' },
+      });
+      expect(result).toEqual({ deleted: true, employeeCode: 'EMP-2026-0010' });
+    });
+
+    // Regression: several employee-owned models have their own child rows
+    // that reference THEM (by resignationId/checklistId/applicationId/
+    // conversationId), not the employee directly — deleting the parent row
+    // without clearing these first violates a foreign-key constraint one
+    // level down (caught via live browser testing against Test 2, not unit
+    // tests alone, since the mock wouldn't have surfaced a real FK error).
+    it('clears grandchild rows (ClearanceItem/LwdAdjustment via Resignation, ChecklistTask via OnboardingChecklist, LeaveApprovalStep via LeaveApplication, AssistantMessage via AssistantConversation) before deleting their parents', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'EMP-2026-0010',
+      });
+      prisma.resignation.findUnique.mockResolvedValue({ id: 'resignation-1' });
+      prisma.onboardingChecklist.findUnique.mockResolvedValue({ id: 'checklist-1' });
+      prisma.leaveApplication.findMany.mockResolvedValue([{ id: 'leave-1' }, { id: 'leave-2' }]);
+      prisma.assistantConversation.findMany.mockResolvedValue([{ id: 'conv-1' }]);
+
+      await service.deleteEmployee('emp-1');
+
+      expect(prisma.clearanceItem.deleteMany).toHaveBeenCalledWith({
+        where: { resignationId: 'resignation-1' },
+      });
+      expect(prisma.lwdAdjustment.deleteMany).toHaveBeenCalledWith({
+        where: { resignationId: 'resignation-1' },
+      });
+      expect(prisma.checklistTask.deleteMany).toHaveBeenCalledWith({
+        where: { checklistId: 'checklist-1' },
+      });
+      expect(prisma.leaveApprovalStep.deleteMany).toHaveBeenCalledWith({
+        where: { applicationId: { in: ['leave-1', 'leave-2'] } },
+      });
+      expect(prisma.assistantMessage.deleteMany).toHaveBeenCalledWith({
+        where: { conversationId: { in: ['conv-1'] } },
+      });
+      expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
+    });
+
+    it('skips grandchild cleanup calls when there is nothing to clean up (no Resignation/Checklist/leave applications/conversations)', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'EMP-2026-0010',
+      });
+      // Defaults: findUnique -> undefined, findMany -> [] (see createMockPrisma)
+
+      await service.deleteEmployee('emp-1');
+
+      expect(prisma.clearanceItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.lwdAdjustment.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.checklistTask.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.leaveApprovalStep.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.assistantMessage.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
+    });
+
+    it('reporting-manager reference: clears it to NULL on other employees rather than blocking the delete', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'mgr-1',
+        employeeCode: 'EMP-1',
+      });
+
+      const result = await service.deleteEmployee('mgr-1');
+
+      expect(prisma.employee.updateMany).toHaveBeenCalledWith({
+        where: { reportingManagerId: 'mgr-1' },
+        data: { reportingManagerId: null },
+      });
+      expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: 'mgr-1' } });
+      expect(result).toEqual({ deleted: true, employeeCode: 'EMP-1' });
+    });
+
+    it('nullable secondary-role references (ticket agent, SLA policy agent, asset request approver): cleared to NULL, delete succeeds', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        employeeCode: 'EMP-1',
+      });
+
+      await service.deleteEmployee('agent-1');
+
+      expect(prisma.ticket.updateMany).toHaveBeenCalledWith({
+        where: { assignedAgentId: 'agent-1' },
+        data: { assignedAgentId: null },
+      });
+      expect(prisma.ticketSlaPolicy.updateMany).toHaveBeenCalledWith({
+        where: { agentId: 'agent-1' },
+        data: { agentId: null },
+      });
+      expect(prisma.assetRequest.updateMany).toHaveBeenCalledWith({
+        where: { approverId: 'agent-1' },
+        data: { approverId: null },
+      });
+      expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: 'agent-1' } });
+    });
+
+    it('blocks deletion with a specific error when the employee is a required hiring manager on a job requisition — no write happens', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'mgr-1',
+        firstName: 'Test',
+        lastName: '2',
+        employeeCode: 'EMP-1',
+      });
+      prisma.jobRequisition.count.mockResolvedValue(2);
+
+      await expect(service.deleteEmployee('mgr-1')).rejects.toThrow(
+        new BadRequestException(
+          'Cannot delete Test 2. The employee is referenced as a required job requisition (as hiring manager) by 2 records. Reassign or remove those references before deleting.',
+        ),
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.employee.delete).not.toHaveBeenCalled();
+    });
+
+    it('blocks deletion when the employee raised a helpdesk ticket (preserved business record) rather than deleting or nulling it', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        firstName: 'Test',
+        lastName: '2',
+        employeeCode: 'EMP-1',
+      });
+      prisma.ticket.count.mockResolvedValue(1);
+
+      await expect(service.deleteEmployee('emp-1')).rejects.toThrow(
+        /referenced as a required helpdesk ticket \(raised by this employee\) by 1 record\b/,
+      );
+      expect(prisma.ticket.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('blocks deletion when the employee made a required workflow approval decision (audit trail preserved)', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        firstName: 'Test',
+        lastName: '2',
+        employeeCode: 'EMP-1',
+      });
+      prisma.workflowApprovalDecision.count.mockResolvedValue(3);
+
+      await expect(service.deleteEmployee('emp-1')).rejects.toThrow(
+        /workflow approval decision \(as approver\) by 3 records/,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('lists every blocking reference together when more than one applies', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        firstName: 'Test',
+        lastName: '2',
+        employeeCode: 'EMP-1',
+      });
+      prisma.jobRequisition.count.mockResolvedValue(1);
+      prisma.ticket.count.mockResolvedValue(2);
+
+      await expect(service.deleteEmployee('emp-1')).rejects.toThrow(
+        /job requisition.*helpdesk ticket|helpdesk ticket.*job requisition/s,
+      );
+    });
+
+    it('performance records (goal/review/monthly evaluation) block deletion rather than being silently deleted', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        firstName: 'Test',
+        lastName: '2',
+        employeeCode: 'EMP-1',
+      });
+      prisma.review.count.mockResolvedValue(1);
+
+      await expect(service.deleteEmployee('emp-1')).rejects.toThrow(
+        /performance review by 1 record/,
+      );
+      expect(prisma.review.deleteMany).not.toHaveBeenCalled();
     });
   });
 

@@ -58,6 +58,21 @@ const FIELD_LABELS: Record<string, string> = {
 
 const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
 
+// Task: Reporting Manager dropdown — only these roles are eligible to be
+// assigned as someone's manager. EMPLOYEE is deliberately excluded. This
+// filters the SAME shared getReferenceData().managers list every other
+// module (ATS/Onboarding/Performance/Assets/etc.) also consumes unfiltered
+// — only this one picker applies the eligibility filter, so nothing else
+// regresses.
+const ELIGIBLE_MANAGER_ROLES: Role[] = ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
+// Exclude rather than allow-list statuses: a newly-invited Manager is
+// INVITED (not yet ACTIVE) until they accept, but is still the correct
+// person to assign as someone's reporting manager right away — only
+// employees who have actually left/are disabled should be excluded.
+// (.has() takes a plain string so this also excludes ARCHIVED, a backend
+// status this frontend union doesn't currently declare.)
+const EXCLUDED_MANAGER_STATUSES = new Set(['TERMINATED', 'INACTIVE', 'ARCHIVED'])
+
 // This task: the ONE employee-creation path. Collects only the basic
 // administrative fields needed to create the record — the employee fills
 // in their own personal/payroll profile later (Auth Phase 3). On submit
@@ -125,6 +140,18 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
   }
 
   const canSubmit = !submitting && form.firstName && form.lastName && form.email
+
+  const eligibleManagers = (reference?.managers ?? []).filter(
+    (m) => ELIGIBLE_MANAGER_ROLES.includes(m.role) && !EXCLUDED_MANAGER_STATUSES.has(m.status),
+  )
+  // Defensive: if the currently-selected value somehow isn't in the eligible
+  // list (e.g. their role/status changed after being selected), keep them
+  // visible in the dropdown rather than silently dropping the selection.
+  const currentlySelectedManager = reference?.managers.find((m) => m.id === form.reportingManagerId)
+  const managerOptions =
+    currentlySelectedManager && !eligibleManagers.some((m) => m.id === currentlySelectedManager.id)
+      ? [...eligibleManagers, currentlySelectedManager]
+      : eligibleManagers
 
   return (
     <Dialog
@@ -278,7 +305,7 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {reference?.managers.map((m) => (
+                {managerOptions.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.firstName} {m.lastName} ({m.employeeCode})
                   </SelectItem>

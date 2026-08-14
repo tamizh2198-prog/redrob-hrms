@@ -112,6 +112,11 @@ export interface ManagerOption {
   employeeCode: string
   firstName: string
   lastName: string
+  // Additive — most consumers of getReferenceData().managers (ATS,
+  // Onboarding, Performance, Assets, Helpdesk, etc.) ignore these; only the
+  // Reporting Manager picker uses them to filter to eligible people.
+  role: Role
+  status: EmployeeStatus
 }
 
 export interface ReferenceData {
@@ -302,6 +307,14 @@ export function getProfileCompletion(id: string) {
 // sets status to TERMINATED and invalidates any pending invitation.
 export function dismissEmployee(id: string) {
   return api<Employee>(`/employees/${id}/dismiss`, { method: 'POST' })
+}
+
+// This task: Super Admin-only permanent removal, for test/development
+// cleanup only — separate from and does not replace dismissEmployee above.
+export function deleteEmployee(id: string) {
+  return api<{ deleted: true; employeeCode: string }>(`/employees/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 export interface UpdateMyProfileInput {

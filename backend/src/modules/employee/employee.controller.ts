@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseBoolPipe,
@@ -175,6 +176,15 @@ export class EmployeeController {
     @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.employeeService.dismissEmployee(id, user.userId);
+  }
+
+  // This task: permanent removal, for test/development cleanup only —
+  // SUPER_ADMIN-gated, separate from and does not alter the dismiss (soft
+  // terminate) endpoint above.
+  @Delete(':id')
+  @Roles(Role.SUPER_ADMIN)
+  deleteEmployee(@Param('id') id: string) {
+    return this.employeeService.deleteEmployee(id);
   }
 
   @Post(':id/reveal')
