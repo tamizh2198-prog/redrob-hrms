@@ -891,6 +891,40 @@ describe('EmployeeService', () => {
         service.resendInvitation('missing', 'actor-1'),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('this task: reports emailSent=true when the reminder email is actually delivered', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.INVITED,
+        workEmail: 'jane@co.com',
+        firstName: 'Jane',
+      });
+      email.send.mockResolvedValue({ sent: true });
+
+      const result = await service.resendInvitation('emp-1', 'actor-1');
+
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'jane@co.com' }),
+      );
+      expect(result.emailSent).toBe(true);
+    });
+
+    it('this task: reports emailSent=false without throwing when the reminder email fails to send', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: EmployeeStatus.INVITED,
+        workEmail: 'jane@co.com',
+        firstName: 'Jane',
+      });
+      email.send.mockResolvedValue({ sent: false });
+
+      const result = await service.resendInvitation('emp-1', 'actor-1');
+
+      expect(result.emailSent).toBe(false);
+      // The invitation record must still be (re)issued even though the
+      // email failed — a resend failure must never roll back the new token.
+      expect(prisma.employeeInvitation.create).toHaveBeenCalled();
+    });
   });
 
   describe('Auth Phase 2: account activation', () => {
