@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { WorkflowService } from './workflow.service';
 import { CreateWorkflowDefinitionDto } from './dto/create-workflow-definition.dto';
@@ -8,6 +9,7 @@ import { CreateApprovalRequestDto } from './dto/create-approval-request.dto';
 import { DecideApprovalDto } from './dto/decide-approval.dto';
 
 @Controller('workflow')
+@RequiresModule('WORKFLOW')
 export class WorkflowController {
   constructor(private readonly workflowService: WorkflowService) {}
 

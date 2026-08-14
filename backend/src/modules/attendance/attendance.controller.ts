@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { AttendanceService } from './attendance.service';
 import { PunchDto } from './dto/punch.dto';
@@ -10,6 +11,7 @@ import { ImportBiometricDto } from './dto/import-biometric.dto';
 import { LockMonthDto } from './dto/lock-month.dto';
 
 @Controller('attendance')
+@RequiresModule('ATTENDANCE')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 

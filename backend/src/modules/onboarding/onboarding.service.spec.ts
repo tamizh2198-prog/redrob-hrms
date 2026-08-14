@@ -17,6 +17,7 @@ function createMockPrisma() {
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       findMany: jest.fn(),
     },
     checklistTask: {
@@ -296,6 +297,37 @@ describe('OnboardingService', () => {
       const result = await service.activateEmployee('emp-1', 'hr-1');
       expect(result.status).toBe('ACTIVE_PROBATION');
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it("this task: also closes out the employee's checklist, so it stops appearing in listActiveChecklists() and a second click can't hit 'not in Preboarding status'", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'PREBOARDING',
+      });
+      prisma.preboardingSubmission.findMany.mockResolvedValue([
+        { fieldType: 'ID_PROOF' },
+        { fieldType: 'EDUCATION_CERTIFICATE' },
+        { fieldType: 'BANK_DETAILS' },
+        { fieldType: 'BACKGROUND_CHECK_CONSENT' },
+      ]);
+
+      await service.activateEmployee('emp-1', 'hr-1');
+
+      expect(prisma.onboardingChecklist.updateMany).toHaveBeenCalledWith({
+        where: { employeeId: 'emp-1', status: { not: 'COMPLETED' } },
+        data: { status: 'COMPLETED' },
+      });
+    });
+
+    it('rejects re-activating an employee who is already past Preboarding', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'ACTIVE_PROBATION',
+      });
+
+      await expect(service.activateEmployee('emp-1', 'hr-1')).rejects.toThrow(
+        'This employee is not in Preboarding status',
+      );
     });
   });
 });

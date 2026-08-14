@@ -36,6 +36,15 @@ import {
 } from '../api'
 import { DismissEmployeeDialog } from '../components/DismissEmployeeDialog'
 import { DeleteEmployeeDialog } from '../components/DeleteEmployeeDialog'
+import {
+  listGrantsForEmployee,
+  grantModuleAccess,
+  revokeModuleAccess,
+  GRANTABLE_MODULES,
+  MODULE_LABELS,
+  type ModuleAccessGrant,
+  type GrantableModule,
+} from '@/modules/module-access/api'
 import { getCalendar, ATTENDANCE_STATUS_COLOR, type CalendarDay } from '@/modules/attendance/api'
 import {
   getBalances,
@@ -99,6 +108,10 @@ export function EmployeeDetailPage() {
   const [leaveError, setLeaveError] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
 
+  const [moduleGrants, setModuleGrants] = useState<ModuleAccessGrant[]>([])
+  const [moduleActionError, setModuleActionError] = useState<string | null>(null)
+  const [pendingModule, setPendingModule] = useState<GrantableModule | null>(null)
+
   function refresh() {
     if (!id) return
     setError(null)
@@ -144,6 +157,34 @@ export function EmployeeDetailPage() {
     if (!id) return
     getCalendar(id, attYear, attMonth).then(setAttDays).catch(() => setAttDays([]))
   }, [id, attYear, attMonth])
+
+  function refreshModuleGrants() {
+    if (!id || !isSuperAdmin) return
+    listGrantsForEmployee(id).then(setModuleGrants).catch(() => setModuleGrants([]))
+  }
+
+  useEffect(() => {
+    refreshModuleGrants()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isSuperAdmin])
+
+  async function handleToggleModuleGrant(module: GrantableModule, currentlyGranted: boolean) {
+    if (!id) return
+    setModuleActionError(null)
+    setPendingModule(module)
+    try {
+      if (currentlyGranted) {
+        await revokeModuleAccess(id, module)
+      } else {
+        await grantModuleAccess(id, module)
+      }
+      refreshModuleGrants()
+    } catch (err) {
+      setModuleActionError(err instanceof ApiError ? err.message : 'Failed to update module access')
+    } finally {
+      setPendingModule(null)
+    }
+  }
 
   async function handleLeaveDecision(applicationId: string, approve: boolean) {
     setDecidingId(applicationId)
@@ -376,6 +417,25 @@ export function EmployeeDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex flex-col gap-1">
+              <Label>CTC (LPA)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.1"
+                placeholder="e.g. 12"
+                value={form.ctcLpa ?? ''}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    ctcLpa: e.target.value === '' ? null : Number(e.target.value),
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Drives the Performance module's quarterly KPI reward band.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-4 text-sm">
@@ -399,9 +459,42 @@ export function EmployeeDetailPage() {
               <div className="text-muted-foreground">Blood group</div>
               <div>{employee.bloodGroup?.replaceAll('_', ' ') ?? '—'}</div>
             </div>
+            <div>
+              <div className="text-muted-foreground">CTC (LPA)</div>
+              <div>{employee.ctcLpa ?? '—'}</div>
+            </div>
           </div>
         )}
       </section>
+
+      {isSuperAdmin && !isSelf && (
+        <section className="flex flex-col gap-3 rounded-md border p-4">
+          <div>
+            <h2 className="font-medium">Module Access</h2>
+            <p className="text-xs text-muted-foreground">
+              Grant this employee access to a specific module regardless of their role — an
+              exception scoped to that module only, not a role change.
+            </p>
+          </div>
+          {moduleActionError && <p className="text-sm text-destructive">{moduleActionError}</p>}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {GRANTABLE_MODULES.map((module) => {
+              const granted = moduleGrants.some((g) => g.module === module)
+              return (
+                <Button
+                  key={module}
+                  size="sm"
+                  variant={granted ? 'default' : 'outline'}
+                  disabled={pendingModule === module}
+                  onClick={() => handleToggleModuleGrant(module, granted)}
+                >
+                  {MODULE_LABELS[module]}
+                </Button>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="flex flex-col gap-3 rounded-md border p-4">
         <h2 className="font-medium">Emergency Contact</h2>

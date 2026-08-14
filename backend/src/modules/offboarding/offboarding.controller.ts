@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { OffboardingService } from './offboarding.service';
 import { SubmitResignationDto } from './dto/submit-resignation.dto';
@@ -12,6 +13,7 @@ import { MarkSettlementPaidDto } from './dto/mark-settlement-paid.dto';
 import { GenerateLettersDto } from './dto/generate-letters.dto';
 
 @Controller('offboarding')
+@RequiresModule('OFFBOARDING')
 export class OffboardingController {
   constructor(private readonly offboardingService: OffboardingService) {}
 

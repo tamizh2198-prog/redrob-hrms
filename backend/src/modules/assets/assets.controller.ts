@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { AssetStatus, Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { AssetsService } from './assets.service';
 import { CreateAssetDto } from './dto/create-asset.dto';
@@ -8,7 +9,12 @@ import { CreateAssetRequestDto } from './dto/create-asset-request.dto';
 import { IssueAssetDto } from './dto/issue-asset.dto';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 
+// This task (Super Admin per-employee module access): a class-level tag —
+// Reflector.getAllAndOverride checks the handler first, falls back to the
+// class — so it covers every @Roles()-gated route below uniformly without
+// annotating each one individually.
 @Controller('assets')
+@RequiresModule('ASSETS')
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 

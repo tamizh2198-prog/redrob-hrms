@@ -156,6 +156,9 @@ async function main() {
   await prisma.notificationPreference.deleteMany({ where: { employeeId: { in: employeeIds } } });
   await prisma.notification.deleteMany({ where: { employeeId: { in: employeeIds } } });
 
+  // --- Per-module access grants (defensive) ---
+  await prisma.moduleAccessGrant.deleteMany({ where: { employeeId: { in: employeeIds } } });
+
   // --- Employee record/profile-change history, invitations (defensive) ---
   await prisma.employeeDocument.deleteMany({ where: { employeeId: { in: employeeIds } } });
   await prisma.employeeHistory.deleteMany({ where: { employeeId: { in: employeeIds } } });

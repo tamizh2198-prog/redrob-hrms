@@ -43,6 +43,37 @@ function computeGrade(kpiScore: number): PerformanceGrade {
   return PerformanceGrade.DNME;
 }
 
+// A KPI score is out of 1000 — the percentage is just that score on a
+// 100-point scale (700 -> 70%, 857 -> 85.7% rounded to 86%).
+function kpiScoreToPercent(kpiScore: number): number {
+  return Math.round(kpiScore / 10);
+}
+
+// P&B effective January 2026, "3a. Member KPI Linked Rewards" — the yearly
+// reward ceiling for the CTC band the employee's current ctcLpa falls into.
+// Paid quarterly (yearlyLimit / 4), scaled by that quarter's average KPI%.
+const KPI_REWARD_CTC_BANDS: { maxLpa: number | null; label: string; yearlyLimit: number }[] = [
+  { maxLpa: 15, label: '0-15 LPA', yearlyLimit: 86400 },
+  { maxLpa: 25, label: '15-25 LPA', yearlyLimit: 116600 },
+  { maxLpa: 35, label: '25-35 LPA', yearlyLimit: 140000 },
+  { maxLpa: null, label: '35+ LPA', yearlyLimit: 156400 },
+];
+
+function resolveKpiRewardBand(ctcLpa: number) {
+  return (
+    KPI_REWARD_CTC_BANDS.find((b) => b.maxLpa !== null && ctcLpa <= b.maxLpa) ??
+    KPI_REWARD_CTC_BANDS[KPI_REWARD_CTC_BANDS.length - 1]
+  );
+}
+
+// Quarter 1 = Jan-Mar, Quarter 2 = Apr-Jun, etc. — calendar-year quarters,
+// matching the PDF's "Disbursed: July-October, January-April" language
+// (i.e. paid out the month after each quarter closes, not on quarter-start).
+function quarterMonthStarts(year: number, quarter: number): Date[] {
+  const startMonth = (quarter - 1) * 3;
+  return [0, 1, 2].map((i) => new Date(Date.UTC(year, startMonth + i, 1)));
+}
+
 function normalizeToMonthStart(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }
@@ -83,10 +114,17 @@ function redactForSubject(evaluation: {
     employeeId: evaluation.employeeId,
     period: evaluation.period,
     kpiScore: evaluation.kpiScore,
+    kpiPercent: kpiScoreToPercent(evaluation.kpiScore),
     grade: evaluation.grade,
     auditStatus: evaluation.auditStatus,
     createdAt: evaluation.createdAt,
   };
+}
+
+function withKpiPercent<T extends { kpiScore: number }>(
+  evaluation: T,
+): T & { kpiPercent: number } {
+  return { ...evaluation, kpiPercent: kpiScoreToPercent(evaluation.kpiScore) };
 }
 
 // Submission order (self vs manager) never matters — status is always
@@ -629,7 +667,7 @@ export class PerformanceService {
     });
     return employeeId === actorId
       ? evaluations.map(redactForSubject)
-      : evaluations;
+      : evaluations.map(withKpiPercent);
   }
 
   async getMonthlyEvaluation(id: string, actorId: string, actorRole?: Role) {
@@ -645,6 +683,103 @@ export class PerformanceService {
     );
     return evaluation.employeeId === actorId
       ? redactForSubject(evaluation)
-      : evaluation;
+      : withKpiPercent(evaluation);
+  }
+
+  // Performance Evaluation Policy 2026 Section 6 "Incentives & Recognition"
+  // + P&B "3a. Member KPI Linked Rewards": one quarter's payout, computed
+  // fresh from whatever's currently APPROVED rather than persisted anywhere
+  // — it can only ever move in step with the audited monthly scores it's
+  // built from, never drift out of sync with a correction made after the
+  // fact.
+  private async computeQuarterlyKpiReward(
+    employeeId: string,
+    ctcLpa: number | null,
+    year: number,
+    quarter: number,
+  ) {
+    const periods = quarterMonthStarts(year, quarter);
+    const evaluations = await this.prisma.monthlyEvaluation.findMany({
+      where: { employeeId, period: { in: periods } },
+    });
+    const byPeriod = new Map(evaluations.map((e) => [e.period.getTime(), e]));
+
+    const months = periods.map((period) => {
+      const evaluation = byPeriod.get(period.getTime());
+      const approved = evaluation?.auditStatus === EvaluationAuditStatus.APPROVED;
+      return {
+        period,
+        kpiScore: approved ? evaluation!.kpiScore : null,
+        kpiPercent: approved ? kpiScoreToPercent(evaluation!.kpiScore) : null,
+        auditStatus: evaluation?.auditStatus ?? null,
+      };
+    });
+
+    const allApproved = months.every((m) => m.kpiScore !== null);
+    const band = ctcLpa != null ? resolveKpiRewardBand(ctcLpa) : null;
+    const quarterlyLimit = band ? band.yearlyLimit / 4 : null;
+
+    if (!allApproved || !band) {
+      return {
+        employeeId,
+        year,
+        quarter,
+        months,
+        avgKpiPercent: null,
+        ctcBandLabel: band?.label ?? null,
+        yearlyLimit: band?.yearlyLimit ?? null,
+        quarterlyLimit,
+        rewardAmount: null,
+        complete: false,
+        reason:
+          ctcLpa == null
+            ? 'CTC is not set for this employee yet'
+            : 'Not all three months of this quarter have an approved evaluation yet',
+      };
+    }
+
+    // Average the raw scores once, then convert to a percentage — averaging
+    // three already-rounded percentages compounds rounding error for no
+    // reason.
+    const avgKpiScore =
+      months.reduce((sum, m) => sum + (m.kpiScore ?? 0), 0) / months.length;
+    const avgKpiPercent = kpiScoreToPercent(avgKpiScore);
+    const rewardAmount = Math.round((quarterlyLimit as number) * (avgKpiPercent / 100));
+
+    return {
+      employeeId,
+      year,
+      quarter,
+      months,
+      avgKpiPercent,
+      ctcBandLabel: band.label,
+      yearlyLimit: band.yearlyLimit,
+      quarterlyLimit,
+      rewardAmount,
+      complete: true,
+      reason: null,
+    };
+  }
+
+  // One year's worth of quarters at once — the shape the Performance page's
+  // rewards panel actually wants, rather than four round trips.
+  async listQuarterlyKpiRewards(
+    employeeId: string,
+    year: number,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    await this.assertCanViewEvaluations(employeeId, actorId, actorRole);
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    const quarters = await Promise.all(
+      [1, 2, 3, 4].map((q) =>
+        this.computeQuarterlyKpiReward(employeeId, employee.ctcLpa, year, q),
+      ),
+    );
+    return { employeeId, year, ctcLpa: employee.ctcLpa, quarters };
   }
 }

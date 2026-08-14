@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { Public } from '../../shared/auth/public.decorator';
 import { AtsService } from './ats.service';
@@ -25,6 +26,7 @@ import { UpdateOfferTemplateDto } from './dto/update-offer-template.dto';
 import { SendOfferDto } from './dto/send-offer.dto';
 
 @Controller('ats')
+@RequiresModule('ATS')
 export class AtsController {
   constructor(private readonly atsService: AtsService) {}
 

@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { AnnouncementsService } from './announcements.service';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { CreateRecognitionDto } from './dto/create-recognition.dto';
 
 @Controller()
+@RequiresModule('ANNOUNCEMENTS')
 export class AnnouncementsController {
   constructor(private readonly announcementsService: AnnouncementsService) {}
 

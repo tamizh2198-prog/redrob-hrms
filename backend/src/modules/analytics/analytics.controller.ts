@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { AnalyticsService } from './analytics.service';
 import { BuildReportDto } from './dto/build-report.dto';
@@ -16,6 +17,7 @@ import { CreateSavedReportDto } from './dto/create-saved-report.dto';
 import { exportReport } from './report-export.util';
 
 @Controller('analytics')
+@RequiresModule('ANALYTICS')
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 

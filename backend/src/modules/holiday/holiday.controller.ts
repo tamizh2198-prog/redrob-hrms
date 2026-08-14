@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { HolidayService } from './holiday.service';
 import { CreateHolidayCalendarDto } from './dto/create-holiday-calendar.dto';
 import { SelectOptionalHolidayDto } from './dto/select-optional-holiday.dto';
 
 @Controller('holidays')
+@RequiresModule('HOLIDAY')
 export class HolidayController {
   constructor(private readonly holidayService: HolidayService) {}
 

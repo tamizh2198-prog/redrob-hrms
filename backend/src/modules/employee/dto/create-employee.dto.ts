@@ -2,7 +2,9 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   IsUUID,
 } from 'class-validator';
@@ -103,4 +105,12 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsString()
   emergencyContactPhone?: string;
+
+  // Performance Evaluation Policy 2026 / P&B: current annual CTC in Lakhs —
+  // drives which CTC band's KPI reward limit applies (see
+  // PerformanceService's quarterly KPI reward calculation).
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  ctcLpa?: number;
 }

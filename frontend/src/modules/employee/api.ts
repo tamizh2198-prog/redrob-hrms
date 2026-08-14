@@ -44,6 +44,9 @@ export interface Employee {
   aadhaar: string | null
   bankAccountNumber: string | null
   ifscCode: string | null
+  // Compensation — masked to null for any viewer besides HR Admin/Super
+  // Admin/self, same as pan/aadhaar/bankAccountNumber above.
+  ctcLpa: number | null
   bloodGroup: BloodGroup | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null

@@ -28,12 +28,14 @@ import {
   submitMonthlyEvaluation,
   listMonthlyEvaluations,
   auditMonthlyEvaluation,
+  listQuarterlyKpiRewards,
   type ReviewCycle,
   type ReviewCycleType,
   type Goal,
   type Review,
   type CalibrationView,
   type MonthlyEvaluation,
+  type QuarterlyKpiRewardsResponse,
 } from '../api'
 
 const CYCLE_TYPES: ReviewCycleType[] = ['MONTHLY', 'QUARTERLY', 'YEARLY']
@@ -86,6 +88,8 @@ export function PerformancePage() {
 
   const [myEvaluations, setMyEvaluations] = useState<MonthlyEvaluation[]>([])
   const [reportEvaluations, setReportEvaluations] = useState<MonthlyEvaluation[]>([])
+  const [myRewards, setMyRewards] = useState<QuarterlyKpiRewardsResponse | null>(null)
+  const [reportRewards, setReportRewards] = useState<QuarterlyKpiRewardsResponse | null>(null)
   const [evalPeriod, setEvalPeriod] = useState('')
   const [evalKpiScore, setEvalKpiScore] = useState('')
   const [evalJustification, setEvalJustification] = useState('')
@@ -130,6 +134,9 @@ export function PerformancePage() {
   function refreshMyEvaluations() {
     if (!user) return
     listMonthlyEvaluations(user.id).then(setMyEvaluations).catch(() => setMyEvaluations([]))
+    listQuarterlyKpiRewards(user.id, new Date().getFullYear())
+      .then(setMyRewards)
+      .catch(() => setMyRewards(null))
   }
 
   function refreshReportEvaluations() {
@@ -137,6 +144,9 @@ export function PerformancePage() {
     listMonthlyEvaluations(reportEmployeeId)
       .then(setReportEvaluations)
       .catch(() => setReportEvaluations([]))
+    listQuarterlyKpiRewards(reportEmployeeId, new Date().getFullYear())
+      .then(setReportRewards)
+      .catch(() => setReportRewards(null))
   }
 
   function personName(id: string) {
@@ -396,12 +406,17 @@ export function PerformancePage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-md border p-4">
           <h2 className="mb-2 font-medium">My Monthly Evaluations</h2>
+          <MonthlyScoreBarChart evaluations={myEvaluations} />
           <ul className="flex flex-col gap-2 text-sm">
             {myEvaluations.map((e) => (
               <li key={e.id} className="flex items-center justify-between rounded border p-2">
                 <span>{e.period.slice(0, 7)}</span>
                 <div className="flex items-center gap-2">
-                  {e.kpiScore != null && <span className="text-muted-foreground">{e.kpiScore}</span>}
+                  {e.kpiScore != null && (
+                    <span className="text-muted-foreground">
+                      {e.kpiScore} ({e.kpiPercent}%)
+                    </span>
+                  )}
                   <Badge variant="outline">{e.grade}</Badge>
                   <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
                 </div>
@@ -409,6 +424,7 @@ export function PerformancePage() {
             ))}
             {myEvaluations.length === 0 && <p className="text-muted-foreground">No monthly evaluations yet.</p>}
           </ul>
+          <QuarterlyKpiRewardsPanel rewards={myRewards} />
         </div>
 
         {(isManager || isHrAdmin) && (
@@ -438,6 +454,8 @@ export function PerformancePage() {
                 Load Evaluation History
               </Button>
 
+              <MonthlyScoreBarChart evaluations={reportEvaluations} />
+
               <ul className="flex flex-col gap-2 text-sm">
                 {reportEvaluations.map((e) => (
                   <li key={e.id} className="rounded border p-2">
@@ -450,7 +468,7 @@ export function PerformancePage() {
                     </div>
                     {e.kpiScore != null && (
                       <p className="text-muted-foreground">
-                        Score: {e.kpiScore} — {e.justification}
+                        Score: {e.kpiScore} ({e.kpiPercent}%) — {e.justification}
                       </p>
                     )}
                     {isHrAdmin && e.auditStatus === 'PENDING_AUDIT' && (
@@ -473,6 +491,8 @@ export function PerformancePage() {
                   </li>
                 ))}
               </ul>
+
+              <QuarterlyKpiRewardsPanel rewards={reportRewards} />
 
               {isManager && (
                 <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
@@ -642,6 +662,69 @@ export function PerformancePage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Simple CSS bar chart — monthly KPI score out of 1000. No charting library
+// in this codebase yet, and a single bar-per-month view doesn't need one.
+function MonthlyScoreBarChart({ evaluations }: { evaluations: MonthlyEvaluation[] }) {
+  const withScores = evaluations.filter((e) => e.kpiScore != null)
+  if (withScores.length === 0) return null
+  // Chronological (oldest first) reads left-to-right like a normal trend line.
+  const ordered = [...withScores].reverse()
+  return (
+    <div className="mb-3 flex flex-col gap-1">
+      <div className="flex h-28 items-end gap-1.5">
+        {ordered.map((e) => (
+          <div key={e.id} className="flex flex-1 flex-col items-center gap-1" title={`${e.kpiScore} / 1000`}>
+            <span className="text-[10px] text-muted-foreground">{e.kpiScore}</span>
+            <div
+              className="w-full rounded-t bg-primary"
+              style={{ height: `${Math.max(4, ((e.kpiScore ?? 0) / 1000) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        {ordered.map((e) => (
+          <span key={e.id} className="flex-1 text-center text-[10px] text-muted-foreground">
+            {e.period.slice(2, 7)}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Items 5/6: quarterly KPI-linked reward, per P&B effective January 2026,
+// "3a. Member KPI Linked Rewards" — quarterlyLimit * that quarter's average
+// KPI%. Computed server-side; this just renders the breakdown.
+function QuarterlyKpiRewardsPanel({ rewards }: { rewards: QuarterlyKpiRewardsResponse | null }) {
+  if (!rewards) return null
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium">Quarterly KPI Rewards — {rewards.year}</h3>
+        {rewards.ctcLpa != null && (
+          <span className="text-xs text-muted-foreground">CTC band: {rewards.quarters[0]?.ctcBandLabel}</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {rewards.quarters.map((q) => (
+          <div key={q.quarter} className="rounded border p-2 text-xs">
+            <div className="font-medium">Q{q.quarter}</div>
+            {q.complete ? (
+              <>
+                <div className="text-muted-foreground">Avg KPI: {q.avgKpiPercent}%</div>
+                <div className="font-medium text-primary">₹{q.rewardAmount?.toLocaleString('en-IN')}</div>
+              </>
+            ) : (
+              <div className="text-muted-foreground">{q.reason ?? 'Pending'}</div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

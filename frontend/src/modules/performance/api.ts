@@ -142,6 +142,8 @@ export interface MonthlyEvaluation {
   auditStatus: EvaluationAuditStatus
   createdAt: string
   kpiScore?: number
+  // kpiScore on a 0-100 scale (kpiScore / 10, rounded).
+  kpiPercent?: number
   justification?: string
   submittedBy?: string
   submittedAt?: string
@@ -165,4 +167,39 @@ export function listMonthlyEvaluations(employeeId: string) {
 
 export function auditMonthlyEvaluation(id: string, data: { approve: boolean; auditNotes?: string }) {
   return api<MonthlyEvaluation>(`/performance/evaluations/${id}/audit`, { method: 'POST', body: data })
+}
+
+// P&B effective January 2026, "3a. Member KPI Linked Rewards" — a quarter's
+// payout, derived from that quarter's 3 approved monthly evaluations and the
+// employee's CTC band. Never persisted; always computed fresh.
+export interface QuarterlyKpiRewardMonth {
+  period: string
+  kpiScore: number | null
+  kpiPercent: number | null
+  auditStatus: EvaluationAuditStatus | null
+}
+
+export interface QuarterlyKpiReward {
+  employeeId: string
+  year: number
+  quarter: number
+  months: QuarterlyKpiRewardMonth[]
+  avgKpiPercent: number | null
+  ctcBandLabel: string | null
+  yearlyLimit: number | null
+  quarterlyLimit: number | null
+  rewardAmount: number | null
+  complete: boolean
+  reason: string | null
+}
+
+export interface QuarterlyKpiRewardsResponse {
+  employeeId: string
+  year: number
+  ctcLpa: number | null
+  quarters: QuarterlyKpiReward[]
+}
+
+export function listQuarterlyKpiRewards(employeeId: string, year: number) {
+  return api<QuarterlyKpiRewardsResponse>(`/performance/kpi-rewards/${employeeId}/${year}`)
 }

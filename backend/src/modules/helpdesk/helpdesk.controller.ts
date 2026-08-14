@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { HelpdeskService } from './helpdesk.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
@@ -21,6 +22,7 @@ import { SearchFaqQueryDto } from './dto/search-faq-query.dto';
 import { UpsertSlaPolicyDto } from './dto/upsert-sla-policy.dto';
 
 @Controller('helpdesk')
+@RequiresModule('HELPDESK')
 export class HelpdeskController {
   constructor(private readonly helpdeskService: HelpdeskService) {}
 

@@ -585,4 +585,124 @@ describe('PerformanceService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
   });
+
+  describe('Quarterly KPI reward (P&B "3a. Member KPI Linked Rewards")', () => {
+    function evalRow(month: number, kpiScore: number, auditStatus = 'APPROVED') {
+      return {
+        id: `eval-${month}`,
+        employeeId: 'emp-1',
+        period: new Date(Date.UTC(2026, month, 1)),
+        kpiScore,
+        auditStatus,
+      };
+    }
+
+    it('pays out the quarterly limit scaled by the average KPI% across the quarter\'s 3 approved months', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+        ctcLpa: 10, // falls in the 0-15 LPA band -> yearly limit 86400
+      });
+      // Q1 2026 = Jan(0)/Feb(1)/Mar(2) — scores average to 800 -> 80%.
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        evalRow(0, 700),
+        evalRow(1, 800),
+        evalRow(2, 900),
+      ]);
+
+      const result = await service.listQuarterlyKpiRewards(
+        'emp-1',
+        2026,
+        'emp-1',
+        Role.EMPLOYEE,
+      );
+
+      const q1 = result.quarters[0];
+      expect(q1.complete).toBe(true);
+      expect(q1.avgKpiPercent).toBe(80);
+      expect(q1.ctcBandLabel).toBe('0-15 LPA');
+      expect(q1.yearlyLimit).toBe(86400);
+      expect(q1.quarterlyLimit).toBe(21600);
+      // 21600 * 80% = 17280
+      expect(q1.rewardAmount).toBe(17280);
+    });
+
+    it('resolves the correct CTC band at each boundary', async () => {
+      const cases: [number, string, number][] = [
+        [15, '0-15 LPA', 86400],
+        [20, '15-25 LPA', 116600],
+        [30, '25-35 LPA', 140000],
+        [50, '35+ LPA', 156400],
+      ];
+      for (const [ctcLpa, label, yearlyLimit] of cases) {
+        prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', ctcLpa });
+        prisma.monthlyEvaluation.findMany.mockResolvedValue([
+          evalRow(0, 1000),
+          evalRow(1, 1000),
+          evalRow(2, 1000),
+        ]);
+
+        const result = await service.listQuarterlyKpiRewards(
+          'emp-1',
+          2026,
+          'emp-1',
+          Role.EMPLOYEE,
+        );
+
+        expect(result.quarters[0].ctcBandLabel).toBe(label);
+        expect(result.quarters[0].yearlyLimit).toBe(yearlyLimit);
+      }
+    });
+
+    it('reports incomplete (no reward) when CTC has not been set for the employee', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', ctcLpa: null });
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        evalRow(0, 800),
+        evalRow(1, 800),
+        evalRow(2, 800),
+      ]);
+
+      const result = await service.listQuarterlyKpiRewards(
+        'emp-1',
+        2026,
+        'emp-1',
+        Role.EMPLOYEE,
+      );
+
+      expect(result.quarters[0].complete).toBe(false);
+      expect(result.quarters[0].rewardAmount).toBeNull();
+      expect(result.quarters[0].reason).toMatch(/CTC/);
+    });
+
+    it('reports incomplete when a month in the quarter is still pending audit', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', ctcLpa: 10 });
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        evalRow(0, 800),
+        evalRow(1, 800, 'PENDING_AUDIT'),
+        evalRow(2, 800),
+      ]);
+
+      const result = await service.listQuarterlyKpiRewards(
+        'emp-1',
+        2026,
+        'emp-1',
+        Role.EMPLOYEE,
+      );
+
+      expect(result.quarters[0].complete).toBe(false);
+      expect(result.quarters[0].rewardAmount).toBeNull();
+      expect(result.quarters[0].months[1].kpiScore).toBeNull();
+    });
+
+    it('rejects an unrelated employee from viewing someone else\'s reward breakdown', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+
+      await expect(
+        service.listQuarterlyKpiRewards('emp-1', 2026, 'emp-2', Role.EMPLOYEE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
 });

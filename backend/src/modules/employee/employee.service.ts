@@ -204,6 +204,10 @@ export class EmployeeService {
     for (const field of SENSITIVE_FIELDS) {
       masked[field] = maskValue(employee[field]);
     }
+    // Compensation data — not string-shaped, so it isn't a MaskValue
+    // candidate; hidden outright rather than partially masked (there's no
+    // meaningful "last 4 digits" for a salary figure).
+    masked.ctcLpa = null;
     return masked;
   }
 
@@ -379,6 +383,7 @@ export class EmployeeService {
       bloodGroup: dto.bloodGroup,
       emergencyContactName: dto.emergencyContactName,
       emergencyContactPhone: dto.emergencyContactPhone,
+      ctcLpa: dto.ctcLpa,
     };
   }
 
@@ -1060,6 +1065,7 @@ export class EmployeeService {
         bloodGroup: dto.bloodGroup,
         emergencyContactName: dto.emergencyContactName,
         emergencyContactPhone: dto.emergencyContactPhone,
+        ctcLpa: dto.ctcLpa,
       },
     });
 

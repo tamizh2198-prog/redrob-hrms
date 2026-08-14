@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { ShiftService } from './shift.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 
 @Controller('shifts')
+@RequiresModule('SHIFT')
 export class ShiftController {
   constructor(private readonly shiftService: ShiftService) {}
 

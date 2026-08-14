@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { PerformanceService } from './performance.service';
 import { CreateGoalDto } from './dto/create-goal.dto';
@@ -21,6 +22,7 @@ import { SubmitMonthlyEvaluationDto } from './dto/submit-monthly-evaluation.dto'
 import { AuditMonthlyEvaluationDto } from './dto/audit-monthly-evaluation.dto';
 
 @Controller('performance')
+@RequiresModule('PERFORMANCE')
 export class PerformanceController {
   constructor(private readonly performanceService: PerformanceService) {}
 
@@ -167,6 +169,20 @@ export class PerformanceController {
   ) {
     return this.performanceService.getMonthlyEvaluation(
       id,
+      user.userId,
+      user.role as Role,
+    );
+  }
+
+  @Get('kpi-rewards/:employeeId/:year')
+  listQuarterlyKpiRewards(
+    @Param('employeeId') employeeId: string,
+    @Param('year') year: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.performanceService.listQuarterlyKpiRewards(
+      employeeId,
+      Number(year),
       user.userId,
       user.role as Role,
     );

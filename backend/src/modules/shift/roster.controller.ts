@@ -13,6 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { ShiftService } from './shift.service';
 import { AssignRosterDto } from './dto/assign-roster.dto';
@@ -27,6 +28,7 @@ import {
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 @Controller('roster')
+@RequiresModule('SHIFT')
 export class RosterController {
   constructor(private readonly shiftService: ShiftService) {}
 

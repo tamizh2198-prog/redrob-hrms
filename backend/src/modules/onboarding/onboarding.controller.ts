@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
+import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
 import { Public } from '../../shared/auth/public.decorator';
 import { OnboardingService } from './onboarding.service';
@@ -9,6 +10,7 @@ import { PreboardSubmitDto } from './dto/preboard-submit.dto';
 import { PortalCompleteTaskDto } from './dto/portal-complete-task.dto';
 
 @Controller('onboarding')
+@RequiresModule('ONBOARDING')
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}
 

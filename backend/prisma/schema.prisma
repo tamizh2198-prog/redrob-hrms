@@ -231,6 +231,13 @@ model Employee {
   bankAccountNumber String?
   ifscCode          String?
 
+  // Performance Evaluation Policy 2026 / P&B: current annual CTC in Lakhs —
+  // determines which CTC band's "Member KPI Linked Rewards" yearly limit
+  // (PerformanceService.CTC_BANDS) applies when computing a quarter's KPI
+  // reward payout. Nullable — HR sets this after hire; a quarterly reward
+  // can't be computed until it is.
+  ctcLpa Float?
+
   bloodGroup BloodGroup?
 
   emergencyContactName  String?
@@ -296,6 +303,7 @@ model Employee {
   notificationPreferences NotificationPreference[]
   notificationLogs        NotificationLog[]
   invitations             EmployeeInvitation[]
+  moduleAccessGrants      ModuleAccessGrant[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1827,4 +1835,24 @@ model RolePermission {
 
   @@unique([role, permissionId])
   @@index([role])
+}
+
+// This task (Super Admin per-employee module access): a targeted exception
+// to a specific employee's role-based access, scoped to one module — e.g.
+// letting a MANAGER use Assets without promoting them to HR_ADMIN. Actually
+// enforced (unlike the Permission/RolePermission catalog above): RolesGuard
+// checks this whenever a route is tagged with @RequiresModule() and the
+// caller's own role doesn't already satisfy @Roles(). `module` is a plain
+// string key (see MODULE_KEY values in module-access.service.ts), not an
+// FK, since it names a route-group tag, not a persisted entity.
+model ModuleAccessGrant {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  module     String
+  grantedBy  String
+  grantedAt  DateTime @default(now())
+
+  @@unique([employeeId, module])
+  @@index([employeeId])
 }

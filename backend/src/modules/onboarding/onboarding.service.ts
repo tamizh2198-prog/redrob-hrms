@@ -416,6 +416,16 @@ export class OnboardingService {
           changedBy: actorId,
         },
       }),
+      // Ending Preboarding retires the checklist regardless of any leftover
+      // non-mandatory HR/IT/Manager task — otherwise a checklist with even
+      // one incomplete task stays in listActiveChecklists() forever (it
+      // only filters by ChecklistStatus, never by the employee's own
+      // status), and clicking "Activate" again on that same stale row is
+      // exactly what throws "This employee is not in Preboarding status".
+      this.prisma.onboardingChecklist.updateMany({
+        where: { employeeId, status: { not: ChecklistStatus.COMPLETED } },
+        data: { status: ChecklistStatus.COMPLETED },
+      }),
     ]);
 
     await this.notifications.send({
