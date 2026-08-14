@@ -31,7 +31,6 @@ const EMPTY_FORM = {
   firstName: '',
   lastName: '',
   email: '',
-  employeeCode: '',
   departmentId: '',
   locationId: '',
   reportingManagerId: '',
@@ -49,13 +48,12 @@ const EMPLOYMENT_TYPES: EmploymentType[] = ['FULL_TIME', 'PART_TIME', 'CONTRACT'
 // This task (security review): explicit missing-field error instead of a
 // silently-disabled submit button. Matches the fields this invite-based
 // form actually collects and canSubmit already gates on.
-const REQUIRED_FIELDS = ['firstName', 'lastName', 'email', 'employeeCode'] as const
+const REQUIRED_FIELDS = ['firstName', 'lastName', 'email'] as const
 
 const FIELD_LABELS: Record<string, string> = {
   firstName: 'First name',
   lastName: 'Last name',
   email: 'Work email',
-  employeeCode: 'Employee code',
 }
 
 const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
@@ -104,7 +102,6 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
         firstName: form.firstName,
         lastName: form.lastName,
         email: form.email,
-        employeeCode: form.employeeCode,
         departmentId: form.departmentId || undefined,
         locationId: form.locationId || undefined,
         reportingManagerId: form.reportingManagerId || undefined,
@@ -127,8 +124,7 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
     }
   }
 
-  const canSubmit =
-    !submitting && form.firstName && form.lastName && form.employeeCode && form.email
+  const canSubmit = !submitting && form.firstName && form.lastName && form.email
 
   return (
     <Dialog
@@ -171,15 +167,6 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
               placeholder="employee@company.com"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <Label>Employee code</Label>
-            <Input
-              value={form.employeeCode}
-              onChange={(e) => update('employeeCode', e.target.value)}
-              placeholder="EMP-2026-0010"
-            />
-          </div>
-
           <div className="flex flex-col gap-1">
             <Label>Department</Label>
             <Select value={form.departmentId} onValueChange={(v) => update('departmentId', v)}>

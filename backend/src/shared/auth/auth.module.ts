@@ -8,6 +8,7 @@ import { AuthController } from './auth.controller';
 import { MagicLinkService } from './magic-link.service';
 import { MfaService } from './mfa.service';
 import { RefreshTokenService } from './refresh-token.service';
+import { TrustedDeviceService } from './trusted-device.service';
 import { EmployeeModule } from '../../modules/employee/employee.module';
 
 @Module({
@@ -33,6 +34,7 @@ import { EmployeeModule } from '../../modules/employee/employee.module';
     MagicLinkService,
     MfaService,
     RefreshTokenService,
+    TrustedDeviceService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
   exports: [JwtModule, MagicLinkService, RefreshTokenService],

@@ -222,6 +222,7 @@ model Employee {
   mfaSecret     String?
   mfaEnabled    Boolean        @default(false)
   refreshTokens RefreshToken[]
+  trustedDevices TrustedDevice[]
 
   // Statutory / sensitive fields — masked in API responses per Section 7.1
   // Business Rules unless the requester is HR Admin, Super Admin, or self.
@@ -334,6 +335,23 @@ model RefreshToken {
   expiresAt  DateTime
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())
+
+  @@index([employeeId])
+}
+
+// Section 11: lets a machine that already completed MFA once skip it on
+// later logins — only for MFA_REQUIRED_ROLES (HR_ADMIN/SUPER_ADMIN); a
+// login from any other machine still has to scan the QR/enter a code.
+// Same tokenHash-only-storage shape as RefreshToken, for the same reason:
+// a database leak alone can't be replayed as a trusted device.
+model TrustedDevice {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
 
   @@index([employeeId])
 }

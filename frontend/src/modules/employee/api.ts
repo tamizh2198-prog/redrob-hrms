@@ -232,7 +232,6 @@ export interface PendingInvitation {
 
 export function inviteEmployee(data: {
   email: string
-  employeeCode: string
   firstName: string
   lastName: string
   departmentId?: string

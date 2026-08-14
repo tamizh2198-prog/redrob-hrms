@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Logger,
   NotFoundException,
   Param,
   Post,
@@ -24,24 +23,19 @@ import { verifyPassword } from './password.util';
 import { MagicLinkService } from './magic-link.service';
 import { MfaService } from './mfa.service';
 import { RefreshTokenService } from './refresh-token.service';
+import { TrustedDeviceService } from './trusted-device.service';
 
 const MFA_VERIFY_PURPOSE = 'mfa-verify';
 const MFA_ENROLL_PURPOSE = 'mfa-enroll';
 
 // Section 6 Access Control Rule / Section 11: MFA is mandatory for these
 // two roles, not optional — a password alone is never enough for them.
+// A recognized device (see TrustedDeviceService) is the only way to skip
+// this, not a time-based exemption — see login() below.
 const MFA_REQUIRED_ROLES: Role[] = [Role.HR_ADMIN, Role.SUPER_ADMIN];
-
-// TEMPORARY (requested 2026-08-14): the team was getting locked out during
-// login, so MFA enforcement for HR_ADMIN/SUPER_ADMIN is paused until this
-// date, then resumes automatically — no manual step needed to turn it back
-// on. Do not extend this without re-confirming with whoever owns Section 11.
-const MFA_ENFORCEMENT_RESUMES_AT = new Date('2026-08-18T00:00:00Z');
 
 @Controller('auth')
 export class AuthController {
-  private readonly logger = new Logger(AuthController.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -50,6 +44,7 @@ export class AuthController {
     private readonly magicLink: MagicLinkService,
     private readonly mfa: MfaService,
     private readonly refreshTokens: RefreshTokenService,
+    private readonly trustedDevices: TrustedDeviceService,
   ) {}
 
   private toUserView(employee: {
@@ -102,14 +97,11 @@ export class AuthController {
 
     this.assertNotTerminated(employee);
 
-    const mfaEnforcementPaused = new Date() < MFA_ENFORCEMENT_RESUMES_AT;
-    if (MFA_REQUIRED_ROLES.includes(employee.role) && mfaEnforcementPaused) {
-      this.logger.warn(
-        `MFA enforcement is temporarily paused (resumes ${MFA_ENFORCEMENT_RESUMES_AT.toISOString()}) — ${employee.workEmail ?? employee.employeeCode} logged in as ${employee.role} with password only`,
-      );
-    }
+    const isTrustedDevice =
+      !!dto.deviceToken &&
+      (await this.trustedDevices.isTrusted(employee.id, dto.deviceToken));
 
-    if (MFA_REQUIRED_ROLES.includes(employee.role) && !mfaEnforcementPaused) {
+    if (MFA_REQUIRED_ROLES.includes(employee.role) && !isTrustedDevice) {
       // mfaEnabled alone isn't proof of a usable enrollment — if the secret
       // is missing (e.g. never completed, or lost), route back through
       // enrollment instead of sending the account to a verify screen it can
@@ -170,10 +162,12 @@ export class AuthController {
     }
 
     const { accessToken, refreshToken } = await this.issueSession(employee);
+    const deviceToken = await this.trustedDevices.issue(employee.id);
     return {
       status: 'OK' as const,
       accessToken,
       refreshToken,
+      deviceToken,
       user: this.toUserView(employee),
     };
   }
@@ -205,10 +199,12 @@ export class AuthController {
     });
 
     const { accessToken, refreshToken } = await this.issueSession(employee);
+    const deviceToken = await this.trustedDevices.issue(employee.id);
     return {
       status: 'OK' as const,
       accessToken,
       refreshToken,
+      deviceToken,
       user: this.toUserView(employee),
     };
   }

@@ -216,7 +216,7 @@ describe('Employee Management (e2e)', () => {
         })
         .expect(201);
 
-      expect(res.body.employeeCode).toMatch(/^EMP-\d{4}-\d{4}$/);
+      expect(res.body.employeeCode).toMatch(/^MNR-\d{4}-\d{4}$/);
 
       await prisma.notification.deleteMany({
         where: { employeeId: res.body.id },

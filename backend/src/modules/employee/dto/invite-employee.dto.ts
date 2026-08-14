@@ -16,9 +16,6 @@ export class InviteEmployeeDto {
   email: string;
 
   @IsString()
-  employeeCode: string;
-
-  @IsString()
   firstName: string;
 
   @IsString()
