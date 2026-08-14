@@ -18,6 +18,11 @@ interface SessionResponse {
   status: 'OK'
   accessToken: string
   refreshToken: string
+  // Only present on a response that just cleared an MFA challenge — lets
+  // this same machine skip MFA on future logins. Absent when logging in
+  // from an already-trusted device (nothing new to remember) or for a
+  // role that never required MFA to begin with.
+  deviceToken?: string
   user: AuthUser
 }
 
@@ -50,6 +55,9 @@ function persistSession(res: SessionResponse) {
   localStorage.setItem('accessToken', res.accessToken)
   localStorage.setItem('refreshToken', res.refreshToken)
   localStorage.setItem('authUser', JSON.stringify(res.user))
+  if (res.deviceToken) {
+    localStorage.setItem('deviceToken', res.deviceToken)
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -70,9 +78,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Admin don't get a session back directly — the caller (LoginPage) has
   // to branch on `status` and walk through MFA verify/enroll first.
   async function loginWithPassword(email: string, password: string) {
+    const deviceToken = localStorage.getItem('deviceToken') ?? undefined
     const res = await api<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { email, password, deviceToken },
     })
     if (res.status === 'OK') {
       persistSession(res)

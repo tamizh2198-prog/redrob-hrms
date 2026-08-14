@@ -200,16 +200,16 @@ describe('EmployeeService', () => {
   });
 
   describe('employee code generation (Business Rule: system-generated, unique, immutable)', () => {
-    it('generates a code in the EMP-<year>-<seq> format', async () => {
+    it('generates a code in the MNR-<year>-<seq> format', async () => {
       prisma.employee.create.mockResolvedValue({
         id: 'emp-1',
-        employeeCode: 'EMP-2026-0001',
+        employeeCode: 'MNR-2026-0001',
       });
 
       await service.create(VALID_ACTIVE_FIELDS, 'actor-1');
 
       const createArgs = prisma.employee.create.mock.calls[0][0];
-      expect(createArgs.data.employeeCode).toMatch(/^EMP-\d{4}-0001$/);
+      expect(createArgs.data.employeeCode).toMatch(/^MNR-\d{4}-0001$/);
     });
 
     it('retries with a new code on a unique-constraint collision', async () => {
@@ -219,13 +219,13 @@ describe('EmployeeService', () => {
       );
       prisma.employee.create
         .mockRejectedValueOnce(conflictError)
-        .mockResolvedValueOnce({ id: 'emp-1', employeeCode: 'EMP-2026-0002' });
+        .mockResolvedValueOnce({ id: 'emp-1', employeeCode: 'MNR-2026-0002' });
       prisma.employee.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
 
       const result = await service.create(VALID_ACTIVE_FIELDS, 'actor-1');
 
       expect(prisma.employee.create).toHaveBeenCalledTimes(2);
-      expect(result.employeeCode).toBe('EMP-2026-0002');
+      expect(result.employeeCode).toBe('MNR-2026-0002');
     });
   });
 
@@ -646,27 +646,28 @@ describe('EmployeeService', () => {
   });
 
   describe('Auth Phase 2: employee invitation', () => {
-    it('creates an INVITED employee, an invitation record, and sends the email', async () => {
-      prisma.employee.findUnique.mockResolvedValue(null); // no email/code conflict
+    it('creates an INVITED employee with a system-generated MNR-<year>-<seq> code, an invitation record, and sends the email', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null); // no email conflict
       prisma.employee.create.mockResolvedValue({
         id: 'emp-1',
         firstName: 'Jane',
         lastName: 'Doe',
         workEmail: 'jane@co.com',
-        employeeCode: 'EMP-9999',
+        employeeCode: 'MNR-2026-0001',
         status: EmployeeStatus.INVITED,
       });
 
       const result = await service.inviteEmployee(
         {
           email: 'jane@co.com',
-          employeeCode: 'EMP-9999',
           firstName: 'Jane',
           lastName: 'Doe',
         },
         'actor-1',
       );
 
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.employeeCode).toMatch(/^MNR-\d{4}-0001$/);
       expect(prisma.employee.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: EmployeeStatus.INVITED }),
@@ -693,7 +694,6 @@ describe('EmployeeService', () => {
       await service.inviteEmployee(
         {
           email: 'x@co.com',
-          employeeCode: 'EMP-1',
           firstName: 'X',
           lastName: 'Y',
         },
@@ -710,7 +710,6 @@ describe('EmployeeService', () => {
         service.inviteEmployee(
           {
             email: 'dup@co.com',
-            employeeCode: 'EMP-2',
             firstName: 'A',
             lastName: 'B',
           },
@@ -719,21 +718,26 @@ describe('EmployeeService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects inviting a duplicate employee code', async () => {
-      prisma.employee.findUnique
-        .mockResolvedValueOnce(null) // email check passes
-        .mockResolvedValueOnce({ id: 'existing-1' }); // code check fails
-      await expect(
-        service.inviteEmployee(
-          {
-            email: 'new@co.com',
-            employeeCode: 'EMP-DUP',
-            firstName: 'A',
-            lastName: 'B',
-          },
-          'actor-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
+    it('retries with a new code on a unique-constraint collision', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      const conflictError = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint failed',
+        { code: 'P2002', clientVersion: '6.0.0' },
+      );
+      prisma.employee.create
+        .mockRejectedValueOnce(conflictError)
+        .mockResolvedValueOnce({ id: 'emp-1', employeeCode: 'MNR-2026-0002' });
+      prisma.employee.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+      const result = await service.inviteEmployee(
+        { email: 'new@co.com', firstName: 'A', lastName: 'B' },
+        'actor-1',
+      );
+
+      expect(prisma.employee.create).toHaveBeenCalledTimes(2);
+      expect((result.employee as { employeeCode?: string }).employeeCode).toBe(
+        'MNR-2026-0002',
+      );
     });
 
     it('reports emailSent=false without throwing when email delivery fails', async () => {
@@ -747,7 +751,6 @@ describe('EmployeeService', () => {
       const result = await service.inviteEmployee(
         {
           email: 'jane@co.com',
-          employeeCode: 'EMP-1',
           firstName: 'Jane',
           lastName: 'Doe',
         },
@@ -764,7 +767,6 @@ describe('EmployeeService', () => {
       await service.inviteEmployee(
         {
           email: 'x@co.com',
-          employeeCode: 'EMP-1',
           firstName: 'X',
           lastName: 'Y',
           departmentId: 'dept-1',
@@ -790,7 +792,6 @@ describe('EmployeeService', () => {
       await service.inviteEmployee(
         {
           email: 'x@co.com',
-          employeeCode: 'EMP-1',
           firstName: 'X',
           lastName: 'Y',
           role: Role.MANAGER,
@@ -809,7 +810,6 @@ describe('EmployeeService', () => {
         service.inviteEmployee(
           {
             email: 'x@co.com',
-            employeeCode: 'EMP-1',
             firstName: 'X',
             lastName: 'Y',
             role: Role.SUPER_ADMIN,
@@ -827,7 +827,6 @@ describe('EmployeeService', () => {
         service.inviteEmployee(
           {
             email: 'x@co.com',
-            employeeCode: 'EMP-1',
             firstName: 'X',
             lastName: 'Y',
             role: Role.HR_ADMIN,
@@ -845,7 +844,6 @@ describe('EmployeeService', () => {
       await service.inviteEmployee(
         {
           email: 'x@co.com',
-          employeeCode: 'EMP-1',
           firstName: 'X',
           lastName: 'Y',
           role: Role.SUPER_ADMIN,

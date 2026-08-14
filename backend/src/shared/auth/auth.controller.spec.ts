@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { EmployeeService } from '../../modules/employee/employee.service';
 import { MagicLinkService } from './magic-link.service';
 import { RefreshTokenService } from './refresh-token.service';
+import { TrustedDeviceService } from './trusted-device.service';
 import { hashPassword } from './password.util';
 
 function createMockPrisma() {
@@ -46,6 +47,12 @@ function createMockRefreshTokens() {
     revoke: jest.fn(),
   };
 }
+function createMockTrustedDevices() {
+  return {
+    issue: jest.fn().mockResolvedValue('issued-device-token'),
+    isTrusted: jest.fn().mockResolvedValue(false),
+  };
+}
 
 describe('AuthController (Auth Phase 1)', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
@@ -55,6 +62,7 @@ describe('AuthController (Auth Phase 1)', () => {
   let magicLink: ReturnType<typeof createMockMagicLink>;
   let mfa: ReturnType<typeof createMockMfa>;
   let refreshTokens: ReturnType<typeof createMockRefreshTokens>;
+  let trustedDevices: ReturnType<typeof createMockTrustedDevices>;
   let controller: AuthController;
 
   beforeEach(() => {
@@ -65,6 +73,7 @@ describe('AuthController (Auth Phase 1)', () => {
     magicLink = createMockMagicLink();
     mfa = createMockMfa();
     refreshTokens = createMockRefreshTokens();
+    trustedDevices = createMockTrustedDevices();
     controller = new AuthController(
       prisma as unknown as PrismaService,
       jwt as unknown as JwtService,
@@ -73,6 +82,7 @@ describe('AuthController (Auth Phase 1)', () => {
       magicLink as unknown as MagicLinkService,
       mfa,
       refreshTokens as unknown as RefreshTokenService,
+      trustedDevices as unknown as TrustedDeviceService,
     );
   });
 
@@ -159,16 +169,6 @@ describe('AuthController (Auth Phase 1)', () => {
     });
 
     describe('Section 11: MFA is mandatory for HR_ADMIN/SUPER_ADMIN', () => {
-      // These assert the post-pause behavior — see "MFA enforcement is
-      // temporarily paused" below for 2026-08-14..2026-08-18.
-      beforeEach(() => {
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
-        jest.setSystemTime(new Date('2026-08-19T00:00:00Z'));
-      });
-      afterEach(() => {
-        jest.useRealTimers();
-      });
-
       it('starts enrollment for a Super Admin with no MFA set up yet, without issuing a session', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
         prisma.employee.findUnique.mockResolvedValue({
@@ -249,32 +249,29 @@ describe('AuthController (Auth Phase 1)', () => {
       });
     });
 
-    describe('MFA enforcement is temporarily paused (2026-08-14 through 2026-08-18)', () => {
-      beforeEach(() => {
-        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
-        jest.setSystemTime(new Date('2026-08-16T12:00:00Z'));
-      });
-      afterEach(() => {
-        jest.useRealTimers();
-      });
-
-      it('logs a Super Admin straight in on password alone, skipping MFA enrollment', async () => {
+    describe('a recognized device token skips MFA entirely', () => {
+      it('logs a Super Admin straight in when the presented device token is trusted', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
         prisma.employee.findUnique.mockResolvedValue({
           id: 'admin-1',
           firstName: 'Aditi',
           lastName: 'Rao',
-          workEmail: 'aditi.rao@redrob.seed',
           role: 'SUPER_ADMIN',
           passwordHash,
           mfaEnabled: false,
         });
+        trustedDevices.isTrusted.mockResolvedValue(true);
 
         const result = await controller.login({
           email: 'aditi.rao@redrob.seed',
           password: 'CorrectHorse123!',
+          deviceToken: 'my-machine-token',
         });
 
+        expect(trustedDevices.isTrusted).toHaveBeenCalledWith(
+          'admin-1',
+          'my-machine-token',
+        );
         expect(result).toEqual({
           status: 'OK',
           accessToken: 'signed.jwt.token',
@@ -284,12 +281,10 @@ describe('AuthController (Auth Phase 1)', () => {
         expect(prisma.employee.update).not.toHaveBeenCalled();
       });
 
-      it('logs an already-enrolled HR Admin straight in on password alone, skipping MFA verification', async () => {
+      it('still requires MFA when no device token is presented', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
         prisma.employee.findUnique.mockResolvedValue({
           id: 'hr-1',
-          firstName: 'Priya',
-          lastName: 'Sharma',
           role: 'HR_ADMIN',
           passwordHash,
           mfaEnabled: true,
@@ -301,11 +296,33 @@ describe('AuthController (Auth Phase 1)', () => {
           password: 'CorrectHorse123!',
         });
 
+        expect(trustedDevices.isTrusted).not.toHaveBeenCalled();
         expect(result).toEqual({
-          status: 'OK',
-          accessToken: 'signed.jwt.token',
-          refreshToken: 'issued-refresh-token',
-          user: { id: 'hr-1', name: 'Priya Sharma', role: 'HR_ADMIN' },
+          status: 'MFA_REQUIRED',
+          mfaToken: 'signed-mfa-token',
+        });
+      });
+
+      it('still requires MFA when the device token is unrecognized/expired', async () => {
+        const passwordHash = await hashPassword('CorrectHorse123!');
+        prisma.employee.findUnique.mockResolvedValue({
+          id: 'hr-1',
+          role: 'HR_ADMIN',
+          passwordHash,
+          mfaEnabled: true,
+          mfaSecret: 'existing-secret',
+        });
+        trustedDevices.isTrusted.mockResolvedValue(false);
+
+        const result = await controller.login({
+          email: 'priya.sharma@redrob.seed',
+          password: 'CorrectHorse123!',
+          deviceToken: 'some-other-machine-token',
+        });
+
+        expect(result).toEqual({
+          status: 'MFA_REQUIRED',
+          mfaToken: 'signed-mfa-token',
         });
       });
     });
@@ -331,6 +348,8 @@ describe('AuthController (Auth Phase 1)', () => {
 
       expect(result.status).toBe('OK');
       expect(mfa.verify).toHaveBeenCalledWith('123456', 'existing-secret');
+      expect(trustedDevices.issue).toHaveBeenCalledWith('hr-1');
+      expect(result).toMatchObject({ deviceToken: 'issued-device-token' });
     });
 
     it('rejects an incorrect code', async () => {
@@ -370,6 +389,8 @@ describe('AuthController (Auth Phase 1)', () => {
         where: { id: 'admin-1' },
         data: { mfaEnabled: true },
       });
+      expect(trustedDevices.issue).toHaveBeenCalledWith('admin-1');
+      expect(result).toMatchObject({ deviceToken: 'issued-device-token' });
     });
 
     it('rejects an incorrect enrollment code', async () => {
