@@ -62,6 +62,102 @@ describe('PerformanceService', () => {
     );
   });
 
+  describe('Review Cycle types: Monthly/Quarterly/Yearly', () => {
+    beforeEach(() => {
+      prisma.employee.findMany.mockResolvedValue([]);
+      prisma.reviewCycle.create.mockImplementation(
+        ({ data }: { data: Record<string, unknown> }) =>
+          Promise.resolve({ id: 'cycle-new', ...data }),
+      );
+    });
+
+    it('defaults to QUARTERLY when cycleType is omitted, preserving existing behavior', async () => {
+      await service.openReviewCycle({
+        name: 'FY26 Q1',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-03-31',
+      } as never);
+
+      expect(prisma.reviewCycle.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cycleType: 'QUARTERLY',
+            periodStart: new Date('2026-01-01'),
+            periodEnd: new Date('2026-03-31'),
+          }),
+        }),
+      );
+    });
+
+    it('honors an explicit periodEnd as-is regardless of cycleType (no behavior change for existing callers)', async () => {
+      await service.openReviewCycle({
+        name: 'FY26 Q1 custom',
+        cycleType: 'QUARTERLY',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-03-15',
+      } as never);
+
+      expect(prisma.reviewCycle.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            periodEnd: new Date('2026-03-15'),
+          }),
+        }),
+      );
+    });
+
+    it('derives a 1-month period end for MONTHLY when periodEnd is omitted', async () => {
+      await service.openReviewCycle({
+        name: 'Jan 2026 Monthly',
+        cycleType: 'MONTHLY',
+        periodStart: '2026-01-01',
+      } as never);
+
+      expect(prisma.reviewCycle.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cycleType: 'MONTHLY',
+            periodEnd: new Date('2026-02-01'),
+          }),
+        }),
+      );
+    });
+
+    it('derives a 3-month period end for QUARTERLY when periodEnd is omitted', async () => {
+      await service.openReviewCycle({
+        name: 'FY26 Q1',
+        cycleType: 'QUARTERLY',
+        periodStart: '2026-01-01',
+      } as never);
+
+      expect(prisma.reviewCycle.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cycleType: 'QUARTERLY',
+            periodEnd: new Date('2026-04-01'),
+          }),
+        }),
+      );
+    });
+
+    it('derives a 12-month period end for YEARLY when periodEnd is omitted', async () => {
+      await service.openReviewCycle({
+        name: 'FY26 Annual',
+        cycleType: 'YEARLY',
+        periodStart: '2026-01-01',
+      } as never);
+
+      expect(prisma.reviewCycle.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cycleType: 'YEARLY',
+            periodEnd: new Date('2027-01-01'),
+          }),
+        }),
+      );
+    });
+  });
+
   describe('Acceptance Criteria: goal weightage validation blocks submission if it does not sum to 100%', () => {
     it('rejects self-assessment submission when weightages sum to less than 100%', async () => {
       prisma.reviewCycle.findUnique.mockResolvedValue({

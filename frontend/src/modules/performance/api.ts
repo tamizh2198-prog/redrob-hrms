@@ -1,12 +1,14 @@
 import { api } from '@/lib/api'
 
 export type ReviewCycleStatus = 'DRAFT' | 'OPEN' | 'CALIBRATION' | 'CLOSED'
+export type ReviewCycleType = 'MONTHLY' | 'QUARTERLY' | 'YEARLY'
 export type ReviewStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'READY_FOR_CALIBRATION' | 'FINALIZED'
 
 export interface ReviewCycle {
   id: string
   companyId: string
   name: string
+  cycleType: ReviewCycleType
   periodStart: string
   periodEnd: string
   status: ReviewCycleStatus
@@ -62,7 +64,13 @@ export interface CalibrationView {
   byManager: Record<string, CalibrationBucket>
 }
 
-export function openReviewCycle(data: { companyId?: string; name: string; periodStart: string; periodEnd: string }) {
+export function openReviewCycle(data: {
+  companyId?: string
+  name: string
+  cycleType?: ReviewCycleType
+  periodStart: string
+  periodEnd?: string
+}) {
   return api<ReviewCycle>('/performance/reviews/cycle', { method: 'POST', body: data })
 }
 

@@ -9,6 +9,7 @@ import {
   PerformanceGrade,
   Prisma,
   ReviewCycleStatus,
+  ReviewCycleType,
   ReviewStatus,
   Role,
 } from '@prisma/client';
@@ -44,6 +45,23 @@ function computeGrade(kpiScore: number): PerformanceGrade {
 
 function normalizeToMonthStart(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+// Review Cycle cadence: Monthly = 1 month, Quarterly = 3 months (the
+// existing/default behavior), Yearly = 12 months.
+const REVIEW_CYCLE_MONTHS: Record<ReviewCycleType, number> = {
+  [ReviewCycleType.MONTHLY]: 1,
+  [ReviewCycleType.QUARTERLY]: 3,
+  [ReviewCycleType.YEARLY]: 12,
+};
+
+// Only used to fill in a period end the caller didn't supply — mirrors the
+// UTC-based date math already used elsewhere in this service/the Leave
+// module rather than pulling in a date library for one calculation.
+function addMonthsUtc(date: Date, months: number): Date {
+  const result = new Date(date);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  return result;
 }
 
 // Product decision (overrides the literal policy wording, which says exact
@@ -95,12 +113,21 @@ export class PerformanceService {
   async openReviewCycle(dto: OpenReviewCycleDto) {
     const companyId =
       dto.companyId ?? (await this.defaultCompany.getOrCreate());
+    // Preserves current behavior for every existing caller: omitting
+    // cycleType still creates a Quarterly cycle, and an explicit periodEnd
+    // is always honored as-is rather than overridden by the cadence math.
+    const cycleType = dto.cycleType ?? ReviewCycleType.QUARTERLY;
+    const periodStart = new Date(dto.periodStart);
+    const periodEnd = dto.periodEnd
+      ? new Date(dto.periodEnd)
+      : addMonthsUtc(periodStart, REVIEW_CYCLE_MONTHS[cycleType]);
     const cycle = await this.prisma.reviewCycle.create({
       data: {
         companyId,
         name: dto.name,
-        periodStart: new Date(dto.periodStart),
-        periodEnd: new Date(dto.periodEnd),
+        cycleType,
+        periodStart,
+        periodEnd,
       },
     });
 

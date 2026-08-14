@@ -852,6 +852,16 @@ enum ReviewCycleStatus {
   CLOSED
 }
 
+// Cadence the cycle's period represents — mirrors LeaveAccrualFrequency's
+// MONTHLY/QUARTERLY shape. Quarterly stays the default so existing cycles
+// (created before this field existed) and any caller that omits it keep
+// behaving exactly as before.
+enum ReviewCycleType {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
 // Derived from whether self/manager sections are present — see
 // PerformanceService.deriveReviewStatus — so submission order never matters.
 enum ReviewStatus {
@@ -866,6 +876,7 @@ model ReviewCycle {
   companyId   String
   company     Company           @relation(fields: [companyId], references: [id])
   name        String
+  cycleType   ReviewCycleType   @default(QUARTERLY)
   periodStart DateTime
   periodEnd   DateTime
   status      ReviewCycleStatus @default(OPEN)
