@@ -327,6 +327,11 @@ export class EmployeeService {
         reportingManager: dto.reportingManagerId
           ? { connect: { id: dto.reportingManagerId } }
           : undefined,
+        designation: dto.designationId
+          ? { connect: { id: dto.designationId } }
+          : undefined,
+        grade: dto.gradeId ? { connect: { id: dto.gradeId } } : undefined,
+        employmentType: dto.employmentType,
       },
     });
 
@@ -594,6 +599,8 @@ export class EmployeeService {
         pan: dto.pan,
         aadhaar: dto.aadhaar,
         bankAccountNumber: dto.bankAccountNumber,
+        ifscCode: dto.ifscCode,
+        bloodGroup: dto.bloodGroup,
         emergencyContactName: dto.emergencyContactName,
         emergencyContactPhone: dto.emergencyContactPhone,
       },

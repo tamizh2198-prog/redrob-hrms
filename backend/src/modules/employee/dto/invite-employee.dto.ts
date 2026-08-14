@@ -1,5 +1,5 @@
 import { IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
-import { Role } from '@prisma/client';
+import { EmploymentType, Role } from '@prisma/client';
 
 // Auth Phase 2: intentionally minimal — the full CreateEmployeeDto's
 // mandatory-for-active fields (dob, PAN, bank details, ...) don't apply to
@@ -35,6 +35,18 @@ export class InviteEmployeeDto {
   @IsOptional()
   @IsUUID()
   reportingManagerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  designationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  gradeId?: string;
+
+  @IsOptional()
+  @IsEnum(EmploymentType)
+  employmentType?: EmploymentType;
 
   @IsOptional()
   @IsEnum(Role)

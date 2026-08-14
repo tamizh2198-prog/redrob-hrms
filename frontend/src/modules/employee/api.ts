@@ -238,6 +238,9 @@ export function inviteEmployee(data: {
   departmentId?: string
   locationId?: string
   reportingManagerId?: string
+  designationId?: string
+  gradeId?: string
+  employmentType?: EmploymentType
   role?: Role
 }) {
   return api<InviteEmployeeResult>('/employees/invite', { method: 'POST', body: data })
@@ -315,6 +318,8 @@ export interface UpdateMyProfileInput {
   pan?: string
   aadhaar?: string
   bankAccountNumber?: string
+  ifscCode?: string
+  bloodGroup?: BloodGroup
   emergencyContactName?: string
   emergencyContactPhone?: string
 }

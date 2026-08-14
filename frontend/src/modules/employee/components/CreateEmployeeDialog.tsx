@@ -20,7 +20,12 @@ import {
 import { ApiError } from '@/lib/api'
 import { useAuth } from '@/shared/auth/AuthContext'
 import type { Role } from '@/shared/auth/role'
-import { inviteEmployee, getReferenceData, type ReferenceData } from '../api'
+import {
+  inviteEmployee,
+  getReferenceData,
+  type ReferenceData,
+  type EmploymentType,
+} from '../api'
 
 const EMPTY_FORM = {
   firstName: '',
@@ -30,8 +35,16 @@ const EMPTY_FORM = {
   departmentId: '',
   locationId: '',
   reportingManagerId: '',
+  designationId: '',
+  gradeId: '',
+  employmentType: '' as EmploymentType | '',
   role: 'EMPLOYEE' as Role,
 }
+
+// Mirrors the EmploymentType schema enum — not master data (unlike
+// Department/Location/Designation/Grade), so hardcoding it here matches how
+// Role/Gender are already handled elsewhere in this codebase.
+const EMPLOYMENT_TYPES: EmploymentType[] = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN']
 
 // This task (security review): explicit missing-field error instead of a
 // silently-disabled submit button. Matches the fields this invite-based
@@ -95,6 +108,9 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
         departmentId: form.departmentId || undefined,
         locationId: form.locationId || undefined,
         reportingManagerId: form.reportingManagerId || undefined,
+        designationId: form.designationId || undefined,
+        gradeId: form.gradeId || undefined,
+        employmentType: form.employmentType || undefined,
         role: form.role,
       })
       setMessage(
@@ -197,6 +213,63 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
                 {reference?.locations.map((l) => (
                   <SelectItem key={l.id} value={l.id}>
                     {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label>Designation</Label>
+            <Select value={form.designationId} onValueChange={(v) => update('designationId', v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select designation">
+                  {(value: string) =>
+                    reference?.designations.find((d) => d.id === value)?.name ?? 'Select designation'
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {reference?.designations.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Grade</Label>
+            <Select value={form.gradeId} onValueChange={(v) => update('gradeId', v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select grade">
+                  {(value: string) => reference?.grades.find((g) => g.id === value)?.name ?? 'Select grade'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {reference?.grades.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-2 flex flex-col gap-1">
+            <Label>Employment type</Label>
+            <Select
+              value={form.employmentType}
+              onValueChange={(v) => update('employmentType', v as EmploymentType)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select employment type">
+                  {(value: string) => value.replaceAll('_', ' ') || 'Select employment type'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {EMPLOYMENT_TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t.replaceAll('_', ' ')}
                   </SelectItem>
                 ))}
               </SelectContent>
