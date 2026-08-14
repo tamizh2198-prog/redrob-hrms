@@ -83,6 +83,18 @@ export class EmailService {
       secure: config.port === 465,
       auth: { user: config.user, pass: config.pass },
       ...(servername ? { servername } : {}),
+      // Without these, a blocked/unreachable SMTP host (e.g. an egress
+      // rule silently dropping the connection instead of refusing it) hangs
+      // with no bound — nodemailer's own default is effectively "forever".
+      // Since send() is awaited inline by employee creation/invite, that
+      // hang blocked the entire HTTP request, which is what surfaced to
+      // users as a request failure ("internal server error") on Create
+      // Employee even though the employee row itself was created
+      // successfully. Bounding it here means a broken SMTP config fails
+      // fast and the request still returns { emailSent: false } promptly.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 10_000,
     });
   }
 

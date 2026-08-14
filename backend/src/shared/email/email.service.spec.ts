@@ -69,5 +69,22 @@ describe('EmailService (Auth Phase 2)', () => {
       expect(callArg.host).toBe('smtp.gmail.com');
       expect(callArg.servername).toBeUndefined();
     });
+
+    it('bounds connect/greeting/socket timeouts so an unreachable host fails fast instead of hanging the request', async () => {
+      (dns.promises.resolve4 as jest.Mock).mockResolvedValue(['142.250.31.109']);
+      const sendMail = jest.fn().mockResolvedValue({});
+      (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+
+      const service = new EmailService();
+      await service.send({ to: 'jane@co.com', subject: 'Test', text: 'Hello' });
+
+      expect(nodemailer.createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connectionTimeout: expect.any(Number),
+          greetingTimeout: expect.any(Number),
+          socketTimeout: expect.any(Number),
+        }),
+      );
+    });
   });
 });
