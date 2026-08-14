@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -19,6 +20,9 @@ import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
 import { SubmitScorecardDto } from './dto/submit-scorecard.dto';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
+import { CreateOfferTemplateDto } from './dto/create-offer-template.dto';
+import { UpdateOfferTemplateDto } from './dto/update-offer-template.dto';
+import { SendOfferDto } from './dto/send-offer.dto';
 
 @Controller('ats')
 export class AtsController {
@@ -128,6 +132,33 @@ export class AtsController {
     return this.atsService.createOffer(dto);
   }
 
+  @Post('offer-templates')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  createOfferTemplate(@Body() dto: CreateOfferTemplateDto) {
+    return this.atsService.createOfferTemplate(dto);
+  }
+
+  @Get('offer-templates')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listOfferTemplates() {
+    return this.atsService.listOfferTemplates();
+  }
+
+  @Patch('offer-templates/:id')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  updateOfferTemplate(
+    @Param('id') id: string,
+    @Body() dto: UpdateOfferTemplateDto,
+  ) {
+    return this.atsService.updateOfferTemplate(id, dto);
+  }
+
+  @Delete('offer-templates/:id')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  deleteOfferTemplate(@Param('id') id: string) {
+    return this.atsService.deleteOfferTemplate(id);
+  }
+
   // Offer approval is HR Admin/Super Admin only — a Manager (even the
   // requisition's own hiring manager) has no sign-off role here. Enforced
   // in the service; this decorator just matches at the controller for
@@ -143,8 +174,8 @@ export class AtsController {
 
   @Post('offers/:id/send')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  sendOffer(@Param('id') id: string) {
-    return this.atsService.sendOffer(id);
+  sendOffer(@Param('id') id: string, @Body() dto: SendOfferDto) {
+    return this.atsService.sendOffer(id, dto.templateId);
   }
 
   @Public()

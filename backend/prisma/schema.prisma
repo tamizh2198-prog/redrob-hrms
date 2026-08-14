@@ -89,6 +89,7 @@ model Company {
 
   jobRequisitions     JobRequisition[]
   onboardingTemplates OnboardingChecklistTemplate[]
+  offerTemplates      OfferTemplate[]
 
   reviewCycles ReviewCycle[]
   assets       Asset[]
@@ -734,6 +735,12 @@ model Offer {
   ctcBreakupJson Json
   status         OfferStatus @default(DRAFT)
 
+  // Which letter template's subject/body was rendered into the email sent
+  // to the candidate — null means the built-in default copy was used
+  // (either no templates exist yet, or none was explicitly selected).
+  templateId String?
+  template   OfferTemplate? @relation(fields: [templateId], references: [id])
+
   // Business Rule: "requires sign-off from Hiring Manager + HR Admin before
   // the letter is generated/sent" — two independent approvals, not a chain.
   hiringManagerApprovedBy String?
@@ -749,6 +756,29 @@ model Offer {
   createdAt DateTime @default(now())
 
   @@index([candidateId])
+  @@index([templateId])
+}
+
+// HR-customizable offer letter content — subject/body support {{token}}
+// placeholders (candidateName, requisitionTitle, ctc, responseLink)
+// substituted when the offer is actually sent, rather than a single
+// hardcoded email hardcoded into the service.
+model OfferTemplate {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  subject   String
+  body      String
+  // At most one default per company — enforced in the service, not the DB,
+  // since "unset every other row's default" is simpler as an application
+  // transaction than a partial unique index Prisma can't express directly.
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  offers Offer[]
+
+  @@index([companyId])
 }
 
 // ---------------------------------------------------------------------------

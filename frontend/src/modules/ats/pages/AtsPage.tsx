@@ -16,6 +16,7 @@ import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
 import { getProgress, type OnboardingProgress } from '@/modules/onboarding/api'
+import { OfferTemplateManager } from '../components/OfferTemplateManager'
 import {
   createRequisition,
   approveRequisition,
@@ -30,10 +31,12 @@ import {
   approveOffer,
   sendOffer,
   getRequisitionAnalytics,
+  listOfferTemplates,
   type JobRequisition,
   type Candidate,
   type CandidateStage,
   type PipelineAnalytics,
+  type OfferTemplate,
 } from '../api'
 
 const STAGES: CandidateStage[] = ['APPLIED', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED']
@@ -59,6 +62,9 @@ export function AtsPage() {
   const [candPhone, setCandPhone] = useState('')
   const [candResumeRef, setCandResumeRef] = useState('')
 
+  const [offerTemplates, setOfferTemplates] = useState<OfferTemplate[]>([])
+  const [templateIdByOffer, setTemplateIdByOffer] = useState<Record<string, string>>({})
+
   const [preboardingByEmployee, setPreboardingByEmployee] = useState<
     Record<string, OnboardingProgress | 'none'>
   >({})
@@ -80,7 +86,13 @@ export function AtsPage() {
       setPeople(r.managers)
     })
     refreshRequisitions()
+    if (isHrAdmin) refreshOfferTemplates()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  function refreshOfferTemplates() {
+    listOfferTemplates().then(setOfferTemplates).catch(() => setOfferTemplates([]))
+  }
 
   function refreshRequisitions() {
     listRequisitions().then(setRequisitions).catch(() => setRequisitions([]))
@@ -251,7 +263,7 @@ export function AtsPage() {
   async function handleSendOffer(offerId: string) {
     setError(null)
     try {
-      const { responseLink } = await sendOffer(offerId)
+      const { responseLink } = await sendOffer(offerId, templateIdByOffer[offerId] || undefined)
       setResponseLinkByOffer((s) => ({ ...s, [offerId]: responseLink }))
       setMessage('Offer sent — the candidate has also been emailed the response link.')
       if (selectedRequisitionId) refreshCandidates(selectedRequisitionId)
@@ -346,6 +358,10 @@ export function AtsPage() {
                 </Button>
               </div>
             </div>
+          )}
+
+          {isHrAdmin && (
+            <OfferTemplateManager templates={offerTemplates} onChange={refreshOfferTemplates} />
           )}
         </div>
 
@@ -558,13 +574,38 @@ export function AtsPage() {
                                 </Button>
                               )}
                               {isHrAdmin && offer.hrApprovedAt && offer.status === 'DRAFT' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleSendOffer(offer.id)}
-                                >
-                                  Send Offer
-                                </Button>
+                                <div className="flex flex-col gap-2">
+                                  <Label>Offer letter template</Label>
+                                  <Select
+                                    value={templateIdByOffer[offer.id] ?? ''}
+                                    onValueChange={(v) =>
+                                      setTemplateIdByOffer((s) => ({ ...s, [offer.id]: v }))
+                                    }
+                                  >
+                                    <SelectTrigger className="w-56">
+                                      <SelectValue placeholder="Default letter">
+                                        {(v: string) =>
+                                          offerTemplates.find((t) => t.id === v)?.name ??
+                                          'Default letter'
+                                        }
+                                      </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {offerTemplates.map((t) => (
+                                        <SelectItem key={t.id} value={t.id}>
+                                          {t.name} {t.isDefault ? '(default)' : ''}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleSendOffer(offer.id)}
+                                  >
+                                    Send Offer
+                                  </Button>
+                                </div>
                               )}
                             </div>
                             {responseLink && (
