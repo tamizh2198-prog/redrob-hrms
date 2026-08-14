@@ -56,24 +56,6 @@ const BLOOD_GROUPS: BloodGroup[] = [
   'O_NEGATIVE',
 ]
 
-// Mirrors the backend's SELF_SERVICE_FIELDS (employee.types.ts) — these are
-// "Step 2" fields the new hire completes themselves; submitting any of them
-// as a non-HR user always creates a ProfileChangeRequest, never a direct
-// write (Section 7.1 Business Rule).
-const SELF_SERVICE_FIELDS = [
-  'dob',
-  'personalEmail',
-  'workEmail',
-  'phone',
-  'pan',
-  'aadhaar',
-  'bankAccountNumber',
-  'ifscCode',
-  'bloodGroup',
-  'emergencyContactName',
-  'emergencyContactPhone',
-] as const
-
 function toDateDisplay(value: string | null): string {
   return value ? value.slice(0, 10) : '—'
 }
@@ -184,17 +166,16 @@ export function EmployeeDetailPage() {
     }
   }
 
+  // Only HR Admin/Super Admin reach this now (see canEditSelfServiceFields
+  // below) — an employee viewing their own record manages personal/payroll
+  // fields from My Profile instead, so there's no longer a second
+  // self-service write path (and its change-request/approval branch) here.
   async function handleSave() {
     if (!id) return
     setError(null)
     setMessage(null)
     try {
-      const payload = isHrAdmin
-        ? form
-        : Object.fromEntries(
-            SELF_SERVICE_FIELDS.map((f) => [f, form[f]]).filter(([, v]) => v !== undefined),
-          )
-      const res = await updateEmployee(id, payload)
+      const res = await updateEmployee(id, form)
       if ('changeRequestsCreated' in res) {
         setMessage(
           res.changeRequestsCreated > 0
@@ -228,9 +209,16 @@ export function EmployeeDetailPage() {
     return <div className="p-6 text-muted-foreground">Loading…</div>
   }
 
-  const canEditSelfServiceFields = isHrAdmin || isSelf
+  // This task: personal/payroll self-service fields (contact details,
+  // PAN/Aadhaar/bank/IFSC, blood group, emergency contact) are now edited in
+  // exactly one place — My Profile. An employee viewing their own record
+  // here (isSelf, not HR) sees these fields read-only instead of a second
+  // editable copy; HR Admin/Super Admin access is unchanged.
+  const canEditSelfServiceFields = isHrAdmin
   const departmentName = reference?.departments.find((d) => d.id === employee.departmentId)?.name ?? '—'
   const locationName = reference?.locations.find((l) => l.id === employee.locationId)?.name ?? '—'
+  const designationName = reference?.designations.find((d) => d.id === employee.designationId)?.name ?? '—'
+  const gradeName = reference?.grades.find((g) => g.id === employee.gradeId)?.name ?? '—'
   const manager = reference?.managers.find((m) => m.id === employee.reportingManagerId)
   const managerName = manager ? `${manager.firstName} ${manager.lastName} (${manager.employeeCode})` : '—'
 
@@ -268,7 +256,10 @@ export function EmployeeDetailPage() {
         <h2 className="font-medium">Personal Information</h2>
         <p className="text-xs text-muted-foreground">
           Name, date of birth, gender, and address are employee self-service — managed by the
-          employee via My Profile. Contact details below remain admin-editable.
+          employee via My Profile.{' '}
+          {isSelf && !isHrAdmin
+            ? 'Update your own phone and personal email from My Profile too.'
+            : 'Contact details below remain admin-editable.'}
         </p>
         <div className="grid grid-cols-2 gap-4">
           <ReadOnlyField label="First name" value={employee.firstName} />
@@ -307,6 +298,12 @@ export function EmployeeDetailPage() {
           <ReadOnlyField label="Role" value={employee.role} />
           <ReadOnlyField label="Department" value={departmentName} />
           <ReadOnlyField label="Location" value={locationName} />
+          <ReadOnlyField label="Designation" value={designationName} />
+          <ReadOnlyField label="Grade" value={gradeName} />
+          <ReadOnlyField
+            label="Employment type"
+            value={employee.employmentType?.replaceAll('_', ' ') ?? '—'}
+          />
           <ReadOnlyField label="Reporting manager" value={managerName} />
           <ReadOnlyField label="Date of joining" value={toDateDisplay(employee.dateOfJoining)} />
           <ReadOnlyField label="Status" value={employee.status} />
@@ -322,12 +319,17 @@ export function EmployeeDetailPage() {
       <section className="rounded-md border p-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-medium">Payroll / Identity</h2>
-          {!canEditSelfServiceFields && (
+          {!canEditSelfServiceFields && !isSelf && (
             <Button variant="outline" size="sm" onClick={handleReveal}>
               Reveal
             </Button>
           )}
         </div>
+        {isSelf && !isHrAdmin && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            Manage PAN, Aadhaar, bank/IFSC details, and blood group from My Profile.
+          </p>
+        )}
         {canEditSelfServiceFields ? (
           <div className="grid grid-cols-3 gap-4 text-sm">
             <Field label="PAN" value={form.pan} editable
@@ -467,7 +469,7 @@ export function EmployeeDetailPage() {
             <div
               key={d.date}
               className={`rounded-md p-2 text-center text-xs ${ATTENDANCE_STATUS_COLOR[d.status]}`}
-              title={d.status}
+              title={d.status === 'HOLIDAY' && d.holidayName ? `${d.status} — ${d.holidayName}` : d.status}
             >
               <div>{d.date.slice(-2)}</div>
               <div className="truncate">{d.status}</div>

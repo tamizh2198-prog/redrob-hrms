@@ -199,6 +199,33 @@ describe('AuthController (Auth Phase 1)', () => {
         expect(refreshTokens.issue).not.toHaveBeenCalled();
       });
 
+      it('this task: re-enrolls a Super Admin whose mfaEnabled is true but has no secret, instead of sending them to a verify screen they can never pass', async () => {
+        const passwordHash = await hashPassword('CorrectHorse123!');
+        prisma.employee.findUnique.mockResolvedValue({
+          id: 'admin-1',
+          firstName: 'Aditi',
+          lastName: 'Rao',
+          workEmail: 'aditi.rao@redrob.seed',
+          role: 'SUPER_ADMIN',
+          passwordHash,
+          mfaEnabled: true,
+          mfaSecret: null,
+        });
+
+        const result = await controller.login({
+          email: 'aditi.rao@redrob.seed',
+          password: 'CorrectHorse123!',
+        });
+
+        expect(result).toEqual({
+          status: 'MFA_ENROLL_REQUIRED',
+          mfaToken: 'signed-mfa-token',
+          secret: 'generated-secret',
+          qrCodeDataUrl: 'data:image/png;base64,xyz',
+        });
+        expect(refreshTokens.issue).not.toHaveBeenCalled();
+      });
+
       it('requires MFA verification for an HR Admin who already enrolled', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
         prisma.employee.findUnique.mockResolvedValue({

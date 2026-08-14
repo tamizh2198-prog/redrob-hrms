@@ -258,6 +258,10 @@ export class AttendanceService {
         requestedStatus: AttendanceStatus;
         reason: string;
       } | null;
+      // This task: the Holiday row's name, when this day resolves to
+      // AttendanceStatus.HOLIDAY — same Holiday lookup CalendarService
+      // already uses to decide the status, not a second data source.
+      holidayName: string | null;
     }> = [];
     const todayStart = startOfDay(new Date());
     for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
@@ -279,11 +283,12 @@ export class AttendanceService {
           checkOutTime: existing.checkOutTime,
           workHours: existing.workHours,
           regularization,
+          holidayName: null,
         });
         continue;
       }
-      const [isHoliday, isWeekOff, isWFH] = await Promise.all([
-        this.calendar.isHoliday(employeeId, d),
+      const [holiday, isWeekOff, isWFH] = await Promise.all([
+        this.calendar.getHoliday(employeeId, d),
         this.calendar.isWeekOff(employeeId, d),
         this.calendar.isWFH(employeeId, d),
       ]);
@@ -293,7 +298,8 @@ export class AttendanceService {
         checkOutTime: null,
         workHours: null,
         regularization,
-        status: isHoliday
+        holidayName: holiday?.name ?? null,
+        status: holiday
           ? AttendanceStatus.HOLIDAY
           : isWeekOff
             ? AttendanceStatus.WEEK_OFF

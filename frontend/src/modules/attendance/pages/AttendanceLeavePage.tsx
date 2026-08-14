@@ -98,6 +98,14 @@ function statusLabel(status: CalendarDayStatus): string {
   return status.replaceAll('_', ' ')
 }
 
+// Appends the Holiday Calendar entry's name to the HOLIDAY badge — e.g.
+// "HOLIDAY — Independence Day" — so the same day-status badge carries which
+// holiday it is, without a second label/lookup.
+function dayStatusLabel(d: { status: CalendarDayStatus; holidayName: string | null }): string {
+  const label = statusLabel(d.status)
+  return d.status === 'HOLIDAY' && d.holidayName ? `${label} — ${d.holidayName}` : label
+}
+
 // This task: groups a cluster of related sections into one visually
 // continuous panel (matches the reference screenshot's card layout) while
 // every section inside stays the exact same markup/logic as before —
@@ -395,7 +403,7 @@ export function AttendanceLeavePage() {
               <h2 className="font-medium">Today's Attendance ({formatFriendlyDate(today)})</h2>
               {todayEntry && (
                 <Badge className={ATTENDANCE_STATUS_COLOR[todayEntry.status]} variant="outline">
-                  {statusLabel(todayEntry.status)}
+                  {dayStatusLabel(todayEntry)}
                 </Badge>
               )}
             </div>
@@ -509,7 +517,7 @@ export function AttendanceLeavePage() {
                         <TableCell>{d.date}</TableCell>
                         <TableCell>
                           <Badge className={ATTENDANCE_STATUS_COLOR[d.status]} variant="outline">
-                            {statusLabel(d.status)}
+                            {dayStatusLabel(d)}
                           </Badge>
                         </TableCell>
                         <TableCell>{formatTime(d.checkInTime)}</TableCell>

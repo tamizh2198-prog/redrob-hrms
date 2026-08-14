@@ -29,11 +29,30 @@ import {
   listMonthlyEvaluations,
   auditMonthlyEvaluation,
   type ReviewCycle,
+  type ReviewCycleType,
   type Goal,
   type Review,
   type CalibrationView,
   type MonthlyEvaluation,
 } from '../api'
+
+const CYCLE_TYPES: ReviewCycleType[] = ['MONTHLY', 'QUARTERLY', 'YEARLY']
+
+// Mirrors the backend's REVIEW_CYCLE_MONTHS (performance.service.ts) — used
+// only to suggest a Period End when the admin picks a Period Start/Cycle
+// Type; the field stays editable so a custom boundary is still possible,
+// exactly like before this field existed.
+const CYCLE_TYPE_MONTHS: Record<ReviewCycleType, number> = {
+  MONTHLY: 1,
+  QUARTERLY: 3,
+  YEARLY: 12,
+}
+
+function addMonthsToDateString(dateStr: string, months: number): string {
+  const d = new Date(dateStr)
+  d.setUTCMonth(d.getUTCMonth() + months)
+  return d.toISOString().slice(0, 10)
+}
 
 export function PerformancePage() {
   const { user } = useAuth()
@@ -50,6 +69,7 @@ export function PerformancePage() {
   const [goalWeightage, setGoalWeightage] = useState('')
 
   const [cycleName, setCycleName] = useState('')
+  const [cycleType, setCycleType] = useState<ReviewCycleType>('QUARTERLY')
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
 
@@ -90,6 +110,14 @@ export function PerformancePage() {
       .catch(() => setMyReview(null))
   }, [selectedCycleId, user])
 
+  // Suggests a Period End from Period Start + Cycle Type (Monthly=1,
+  // Quarterly=3, Yearly=12 months) — the field stays editable so HR Admin
+  // can still pick a custom boundary, same flexibility as before.
+  useEffect(() => {
+    if (!periodStart) return
+    setPeriodEnd(addMonthsToDateString(periodStart, CYCLE_TYPE_MONTHS[cycleType]))
+  }, [periodStart, cycleType])
+
   function refreshCycles() {
     listReviewCycles().then(setCycles).catch(() => setCycles([]))
   }
@@ -120,9 +148,12 @@ export function PerformancePage() {
     setError(null)
     setMessage(null)
     try {
-      await openReviewCycle({ name: cycleName, periodStart, periodEnd })
+      await openReviewCycle({ name: cycleName, cycleType, periodStart, periodEnd })
       setMessage('Review cycle opened.')
       setCycleName('')
+      setCycleType('QUARTERLY')
+      setPeriodStart('')
+      setPeriodEnd('')
       refreshCycles()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to open review cycle')
@@ -291,7 +322,7 @@ export function PerformancePage() {
             <SelectContent>
               {cycles.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
-                  {c.name} ({c.status})
+                  {c.name} ({c.status} · {c.cycleType})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -313,6 +344,21 @@ export function PerformancePage() {
             <div className="flex flex-col gap-1">
               <Label>Cycle Name</Label>
               <Input value={cycleName} onChange={(e) => setCycleName(e.target.value)} placeholder="e.g. FY26 Q1" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Cycle Type</Label>
+              <Select value={cycleType} onValueChange={(v) => setCycleType(v as ReviewCycleType)}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Cycle type">{(v: string) => v}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {CYCLE_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t.charAt(0) + t.slice(1).toLowerCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-col gap-1">
               <Label>Period Start</Label>

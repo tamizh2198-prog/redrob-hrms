@@ -5,7 +5,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { Gender } from '@prisma/client';
+import { BloodGroup, Gender } from '@prisma/client';
 
 // Auth Phase 3: this is the ENTIRE self-service profile whitelist. Nothing
 // beyond what's declared here can reach EmployeeService.updateMyProfile —
@@ -13,6 +13,11 @@ import { Gender } from '@prisma/client';
 // status/passwordHash are deliberately absent, and the global
 // ValidationPipe({ whitelist: true }) strips any other property the
 // client sends before it even reaches the controller.
+//
+// ifscCode/bloodGroup were added here (moved off the PATCH /employees/:id
+// change-request path — see SELF_SERVICE_FIELDS) so My Profile is the one
+// self-service surface for every personal/payroll field, per the "no
+// duplicate editable surfaces" requirement.
 export class UpdateMyProfileDto {
   @IsOptional()
   @IsDateString()
@@ -61,6 +66,14 @@ export class UpdateMyProfileDto {
   @IsOptional()
   @IsString()
   bankAccountNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  ifscCode?: string;
+
+  @IsOptional()
+  @IsEnum(BloodGroup)
+  bloodGroup?: BloodGroup;
 
   @IsOptional()
   @IsString()

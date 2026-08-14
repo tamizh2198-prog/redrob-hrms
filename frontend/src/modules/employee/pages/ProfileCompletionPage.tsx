@@ -18,9 +18,20 @@ import {
   type UpdateMyProfileInput,
   type ReferenceData,
   type Gender,
+  type BloodGroup,
 } from '../api'
 
 const GENDERS: Gender[] = ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']
+const BLOOD_GROUPS: BloodGroup[] = [
+  'A_POSITIVE',
+  'A_NEGATIVE',
+  'B_POSITIVE',
+  'B_NEGATIVE',
+  'AB_POSITIVE',
+  'AB_NEGATIVE',
+  'O_POSITIVE',
+  'O_NEGATIVE',
+]
 
 function toDateInputValue(value: string | null): string {
   return value ? value.slice(0, 10) : ''
@@ -49,11 +60,17 @@ export function ProfileCompletionPage() {
           addressLine: e.addressLine ?? '',
           city: e.city ?? '',
           state: e.state ?? '',
-          country: e.country ?? '',
+          // Defaults to India (the employee can still change it) — this is
+          // an India-only company today (PAN/Aadhaar are India-specific
+          // statutory fields), so a blank country field isn't a meaningful
+          // "unset" state worth making someone fill in.
+          country: e.country ?? 'India',
           postalCode: e.postalCode ?? '',
           pan: e.pan ?? '',
           aadhaar: e.aadhaar ?? '',
           bankAccountNumber: e.bankAccountNumber ?? '',
+          ifscCode: e.ifscCode ?? '',
+          bloodGroup: e.bloodGroup ?? undefined,
           emergencyContactName: e.emergencyContactName ?? '',
           emergencyContactPhone: e.emergencyContactPhone ?? '',
         })
@@ -285,6 +302,30 @@ export function ProfileCompletionPage() {
               value={form.bankAccountNumber ?? ''}
               onChange={(e) => update('bankAccountNumber', e.target.value)}
             />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>IFSC code</Label>
+            <Input value={form.ifscCode ?? ''} onChange={(e) => update('ifscCode', e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Blood group</Label>
+            <Select
+              value={form.bloodGroup ?? ''}
+              onValueChange={(v) => update('bloodGroup', v as BloodGroup)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select blood group">
+                  {(v: string) => (v ? v.replaceAll('_', ' ') : 'Select blood group')}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {BLOOD_GROUPS.map((bg) => (
+                  <SelectItem key={bg} value={bg}>
+                    {bg.replaceAll('_', ' ')}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </section>
