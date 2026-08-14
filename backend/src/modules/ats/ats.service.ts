@@ -38,6 +38,42 @@ function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
 }
 
+// Built-in copy used whenever no OfferTemplate is selected/configured —
+// keeps offer sending working with zero setup, same wording this service
+// always sent before templates existed.
+const DEFAULT_OFFER_TEMPLATE = {
+  subject: 'Your offer for {{requisitionTitle}}',
+  body: [
+    'Hi {{candidateName}},',
+    '',
+    'Congratulations! You have an offer for {{requisitionTitle}} with a CTC of {{ctc}}.',
+    'Review and respond to your offer here: {{responseLink}}',
+    'This link expires in 14 days.',
+  ].join('\n'),
+};
+
+const TEMPLATE_PLACEHOLDER = /\{\{\s*(\w+)\s*\}\}/g;
+
+function renderOfferTemplate(text: string, vars: Record<string, string>): string {
+  return text.replace(TEMPLATE_PLACEHOLDER, (_match, key: string) => vars[key] ?? '');
+}
+
+function formatCtc(ctcBreakupJson: unknown): string {
+  if (
+    ctcBreakupJson &&
+    typeof ctcBreakupJson === 'object' &&
+    'ctcLpa' in ctcBreakupJson
+  ) {
+    return `₹${(ctcBreakupJson as { ctcLpa: unknown }).ctcLpa} LPA`;
+  }
+  if (ctcBreakupJson && typeof ctcBreakupJson === 'object') {
+    return Object.entries(ctcBreakupJson as Record<string, unknown>)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ');
+  }
+  return '';
+}
+
 @Injectable()
 export class AtsService {
   private readonly logger = new Logger(AtsService.name);
@@ -310,7 +346,6 @@ export class AtsService {
         'This candidate has not reached the Offer stage yet',
       );
     }
-
     return this.prisma.offer.create({
       data: {
         candidateId: dto.candidateId,
@@ -339,7 +374,7 @@ export class AtsService {
     });
   }
 
-  async sendOffer(offerId: string) {
+  async sendOffer(offerId: string, templateId?: string) {
     const offer = await this.prisma.offer.findUnique({
       where: { id: offerId },
       include: { candidate: { include: { requisition: true } } },
@@ -350,6 +385,29 @@ export class AtsService {
         'Offer approval by HR Admin or Super Admin is required before it can be sent',
       );
     }
+
+    // The sender picks the letter template here, at send time — not when
+    // the offer was created — so the choice reflects whatever templates
+    // exist right now rather than whatever was around at creation.
+    let selectedTemplate: { id: string; subject: string; body: string } | null =
+      null;
+    if (templateId) {
+      selectedTemplate = await this.prisma.offerTemplate.findUnique({
+        where: { id: templateId },
+      });
+      if (!selectedTemplate)
+        throw new NotFoundException('Offer template not found');
+    }
+
+    const companyDefaultTemplate =
+      selectedTemplate ??
+      (await this.prisma.offerTemplate.findFirst({
+        where: {
+          companyId: offer.candidate.requisition.companyId,
+          isDefault: true,
+        },
+      }));
+    const letterTemplate = companyDefaultTemplate ?? DEFAULT_OFFER_TEMPLATE;
 
     const responseLink = this.magicLink.sign(
       {
@@ -366,6 +424,9 @@ export class AtsService {
         status: OfferStatus.SENT,
         sentAt: new Date(),
         docRef: `offer-letter-${offerId}.pdf`,
+        // null when the built-in fallback copy was used (matches the
+        // OfferTemplate? field's meaning — see schema.prisma).
+        templateId: companyDefaultTemplate?.id ?? null,
       },
     });
 
@@ -381,19 +442,88 @@ export class AtsService {
     // the caller below so HR can relay it manually if delivery fails.
     const baseUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
     const responseUrl = `${baseUrl}/offers/respond?token=${responseLink}`;
+
+    const templateVars = {
+      candidateName: offer.candidate.name,
+      requisitionTitle: offer.candidate.requisition.title,
+      ctc: formatCtc(offer.ctcBreakupJson),
+      responseLink: responseUrl,
+    };
+
     await this.email.send({
       to: offer.candidate.email,
-      subject: `Your offer for ${offer.candidate.requisition.title}`,
-      text: [
-        `Hi ${offer.candidate.name},`,
-        '',
-        `Congratulations! You have an offer for ${offer.candidate.requisition.title}.`,
-        `Review and respond to your offer here: ${responseUrl}`,
-        'This link expires in 14 days.',
-      ].join('\n'),
+      subject: renderOfferTemplate(letterTemplate.subject, templateVars),
+      text: renderOfferTemplate(letterTemplate.body, templateVars),
     });
 
     return { offer: updated, responseLink };
+  }
+
+  // Section: customizable offer letter templates (HR Admin/Super Admin).
+  // At most one default per company — enforced here via a transaction
+  // rather than a DB constraint, since "isDefault: true" needs to clear
+  // every other row's flag atomically.
+  async createOfferTemplate(dto: {
+    name: string;
+    subject: string;
+    body: string;
+    isDefault?: boolean;
+  }) {
+    const companyId = await this.defaultCompany.getOrCreate();
+    if (dto.isDefault) {
+      await this.prisma.offerTemplate.updateMany({
+        where: { companyId, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.offerTemplate.create({
+      data: {
+        companyId,
+        name: dto.name,
+        subject: dto.subject,
+        body: dto.body,
+        isDefault: dto.isDefault ?? false,
+      },
+    });
+  }
+
+  async listOfferTemplates() {
+    return this.prisma.offerTemplate.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  async updateOfferTemplate(
+    id: string,
+    dto: { name?: string; subject?: string; body?: string; isDefault?: boolean },
+  ) {
+    const template = await this.prisma.offerTemplate.findUnique({
+      where: { id },
+    });
+    if (!template) throw new NotFoundException('Offer template not found');
+
+    if (dto.isDefault) {
+      await this.prisma.offerTemplate.updateMany({
+        where: { companyId: template.companyId, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.offerTemplate.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        subject: dto.subject,
+        body: dto.body,
+        isDefault: dto.isDefault,
+      },
+    });
+  }
+
+  async deleteOfferTemplate(id: string) {
+    const template = await this.prisma.offerTemplate.findUnique({
+      where: { id },
+    });
+    if (!template) throw new NotFoundException('Offer template not found');
+    await this.prisma.offerTemplate.delete({ where: { id } });
+    return { deleted: true };
   }
 
   // Lets the candidate-facing offer-response page show what it's asking

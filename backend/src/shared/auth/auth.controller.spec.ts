@@ -159,6 +159,16 @@ describe('AuthController (Auth Phase 1)', () => {
     });
 
     describe('Section 11: MFA is mandatory for HR_ADMIN/SUPER_ADMIN', () => {
+      // These assert the post-pause behavior — see "MFA enforcement is
+      // temporarily paused" below for 2026-08-14..2026-08-18.
+      beforeEach(() => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+        jest.setSystemTime(new Date('2026-08-19T00:00:00Z'));
+      });
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
       it('starts enrollment for a Super Admin with no MFA set up yet, without issuing a session', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
         prisma.employee.findUnique.mockResolvedValue({
@@ -236,6 +246,67 @@ describe('AuthController (Auth Phase 1)', () => {
           mfaToken: 'signed-mfa-token',
         });
         expect(refreshTokens.issue).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('MFA enforcement is temporarily paused (2026-08-14 through 2026-08-18)', () => {
+      beforeEach(() => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+        jest.setSystemTime(new Date('2026-08-16T12:00:00Z'));
+      });
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it('logs a Super Admin straight in on password alone, skipping MFA enrollment', async () => {
+        const passwordHash = await hashPassword('CorrectHorse123!');
+        prisma.employee.findUnique.mockResolvedValue({
+          id: 'admin-1',
+          firstName: 'Aditi',
+          lastName: 'Rao',
+          workEmail: 'aditi.rao@redrob.seed',
+          role: 'SUPER_ADMIN',
+          passwordHash,
+          mfaEnabled: false,
+        });
+
+        const result = await controller.login({
+          email: 'aditi.rao@redrob.seed',
+          password: 'CorrectHorse123!',
+        });
+
+        expect(result).toEqual({
+          status: 'OK',
+          accessToken: 'signed.jwt.token',
+          refreshToken: 'issued-refresh-token',
+          user: { id: 'admin-1', name: 'Aditi Rao', role: 'SUPER_ADMIN' },
+        });
+        expect(prisma.employee.update).not.toHaveBeenCalled();
+      });
+
+      it('logs an already-enrolled HR Admin straight in on password alone, skipping MFA verification', async () => {
+        const passwordHash = await hashPassword('CorrectHorse123!');
+        prisma.employee.findUnique.mockResolvedValue({
+          id: 'hr-1',
+          firstName: 'Priya',
+          lastName: 'Sharma',
+          role: 'HR_ADMIN',
+          passwordHash,
+          mfaEnabled: true,
+          mfaSecret: 'existing-secret',
+        });
+
+        const result = await controller.login({
+          email: 'priya.sharma@redrob.seed',
+          password: 'CorrectHorse123!',
+        });
+
+        expect(result).toEqual({
+          status: 'OK',
+          accessToken: 'signed.jwt.token',
+          refreshToken: 'issued-refresh-token',
+          user: { id: 'hr-1', name: 'Priya Sharma', role: 'HR_ADMIN' },
+        });
       });
     });
   });

@@ -68,6 +68,15 @@ export interface PipelineAnalytics {
   timeToFillDays: number | null
 }
 
+export interface OfferTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  isDefault: boolean
+  createdAt: string
+}
+
 export function createRequisition(data: {
   title: string
   departmentId: string
@@ -131,12 +140,39 @@ export function createOffer(data: { candidateId: string; ctcBreakup: Record<stri
   return api<Offer>('/ats/offers', { method: 'POST', body: data })
 }
 
+export function createOfferTemplate(data: {
+  name: string
+  subject: string
+  body: string
+  isDefault?: boolean
+}) {
+  return api<OfferTemplate>('/ats/offer-templates', { method: 'POST', body: data })
+}
+
+export function listOfferTemplates() {
+  return api<OfferTemplate[]>('/ats/offer-templates')
+}
+
+export function updateOfferTemplate(
+  id: string,
+  data: Partial<{ name: string; subject: string; body: string; isDefault: boolean }>,
+) {
+  return api<OfferTemplate>(`/ats/offer-templates/${id}`, { method: 'PATCH', body: data })
+}
+
+export function deleteOfferTemplate(id: string) {
+  return api<{ deleted: boolean }>(`/ats/offer-templates/${id}`, { method: 'DELETE' })
+}
+
 export function approveOffer(id: string) {
   return api<Offer>(`/ats/offers/${id}/approve`, { method: 'POST' })
 }
 
-export function sendOffer(id: string) {
-  return api<{ offer: Offer; responseLink: string }>(`/ats/offers/${id}/send`, { method: 'POST' })
+export function sendOffer(id: string, templateId?: string) {
+  return api<{ offer: Offer; responseLink: string }>(`/ats/offers/${id}/send`, {
+    method: 'POST',
+    body: { templateId },
+  })
 }
 
 export function getOfferPortal(token: string) {

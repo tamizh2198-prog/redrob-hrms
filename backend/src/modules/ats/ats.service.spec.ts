@@ -36,6 +36,15 @@ function createMockPrisma() {
       update: jest.fn(),
       findMany: jest.fn(),
     },
+    offerTemplate: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      delete: jest.fn(),
+    },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
 }
@@ -70,6 +79,7 @@ describe('AtsService', () => {
   let employeeService: ReturnType<typeof createMockEmployeeService>;
   let onboardingService: ReturnType<typeof createMockOnboardingService>;
   let email: ReturnType<typeof createMockEmail>;
+  let defaultCompany: { getOrCreate: jest.Mock };
   let service: AtsService;
 
   beforeEach(() => {
@@ -79,9 +89,10 @@ describe('AtsService', () => {
     employeeService = createMockEmployeeService();
     onboardingService = createMockOnboardingService();
     email = createMockEmail();
+    defaultCompany = { getOrCreate: jest.fn().mockResolvedValue('company-1') };
     service = new AtsService(
       prisma as unknown as PrismaService,
-      { getOrCreate: jest.fn() } as unknown as DefaultCompanyService,
+      defaultCompany as unknown as DefaultCompanyService,
       notifications as unknown as NotificationService,
       magicLink as unknown as MagicLinkService,
       employeeService as unknown as EmployeeService,
@@ -262,6 +273,181 @@ describe('AtsService', () => {
           to: 'jane@example.com',
           text: expect.stringContaining('respond-token'),
         }),
+      );
+    });
+  });
+
+  describe('Offer letter templates', () => {
+    it('renders the built-in default copy (subject + CTC + response link) when no template is picked or configured', async () => {
+      prisma.offer.findUnique.mockResolvedValue({
+        id: 'offer-1',
+        hrApprovedAt: new Date(),
+        ctcBreakupJson: { ctcLpa: 18 },
+        candidate: {
+          id: 'cand-1',
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          requisition: {
+            title: 'Software Engineer',
+            companyId: 'company-1',
+            hiringManagerId: 'mgr-1',
+          },
+        },
+      });
+      prisma.offer.update.mockResolvedValue({ id: 'offer-1', status: 'SENT' });
+      magicLink.sign.mockReturnValue('respond-token');
+
+      await service.sendOffer('offer-1');
+
+      expect(email.send).toHaveBeenCalledWith({
+        to: 'jane@example.com',
+        subject: 'Your offer for Software Engineer',
+        text: expect.stringContaining('₹18 LPA'),
+      });
+      expect(prisma.offer.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ templateId: null }) }),
+      );
+    });
+
+    it('renders whichever template the sender picks at send time, over the company default', async () => {
+      prisma.offer.findUnique.mockResolvedValue({
+        id: 'offer-1',
+        hrApprovedAt: new Date(),
+        ctcBreakupJson: { ctcLpa: 25 },
+        candidate: {
+          id: 'cand-1',
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          requisition: {
+            title: 'Staff Engineer',
+            companyId: 'company-1',
+            hiringManagerId: 'mgr-1',
+          },
+        },
+      });
+      prisma.offerTemplate.findUnique.mockResolvedValue({
+        id: 'tpl-picked',
+        subject: 'Offer: {{requisitionTitle}} at Redrob',
+        body: 'Dear {{candidateName}}, your CTC is {{ctc}}. Respond: {{responseLink}}',
+      });
+      prisma.offer.update.mockResolvedValue({ id: 'offer-1', status: 'SENT' });
+      magicLink.sign.mockReturnValue('respond-token');
+
+      await service.sendOffer('offer-1', 'tpl-picked');
+
+      expect(prisma.offerTemplate.findUnique).toHaveBeenCalledWith({
+        where: { id: 'tpl-picked' },
+      });
+      expect(prisma.offerTemplate.findFirst).not.toHaveBeenCalled();
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: 'Offer: Staff Engineer at Redrob',
+          text: expect.stringContaining('Dear Jane Doe, your CTC is ₹25 LPA. Respond:'),
+        }),
+      );
+      expect(prisma.offer.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ templateId: 'tpl-picked' }),
+        }),
+      );
+    });
+
+    it('rejects sending with a templateId that does not exist', async () => {
+      prisma.offer.findUnique.mockResolvedValue({
+        id: 'offer-1',
+        hrApprovedAt: new Date(),
+        ctcBreakupJson: { ctcLpa: 10 },
+        candidate: {
+          id: 'cand-1',
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          requisition: {
+            title: 'QA Engineer',
+            companyId: 'company-1',
+            hiringManagerId: 'mgr-1',
+          },
+        },
+      });
+      prisma.offerTemplate.findUnique.mockResolvedValue(null);
+
+      await expect(service.sendOffer('offer-1', 'ghost')).rejects.toThrow(
+        'Offer template not found',
+      );
+    });
+
+    it("falls back to the company's default template when the sender leaves it unset", async () => {
+      prisma.offer.findUnique.mockResolvedValue({
+        id: 'offer-1',
+        hrApprovedAt: new Date(),
+        ctcBreakupJson: { ctcLpa: 10 },
+        candidate: {
+          id: 'cand-1',
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          requisition: {
+            title: 'QA Engineer',
+            companyId: 'company-1',
+            hiringManagerId: 'mgr-1',
+          },
+        },
+      });
+      prisma.offerTemplate.findFirst.mockResolvedValue({
+        id: 'tpl-default',
+        subject: 'Welcome, {{candidateName}}!',
+        body: 'Role: {{requisitionTitle}}',
+      });
+      prisma.offer.update.mockResolvedValue({ id: 'offer-1', status: 'SENT' });
+      magicLink.sign.mockReturnValue('respond-token');
+
+      await service.sendOffer('offer-1');
+
+      expect(prisma.offerTemplate.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { companyId: 'company-1', isDefault: true },
+        }),
+      );
+      expect(email.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: 'Welcome, Jane Doe!',
+          text: 'Role: QA Engineer',
+        }),
+      );
+      expect(prisma.offer.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ templateId: 'tpl-default' }),
+        }),
+      );
+    });
+
+    it('clears any other default when creating a new default template', async () => {
+      prisma.offerTemplate.create.mockResolvedValue({ id: 'tpl-2', isDefault: true });
+
+      await service.createOfferTemplate({
+        name: 'Standard Offer',
+        subject: 'Subj',
+        body: 'Body',
+        isDefault: true,
+      });
+
+      expect(prisma.offerTemplate.updateMany).toHaveBeenCalledWith({
+        where: { companyId: 'company-1', isDefault: true },
+        data: { isDefault: false },
+      });
+      expect(prisma.offerTemplate.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ companyId: 'company-1', isDefault: true }),
+        }),
+      );
+    });
+
+    it('rejects updating/deleting a template that does not exist', async () => {
+      prisma.offerTemplate.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateOfferTemplate('ghost', { name: 'x' }),
+      ).rejects.toThrow('Offer template not found');
+      await expect(service.deleteOfferTemplate('ghost')).rejects.toThrow(
+        'Offer template not found',
       );
     });
   });
