@@ -127,8 +127,8 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
       })
       setMessage(
         result.emailSent
-          ? 'Employee created. Invitation sent.'
-          : 'Employee created, but the invitation email could not be sent. Use "Remind" from the directory once email is configured.',
+          ? `Employee created successfully (ID: ${result.employee.employeeCode}). Invitation email sent.`
+          : `Employee created successfully (ID: ${result.employee.employeeCode}), but the invitation email could not be sent. Use "Remind" from the directory once email is configured.`,
       )
       setForm(EMPTY_FORM)
       onCreated()

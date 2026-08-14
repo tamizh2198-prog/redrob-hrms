@@ -95,7 +95,9 @@ export function EmployeePage() {
     try {
       const result = await resendInvitation(employeeId)
       setInvitationMessage(
-        result.emailSent ? 'Invitation resent.' : 'A new invitation was created, but the email could not be sent.',
+        result.emailSent
+          ? 'Reminder email sent successfully.'
+          : 'Employee reminder was created/processed, but the email could not be sent.',
       )
       refreshInvitations()
     } catch (err) {
