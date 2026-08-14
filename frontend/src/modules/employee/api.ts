@@ -290,6 +290,7 @@ export function inviteEmployee(data: {
   gradeId?: string
   employmentType?: EmploymentType
   role?: Role
+  ctcLpa?: number
 }) {
   return api<InviteEmployeeResult>('/employees/invite', { method: 'POST', body: data })
 }

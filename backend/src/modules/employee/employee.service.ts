@@ -485,6 +485,7 @@ export class EmployeeService {
         : undefined,
       grade: dto.gradeId ? { connect: { id: dto.gradeId } } : undefined,
       employmentType: dto.employmentType,
+      ctcLpa: dto.ctcLpa,
     }));
 
     const { rawToken, expiresAt } = await this.createInvitationToken(

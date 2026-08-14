@@ -709,6 +709,22 @@ describe('EmployeeService', () => {
       ).toBeUndefined();
     });
 
+    it('accepts ctcLpa at invite time so a quarterly KPI reward can be computed before the employee ever logs in', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'MNR-2026-0001',
+      });
+
+      await service.inviteEmployee(
+        { email: 'jane@co.com', firstName: 'Jane', lastName: 'Doe', ctcLpa: 12 },
+        'actor-1',
+      );
+
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.ctcLpa).toBe(12);
+    });
+
     it('never accepts a role field from the caller (server-controlled, defaults to EMPLOYEE)', async () => {
       prisma.employee.findUnique.mockResolvedValue(null);
       prisma.employee.create.mockResolvedValue({ id: 'emp-1' });

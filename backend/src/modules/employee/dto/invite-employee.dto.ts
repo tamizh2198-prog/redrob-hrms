@@ -1,4 +1,12 @@
-import { IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { EmploymentType, Role } from '@prisma/client';
 
 // Auth Phase 2: intentionally minimal — the full CreateEmployeeDto's
@@ -48,4 +56,15 @@ export class InviteEmployeeDto {
   @IsOptional()
   @IsEnum(Role)
   role?: Role;
+
+  // Performance Evaluation Policy 2026 / P&B: current annual CTC in Lakhs —
+  // determines which CTC band's quarterly KPI reward limit applies (see
+  // PerformanceService's quarterly KPI reward calculation). Settable at
+  // creation time here (in addition to the existing HR-only edit on the
+  // Employee Detail page) since a quarterly reward can't be computed at
+  // all until this is set.
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  ctcLpa?: number;
 }

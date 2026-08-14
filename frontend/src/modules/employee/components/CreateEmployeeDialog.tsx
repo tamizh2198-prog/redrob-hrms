@@ -38,6 +38,7 @@ const EMPTY_FORM = {
   gradeId: '',
   employmentType: '' as EmploymentType | '',
   role: 'EMPLOYEE' as Role,
+  ctcLpa: '',
 }
 
 // Mirrors the EmploymentType schema enum — not master data (unlike
@@ -124,6 +125,7 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
         gradeId: form.gradeId || undefined,
         employmentType: form.employmentType || undefined,
         role: form.role,
+        ctcLpa: form.ctcLpa ? Number(form.ctcLpa) : undefined,
       })
       setMessage(
         result.emailSent
@@ -312,6 +314,18 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label>CTC (LPA)</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.ctcLpa}
+              onChange={(e) => update('ctcLpa', e.target.value)}
+              placeholder="e.g. 12"
+            />
           </div>
 
           <div className="col-span-2 flex flex-col gap-1">
