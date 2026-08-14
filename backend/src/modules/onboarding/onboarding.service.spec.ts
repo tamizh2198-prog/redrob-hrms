@@ -88,12 +88,28 @@ describe('OnboardingService', () => {
         departmentId: 'dept-1',
         dateOfJoining: null,
         reportingManagerId: null,
+        status: 'PREBOARDING',
       });
       prisma.onboardingChecklistTemplate.findFirst.mockResolvedValue(null);
 
       await expect(service.initChecklist('emp-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('refuses to start a checklist for an employee who is not in Preboarding status', async () => {
+      prisma.onboardingChecklist.findUnique.mockResolvedValue(null);
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        companyId: 'co-1',
+        departmentId: 'dept-1',
+        status: 'INVITED',
+      });
+
+      await expect(service.initChecklist('emp-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.onboardingChecklistTemplate.findFirst).not.toHaveBeenCalled();
     });
 
     it('snapshots the template’s tasks onto a new checklist and notifies owners', async () => {
@@ -104,6 +120,7 @@ describe('OnboardingService', () => {
         departmentId: 'dept-1',
         dateOfJoining: new Date('2026-09-01'),
         reportingManagerId: 'mgr-1',
+        status: 'PREBOARDING',
       });
       prisma.onboardingChecklistTemplate.findFirst.mockResolvedValueOnce({
         id: 'tmpl-1',

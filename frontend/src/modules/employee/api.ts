@@ -48,6 +48,7 @@ export interface Employee {
   // Admin/self, same as pan/aadhaar/bankAccountNumber above.
   ctcLpa: number | null
   bloodGroup: BloodGroup | null
+  photoUrl: string | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null
   addressLine: string | null
@@ -337,6 +338,7 @@ export interface UpdateMyProfileInput {
   bloodGroup?: BloodGroup
   emergencyContactName?: string
   emergencyContactPhone?: string
+  photoUrl?: string
 }
 
 export function updateMyProfile(data: UpdateMyProfileInput) {

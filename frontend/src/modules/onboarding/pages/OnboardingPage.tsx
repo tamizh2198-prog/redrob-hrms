@@ -50,6 +50,8 @@ export function OnboardingPage() {
 
   const [initEmployeeId, setInitEmployeeId] = useState('')
 
+  const preboardingPeople = people.filter((p) => p.status === 'PREBOARDING')
+
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -156,28 +158,37 @@ export function OnboardingPage() {
       {isHrAdmin && (
         <div className="rounded-md border p-4">
           <h2 className="mb-2 font-medium">Start Onboarding for a New Hire</h2>
+          <p className="mb-2 text-sm text-muted-foreground">
+            Only employees currently in Preboarding status (post-offer-accept, pre-Day-1) can have
+            a checklist started — anyone else can never pass the later Activate step.
+          </p>
           <div className="flex flex-wrap items-end gap-2">
             <Select value={initEmployeeId} onValueChange={setInitEmployeeId}>
               <SelectTrigger className="w-56">
                 <SelectValue placeholder="Select employee">
                   {(v: string) => {
-                    const p = people.find((m) => m.id === v)
+                    const p = preboardingPeople.find((m) => m.id === v)
                     return p ? `${p.firstName} ${p.lastName}` : 'Select employee'
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {people.map((p) => (
+                {preboardingPeople.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.firstName} {p.lastName} ({p.employeeCode})
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={handleInitChecklist}>
+            <Button variant="outline" onClick={handleInitChecklist} disabled={!initEmployeeId}>
               Create Checklist
             </Button>
           </div>
+          {preboardingPeople.length === 0 && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No employees are currently in Preboarding status.
+            </p>
+          )}
         </div>
       )}
 

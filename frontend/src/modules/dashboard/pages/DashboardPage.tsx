@@ -26,6 +26,7 @@ import {
   type PendingInvitation,
 } from '@/modules/employee/api'
 import { listCalendar, type Holiday } from '@/modules/holiday/api'
+import { listAnnouncements, ackAnnouncement, type Announcement } from '@/modules/announcements/api'
 
 // This task: a simple landing page, separate from Analytics — the
 // role-specific content here is just a placeholder message, not a
@@ -47,6 +48,7 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <WelcomeBanner name={user?.name} role={user?.role} />
+      <HighPriorityAnnouncements />
       <Card>
         <CardHeader>
           <CardTitle>Getting Started</CardTitle>
@@ -59,6 +61,76 @@ export function DashboardPage() {
       </Card>
       <UpcomingHolidays />
     </div>
+  )
+}
+
+// This task: every role gets a heads-up on HIGH priority announcements right
+// on login, rather than only discovering them by visiting the Announcements
+// page. Reuses the existing GET /announcements (already scope-filtered
+// server-side) — no new backend endpoint or priority-specific query param.
+function HighPriorityAnnouncements() {
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [ackingId, setAckingId] = useState<string | null>(null)
+
+  function refresh() {
+    listAnnouncements().then(setAnnouncements).catch(() => setAnnouncements([]))
+  }
+
+  useEffect(() => {
+    refresh()
+  }, [])
+
+  const highPriority = announcements
+    .filter((a) => a.priority === 'HIGH')
+    .slice(0, 5)
+
+  async function handleAck(id: string) {
+    setAckingId(id)
+    try {
+      await ackAnnouncement(id)
+      refresh()
+    } finally {
+      setAckingId(null)
+    }
+  }
+
+  if (highPriority.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>High Priority Announcements</CardTitle>
+          <Link to="/announcements">
+            <Button variant="outline" size="sm">View All</Button>
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {highPriority.map((a) => (
+          <div key={a.id} className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{a.title}</span>
+                  <Badge variant="destructive">High Priority</Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{a.body}</p>
+              </div>
+              {a.requiresAck && !a.myAck?.acknowledgedAt && (
+                <Button
+                  size="sm"
+                  disabled={ackingId === a.id}
+                  onClick={() => handleAck(a.id)}
+                >
+                  Acknowledge
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -197,6 +269,7 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
   return (
     <div className="flex flex-col gap-6 p-6">
       <WelcomeBanner name={userName} role="SUPER_ADMIN" />
+      <HighPriorityAnnouncements />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

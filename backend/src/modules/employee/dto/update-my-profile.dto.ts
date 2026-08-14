@@ -4,6 +4,8 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
 } from 'class-validator';
 import { BloodGroup, Gender } from '@prisma/client';
 
@@ -82,4 +84,15 @@ export class UpdateMyProfileDto {
   @IsOptional()
   @IsString()
   emergencyContactPhone?: string;
+
+  // Client-side downscales to a thumbnail before sending — 500K chars caps
+  // the stored data: URI around ~375KB raw, comfortably above what a
+  // downscaled thumbnail needs while still bounding row size.
+  @IsOptional()
+  @IsString()
+  @MaxLength(500_000)
+  @Matches(/^data:image\/(png|jpeg|jpg|webp);base64,/, {
+    message: 'photoUrl must be a base64 image data URI',
+  })
+  photoUrl?: string;
 }

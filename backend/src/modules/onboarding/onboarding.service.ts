@@ -131,6 +131,16 @@ export class OnboardingService {
       where: { id: employeeId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
+    // Only a PREBOARDING employee can ever pass activateEmployee()'s own
+    // status check below — creating a checklist for anyone else (e.g. an
+    // INVITED employee picked from the full roster) produces a checklist
+    // that can never be activated, permanently throwing "This employee is
+    // not in Preboarding status" the moment someone clicks Activate on it.
+    if (employee.status !== 'PREBOARDING') {
+      throw new BadRequestException(
+        'Onboarding checklists can only be started for employees in Preboarding status',
+      );
+    }
 
     const template = await this.findApplicableTemplate(
       employee.companyId,

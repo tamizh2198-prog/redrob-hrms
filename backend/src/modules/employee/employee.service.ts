@@ -849,6 +849,7 @@ export class EmployeeService {
         bloodGroup: dto.bloodGroup,
         emergencyContactName: dto.emergencyContactName,
         emergencyContactPhone: dto.emergencyContactPhone,
+        photoUrl: dto.photoUrl,
       },
     });
 

@@ -240,6 +240,12 @@ model Employee {
 
   bloodGroup BloodGroup?
 
+  // Self-service avatar shown across every dashboard. Stored as a small
+  // data: URI (client-side downscaled to a thumbnail before upload) rather
+  // than a blob-storage reference — this app has no file-storage backend,
+  // and a compressed thumbnail comfortably fits a text column.
+  photoUrl String?
+
   emergencyContactName  String?
   emergencyContactPhone String?
 
