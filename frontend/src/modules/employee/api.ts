@@ -1,5 +1,7 @@
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import type { Role } from '@/shared/auth/role'
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
 
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY'
 export type EmploymentType = 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN'
@@ -214,6 +216,44 @@ export function bulkImportEmployees(rows: Partial<Employee>[], dryRun: boolean) 
     method: 'POST',
     body: { rows, dryRun },
   })
+}
+
+// Excel counterpart to bulkImportEmployees() above — bypasses the shared
+// api() helper (which always JSON-encodes the body) since this sends a real
+// file as multipart form data, same reasoning as shift/api.ts's
+// bulkUploadWfoSchedule().
+export async function bulkImportEmployeesFromFile(file: File, dryRun: boolean) {
+  const token = localStorage.getItem('accessToken')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_URL}/employees/bulk-import/upload?dryRun=${dryRun}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }))
+    throw new ApiError(body.message ?? 'Bulk import failed', res.status)
+  }
+  return res.json() as Promise<BulkImportResult>
+}
+
+export async function downloadEmployeeBulkImportTemplate() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/employees/bulk-import/template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download template', res.status)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'employee-bulk-import-template.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 // Auth Phase 2: invitation + activation

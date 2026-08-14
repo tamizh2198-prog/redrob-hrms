@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -9,7 +9,13 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { ApiError } from '@/lib/api'
-import { bulkImportEmployees, type BulkImportResult, type Employee } from '../api'
+import {
+  bulkImportEmployees,
+  bulkImportEmployeesFromFile,
+  downloadEmployeeBulkImportTemplate,
+  type BulkImportResult,
+  type Employee,
+} from '../api'
 
 const PLACEHOLDER = JSON.stringify(
   [
@@ -32,9 +38,13 @@ const PLACEHOLDER = JSON.stringify(
 export function BulkImportDialog({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false)
   const [raw, setRaw] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const [result, setResult] = useState<BulkImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   function parseRows(): Partial<Employee>[] | null {
     try {
@@ -49,11 +59,45 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
 
   async function runImport(dryRun: boolean) {
     setError(null)
+    setMessage(null)
     const rows = parseRows()
     if (!rows) return
     setSubmitting(true)
     try {
       const res = await bulkImportEmployees(rows, dryRun)
+      setResult(res)
+      if (!dryRun) onImported()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Bulk import failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDownloadTemplate() {
+    setError(null)
+    setMessage(null)
+    setDownloading(true)
+    try {
+      await downloadEmployeeBulkImportTemplate()
+      setMessage("Template downloaded — check your browser's downloads.")
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to download template')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  async function runFileImport(dryRun: boolean) {
+    if (!file) {
+      setError('Choose an Excel file first')
+      return
+    }
+    setError(null)
+    setMessage(null)
+    setSubmitting(true)
+    try {
+      const res = await bulkImportEmployeesFromFile(file, dryRun)
       setResult(res)
       if (!dryRun) onImported()
     } catch (err) {
@@ -71,6 +115,9 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
         if (!next) {
           setResult(null)
           setError(null)
+          setMessage(null)
+          setFile(null)
+          if (fileInputRef.current) fileInputRef.current.value = ''
         }
       }}
     >
@@ -79,6 +126,42 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
         <DialogHeader>
           <DialogTitle>Bulk Import Employees</DialogTitle>
         </DialogHeader>
+
+        <div className="flex flex-col gap-2 rounded-md border p-3">
+          <h3 className="font-medium">Upload an Excel file</h3>
+          <p className="text-sm text-muted-foreground">
+            Download the template, fill it in, then run a dry-run validation before committing.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            disabled={downloading}
+            onClick={handleDownloadTemplate}
+          >
+            {downloading ? 'Downloading…' : 'Download Template'}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null)
+              setResult(null)
+            }}
+            className="text-sm"
+          />
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={submitting || !file} onClick={() => runFileImport(true)}>
+              Dry Run
+            </Button>
+            <Button disabled={submitting || !file || !result?.dryRun} onClick={() => runFileImport(false)}>
+              Commit Import
+            </Button>
+          </div>
+        </div>
+
+        <p className="text-center text-sm text-muted-foreground">— or —</p>
 
         <p className="text-sm text-muted-foreground">
           Paste a JSON array of employee rows, run a dry-run validation first, then commit.
@@ -92,6 +175,7 @@ export function BulkImportDialog({ onImported }: { onImported: () => void }) {
           className="font-mono text-xs"
         />
 
+        {message && <p className="text-sm text-primary">{message}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {result && (

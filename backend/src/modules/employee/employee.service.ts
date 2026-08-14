@@ -301,14 +301,28 @@ export class EmployeeService {
 
   private async generateEmployeeCode(): Promise<string> {
     // employeeCode is globally unique (not scoped per company), so the
-    // sequence count must be too — counting per-company here would keep
+    // sequence must be too — counting per-company here would keep
     // recomputing the same already-taken code for every new company.
+    //
+    // Derived from the MAX existing sequence number, not a row count: a
+    // count() undercounts the instant any code in this year's range is
+    // deleted (or never existed, e.g. a manually-entered legacy code sitting
+    // in a gap), silently regenerating an already-taken code. Since the
+    // failed create doesn't change what count() returns, every retry in
+    // createEmployeeWithGeneratedCode() recomputed the exact same colliding
+    // code and all 3 attempts failed identically (P2002 on employeeCode,
+    // surfaced to the user as a 500). Sorting by employeeCode works because
+    // the zero-padded 4-digit suffix keeps every code in this prefix the
+    // same length, so lexicographic and numeric order agree.
     const year = new Date().getFullYear();
     const prefix = `${EmployeeService.EMPLOYEE_CODE_PREFIX}-${year}-`;
-    const count = await this.prisma.employee.count({
+    const last = await this.prisma.employee.findFirst({
       where: { employeeCode: { startsWith: prefix } },
+      orderBy: { employeeCode: 'desc' },
+      select: { employeeCode: true },
     });
-    const seq = (count + 1).toString().padStart(4, '0');
+    const lastSeq = last ? parseInt(last.employeeCode.slice(prefix.length), 10) || 0 : 0;
+    const seq = (lastSeq + 1).toString().padStart(4, '0');
     return `${prefix}${seq}`;
   }
 

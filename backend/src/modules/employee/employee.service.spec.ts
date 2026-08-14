@@ -87,6 +87,7 @@ function createMockPrisma() {
   const prisma = {
     employee: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
@@ -197,6 +198,7 @@ describe('EmployeeService', () => {
     );
     prisma.company.findFirst.mockResolvedValue({ id: 'company-1' });
     prisma.employee.count.mockResolvedValue(0);
+    prisma.employee.findFirst.mockResolvedValue(null);
   });
 
   describe('employee code generation (Business Rule: system-generated, unique, immutable)', () => {
@@ -212,6 +214,24 @@ describe('EmployeeService', () => {
       expect(createArgs.data.employeeCode).toMatch(/^MNR-\d{4}-0001$/);
     });
 
+    it('continues from the highest existing code rather than a row count, so a gap from a deleted employee is never reused', async () => {
+      // Row count is only 1 (one of two MNR-2026-* rows was deleted), but the
+      // surviving row is 0003 — a count-based sequence would regenerate 0002
+      // and collide; max-based generation must produce 0004.
+      prisma.employee.findFirst.mockResolvedValueOnce({
+        employeeCode: 'MNR-2026-0003',
+      });
+      prisma.employee.create.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'MNR-2026-0004',
+      });
+
+      await service.create(VALID_ACTIVE_FIELDS, 'actor-1');
+
+      const createArgs = prisma.employee.create.mock.calls[0][0];
+      expect(createArgs.data.employeeCode).toBe('MNR-2026-0004');
+    });
+
     it('retries with a new code on a unique-constraint collision', async () => {
       const conflictError = new Prisma.PrismaClientKnownRequestError(
         'Unique constraint failed',
@@ -220,7 +240,9 @@ describe('EmployeeService', () => {
       prisma.employee.create
         .mockRejectedValueOnce(conflictError)
         .mockResolvedValueOnce({ id: 'emp-1', employeeCode: 'MNR-2026-0002' });
-      prisma.employee.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      prisma.employee.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ employeeCode: 'MNR-2026-0001' });
 
       const result = await service.create(VALID_ACTIVE_FIELDS, 'actor-1');
 
@@ -727,7 +749,9 @@ describe('EmployeeService', () => {
       prisma.employee.create
         .mockRejectedValueOnce(conflictError)
         .mockResolvedValueOnce({ id: 'emp-1', employeeCode: 'MNR-2026-0002' });
-      prisma.employee.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      prisma.employee.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ employeeCode: 'MNR-2026-0001' });
 
       const result = await service.inviteEmployee(
         { email: 'new@co.com', firstName: 'A', lastName: 'B' },

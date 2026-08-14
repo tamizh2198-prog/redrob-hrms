@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,7 +9,11 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
 import { CurrentUser } from '../../shared/auth/current-user.decorator';
@@ -19,6 +24,14 @@ import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { InviteEmployeeDto } from './dto/invite-employee.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 import { RequesterContext } from './employee.types';
+import {
+  buildEmployeeImportTemplate,
+  parseEmployeeImportWorkbook,
+} from './bulk-import-upload.util';
+
+// Defense-in-depth against an oversized upload, not a real-world file size —
+// an employee roster sheet is at most a few thousand rows.
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 function toRequester(user?: {
   userId: string;
@@ -77,6 +90,47 @@ export class EmployeeController {
     @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.employeeService.bulkImport(rows, dryRun ?? true, user.userId);
+  }
+
+  // Blank starter workbook (same fields as the JSON-paste bulk-import above,
+  // laid out as spreadsheet columns) so HR knows the exact format the
+  // upload endpoint expects, plus a Reference sheet listing accepted enum
+  // values — mirrors RosterController's hybrid-schedule template.
+  @Get('bulk-import/template')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  async getBulkImportTemplate() {
+    const buffer = await buildEmployeeImportTemplate();
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: 'attachment; filename="employee-bulk-import-template.xlsx"',
+    });
+  }
+
+  // Excel counterpart to POST bulk-import above: same validate/dry-run/
+  // commit pipeline (EmployeeService.bulkImport), just parsed from an
+  // uploaded .xlsx instead of a hand-pasted JSON array.
+  @Post('bulk-import/upload')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
+  )
+  async bulkImportUpload(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('dryRun') dryRunRaw: string | undefined,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const rows = await parseEmployeeImportWorkbook(file.buffer);
+    if (rows.length === 0) {
+      throw new BadRequestException(
+        'No data rows found — check the sheet matches the template columns',
+      );
+    }
+    return this.employeeService.bulkImport(
+      rows as CreateEmployeeDto[],
+      dryRunRaw !== 'false',
+      user.userId,
+    );
   }
 
   // Auth Phase 2: must be registered before the `:id` route below, or Nest
