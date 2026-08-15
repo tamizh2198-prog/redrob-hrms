@@ -1,7 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
-import * as dns from 'dns';
-import * as net from 'net';
 
 export interface SendEmailInput {
   to: string;
@@ -13,96 +10,42 @@ export interface SendEmailResult {
   sent: boolean;
 }
 
-interface SmtpConfig {
-  host: string;
-  port: number;
-  user: string;
-  pass: string;
-}
+const RESEND_API_URL = 'https://api.resend.com/emails';
 
 // Auth Phase 2: NotificationService.send() only logs (Section 7.16 is not
 // built yet) — this is the minimum real email-sending abstraction the
 // invitation flow needs, kept separate rather than changing
 // NotificationService, which every other module already depends on.
+//
+// Sends via Resend's HTTPS API, not SMTP: Railway blocks outbound SMTP
+// (ports 25/465/587) below its Pro plan, so nodemailer connections to
+// smtp.gmail.com silently timed out in production even with correct
+// credentials — confirmed by testing raw TCP connectivity from inside the
+// deployed container (HTTPS/443 reached the internet fine, SMTP ports
+// didn't). Resend's API runs over HTTPS/443, which Railway does allow.
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly config: SmtpConfig | null;
+  private readonly apiKey: string | null;
   private readonly from: string;
 
   constructor() {
-    const host = process.env.SMTP_HOST;
-    const port = process.env.SMTP_PORT;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    this.from = process.env.SMTP_FROM ?? 'no-reply@redrob.local';
+    this.apiKey = process.env.RESEND_API_KEY ?? null;
+    this.from = process.env.EMAIL_FROM ?? 'no-reply@redrob.local';
 
-    if (host && port && user && pass) {
-      this.config = { host, port: Number(port), user, pass };
-    } else {
-      this.config = null;
+    if (!this.apiKey) {
       this.logger.warn(
-        'SMTP is not configured (SMTP_HOST/PORT/USER/PASS) — emails will be logged, not sent. Set these env vars to enable real delivery.',
+        'RESEND_API_KEY is not set — emails will be logged, not sent. Set this env var to enable real delivery.',
       );
     }
   }
 
-  // Production fix: nodemailer resolves both the A and AAAA records for the
-  // SMTP host and picks one at random (see lib/shared/index.js in the
-  // nodemailer package) rather than preferring IPv4. On hosts without
-  // outbound IPv6 routing (e.g. Railway), landing on the AAAA record fails
-  // with ENETUNREACH. Resolving to an IPv4 address ourselves and connecting
-  // to that IP directly avoids the random pick; passing the original
-  // hostname as `servername` keeps TLS SNI and certificate validation
-  // exactly as before. If the lookup fails for any reason, fall back to
-  // nodemailer's default hostname-based connection so non-Gmail SMTP hosts
-  // (or IPv6-only ones) are unaffected.
-  private async createTransporter(config: SmtpConfig): Promise<nodemailer.Transporter> {
-    let connectHost = config.host;
-    let servername: string | undefined;
-
-    if (!net.isIP(config.host)) {
-      try {
-        const [ipv4] = await dns.promises.resolve4(config.host);
-        if (ipv4) {
-          connectHost = ipv4;
-          servername = config.host;
-        }
-      } catch (err) {
-        this.logger.warn(
-          `Could not resolve an IPv4 address for SMTP host ${config.host}, falling back to default DNS resolution: ${
-            err instanceof Error ? err.message : 'unknown error'
-          }`,
-        );
-      }
-    }
-
-    return nodemailer.createTransport({
-      host: connectHost,
-      port: config.port,
-      secure: config.port === 465,
-      auth: { user: config.user, pass: config.pass },
-      ...(servername ? { servername } : {}),
-      // Without these, a blocked/unreachable SMTP host (e.g. an egress
-      // rule silently dropping the connection instead of refusing it) hangs
-      // with no bound — nodemailer's own default is effectively "forever".
-      // Since send() is awaited inline by employee creation/invite, that
-      // hang blocked the entire HTTP request, which is what surfaced to
-      // users as a request failure ("internal server error") on Create
-      // Employee even though the employee row itself was created
-      // successfully. Bounding it here means a broken SMTP config fails
-      // fast and the request still returns { emailSent: false } promptly.
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 10_000,
-    });
-  }
-
   async send(input: SendEmailInput): Promise<SendEmailResult> {
-    if (!this.config) {
+    if (!this.apiKey) {
       // Dev-only fallback: log the full body (not just the subject) so a
-      // local run without SMTP configured can still recover the invitation
-      // link from the console instead of the email being silently lost.
+      // local run without an API key configured can still recover the
+      // invitation link from the console instead of the email being
+      // silently lost.
       this.logger.log(
         `[email not configured] Would send to ${input.to}: "${input.subject}"\n${input.text}`,
       );
@@ -110,13 +53,31 @@ export class EmailService {
     }
 
     try {
-      const transporter = await this.createTransporter(this.config);
-      await transporter.sendMail({
-        from: this.from,
-        to: input.to,
-        subject: input.subject,
-        text: input.text,
+      const response = await fetch(RESEND_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: this.from,
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+        }),
+        // A blocked/unreachable egress path (the same class of failure
+        // that motivated moving off SMTP) must still fail fast rather than
+        // hang the caller — send() is awaited inline by employee creation/
+        // invite/resend, so an unbounded hang would block the whole HTTP
+        // request.
+        signal: AbortSignal.timeout(10_000),
       });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Resend API responded ${response.status}: ${body}`);
+      }
+
       return { sent: true };
     } catch (err) {
       // Never throw on delivery failure — the caller (employee creation)
