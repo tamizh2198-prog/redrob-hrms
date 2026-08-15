@@ -90,10 +90,12 @@ describe('AnalyticsService', () => {
 
   describe('Business Rule: a Manager dashboard never shows data outside their reporting hierarchy', () => {
     it('scopes attendance/goal queries to the recursive reports list only', async () => {
-      // mgr-1 -> emp-1 -> emp-2 (indirect report two levels down)
+      // mgr-1 -> emp-1 -> emp-2 (indirect report two levels down), then the
+      // teamMembers roster query itself (also prisma.employee.findMany).
       prisma.employee.findMany
         .mockResolvedValueOnce([{ id: 'emp-1' }])
         .mockResolvedValueOnce([{ id: 'emp-2' }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       prisma.attendanceRecord.groupBy.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
@@ -118,6 +120,7 @@ describe('AnalyticsService', () => {
       prisma.employee.findMany
         .mockResolvedValueOnce([{ id: 'direct-1' }])
         .mockResolvedValueOnce([{ id: 'indirect-1' }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       prisma.attendanceRecord.groupBy.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
@@ -135,6 +138,45 @@ describe('AnalyticsService', () => {
       const result = (await service.getDashboard('mgr-1', 'MANAGER')) as any;
       expect(leaveService.listPendingApprovals).toHaveBeenCalledWith('mgr-1');
       expect(result.pendingApprovalsCount).toBe(1);
+    });
+
+    it("returns the reporting-tree roster as teamMembers, for a manager's dashboard team list", async () => {
+      // mgr-1 -> emp-1 (BFS), no further reports, then the roster query.
+      prisma.employee.findMany
+        .mockResolvedValueOnce([{ id: 'emp-1' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'emp-1',
+            employeeCode: 'MNR-2026-0010',
+            firstName: 'Zara',
+            lastName: 'Pandey',
+            status: 'ACTIVE',
+            photoUrl: null,
+            designation: { name: 'Software Engineer' },
+            department: { name: 'Engineering' },
+          },
+        ]);
+      prisma.attendanceRecord.groupBy.mockResolvedValue([]);
+      prisma.goal.findMany.mockResolvedValue([]);
+
+      const result = (await service.getDashboard('mgr-1', 'MANAGER')) as any;
+
+      expect(prisma.employee.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: { id: { in: ['emp-1'] } } }),
+      );
+      expect(result.teamMembers).toEqual([
+        {
+          id: 'emp-1',
+          employeeCode: 'MNR-2026-0010',
+          firstName: 'Zara',
+          lastName: 'Pandey',
+          status: 'ACTIVE',
+          photoUrl: null,
+          designation: 'Software Engineer',
+          department: 'Engineering',
+        },
+      ]);
     });
   });
 

@@ -15,6 +15,16 @@ export interface ManagerDashboard {
   attendanceToday: Array<{ status: string; count: number }>
   pendingApprovalsCount: number
   teamGoalProgressPercent: number | null
+  teamMembers: Array<{
+    id: string
+    employeeCode: string
+    firstName: string
+    lastName: string
+    status: string
+    photoUrl: string | null
+    designation: string | null
+    department: string | null
+  }>
 }
 
 export interface HrAdminDashboard {

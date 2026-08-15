@@ -49,6 +49,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-6 p-6">
       <WelcomeBanner name={user?.name} role={user?.role} />
       <HighPriorityAnnouncements />
+      {user?.role === 'MANAGER' && <MyTeamCard />}
       <Card>
         <CardHeader>
           <CardTitle>Getting Started</CardTitle>
@@ -61,6 +62,73 @@ export function DashboardPage() {
       </Card>
       <UpcomingHolidays />
     </div>
+  )
+}
+
+// This task: managers/leads get an at-a-glance roster of who reports to
+// them (direct + indirect), so they can keep track of their team without
+// leaving the dashboard. Sourced from the existing Manager dashboard
+// endpoint (Analytics) — teamMembers is just a fuller field alongside the
+// counts/aggregates that endpoint already returns, no new backend model.
+function MyTeamCard() {
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+
+  useEffect(() => {
+    getDashboard().then(setDashboard).catch(() => setDashboard(null))
+  }, [])
+
+  const team = dashboard && dashboard.role === 'MANAGER' ? dashboard.teamMembers : []
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>My Team</CardTitle>
+          <Link to="/employee">
+            <Button variant="outline" size="sm">View All</Button>
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Employee Code</TableHead>
+                <TableHead>Designation</TableHead>
+                <TableHead>Department</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {team.map((m) => (
+                <TableRow key={m.id}>
+                  <TableCell>
+                    {m.firstName} {m.lastName}
+                  </TableCell>
+                  <TableCell>{m.employeeCode}</TableCell>
+                  <TableCell>{m.designation ?? '—'}</TableCell>
+                  <TableCell>{m.department ?? '—'}</TableCell>
+                  <TableCell>
+                    <Badge variant={m.status === 'ACTIVE' ? 'default' : 'outline'}>
+                      {m.status}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {team.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    No reportees yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
