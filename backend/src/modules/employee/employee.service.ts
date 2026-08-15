@@ -23,6 +23,7 @@ import {
   hashInvitationToken,
 } from './invitation-token.util';
 import { computeProfileCompletion } from './profile-completion.util';
+import { getReportingHierarchyIds } from '../../shared/employee/reporting-hierarchy.util';
 
 const INVITATION_TTL_HOURS = 72;
 
@@ -934,7 +935,21 @@ export class EmployeeService {
       return { items, total: items.length, page: 1, pageSize };
     }
 
+    // A Manager's directory is scoped to their own reporting tree (direct +
+    // indirect reports), same rule assertCanAccessEmployeeData enforces for
+    // single-record reads elsewhere — otherwise this list endpoint would
+    // leak the entire company roster to every manager.
+    let scopedIds: string[] | undefined;
+    if (requester.role === Role.MANAGER && requester.userId) {
+      const teamIds = await getReportingHierarchyIds(
+        this.prisma,
+        requester.userId,
+      );
+      scopedIds = [requester.userId, ...teamIds];
+    }
+
     const where: Prisma.EmployeeWhereInput = {
+      ...(scopedIds && { id: { in: scopedIds } }),
       ...(query.departmentId && { departmentId: query.departmentId }),
       ...(query.locationId && { locationId: query.locationId }),
       ...(query.status && { status: query.status }),

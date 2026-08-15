@@ -633,6 +633,36 @@ describe('EmployeeService', () => {
       expect(prisma.employee.findUnique).not.toHaveBeenCalled();
       expect(result.items).toHaveLength(2);
     });
+
+    it('scopes the directory to a Manager\'s own reporting tree, not the whole company', async () => {
+      // getReportingHierarchyIds BFS: mgr-1 -> [emp-1, emp-2] -> [emp-3] -> []
+      prisma.employee.findMany
+        .mockResolvedValueOnce([{ id: 'emp-1' }, { id: 'emp-2' }])
+        .mockResolvedValueOnce([{ id: 'emp-3' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { id: 'mgr-1' },
+          { id: 'emp-1' },
+          { id: 'emp-2' },
+          { id: 'emp-3' },
+        ]);
+      prisma.employee.count.mockResolvedValueOnce(4);
+
+      const result = await service.findAll(
+        {},
+        { userId: 'mgr-1', role: Role.MANAGER },
+      );
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(result.items).toHaveLength(4);
+      const listCall =
+        prisma.employee.findMany.mock.calls[
+          prisma.employee.findMany.mock.calls.length - 1
+        ][0];
+      expect(listCall.where.id.in).toEqual(
+        expect.arrayContaining(['mgr-1', 'emp-1', 'emp-2', 'emp-3']),
+      );
+    });
   });
 
   describe('Section 6 data-scope: Manager can only read their own reports', () => {
