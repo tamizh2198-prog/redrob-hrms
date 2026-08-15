@@ -292,6 +292,7 @@ export class AnalyticsService {
       label: e.label,
       fields: e.fields,
       groupableFields: e.groupableFields,
+      statusOptions: e.statusOptions,
     }));
   }
 
@@ -309,6 +310,7 @@ export class AnalyticsService {
 
     const rows = await entityDef.fetch(this.prisma, {
       departmentId: dto.departmentId,
+      locationId: dto.locationId,
       dateFrom: dto.dateFrom ? new Date(dto.dateFrom) : undefined,
       dateTo: dto.dateTo ? new Date(dto.dateTo) : undefined,
       status: dto.status,

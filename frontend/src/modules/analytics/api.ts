@@ -46,6 +46,7 @@ export interface ReportEntity {
   label: string
   fields: string[]
   groupableFields: string[]
+  statusOptions: string[]
 }
 
 export interface ReportRow {
@@ -78,6 +79,7 @@ export interface BuildReportParams {
   entity: string
   fields?: string[]
   departmentId?: string
+  locationId?: string
   dateFrom?: string
   dateTo?: string
   status?: string

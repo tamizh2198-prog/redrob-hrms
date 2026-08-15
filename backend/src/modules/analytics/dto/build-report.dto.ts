@@ -23,6 +23,10 @@ export class BuildReportDto {
   departmentId?: string;
 
   @IsOptional()
+  @IsUUID()
+  locationId?: string;
+
+  @IsOptional()
   @IsDateString()
   dateFrom?: string;
 

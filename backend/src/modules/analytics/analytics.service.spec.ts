@@ -284,6 +284,94 @@ describe('AnalyticsService', () => {
       );
     });
 
+    it("exposes each entity's statusOptions, since Status means a different enum per entity (EmployeeStatus/AttendanceStatus/LeaveApplicationStatus/CandidateStage/AssetStatus)", () => {
+      const entities = service.listReportEntities();
+      const byKey = Object.fromEntries(entities.map((e) => [e.key, e]));
+      expect(byKey.Employee.statusOptions).toEqual(
+        expect.arrayContaining(['ACTIVE', 'ACTIVE_PROBATION', 'TERMINATED']),
+      );
+      expect(byKey.Attendance.statusOptions).toEqual(
+        expect.arrayContaining(['PRESENT', 'ABSENT', 'WFH']),
+      );
+      expect(byKey.Leave.statusOptions).toEqual(
+        expect.arrayContaining(['PENDING', 'APPROVED', 'REJECTED']),
+      );
+      expect(byKey.ATS.statusOptions).toEqual(
+        expect.arrayContaining(['APPLIED', 'HIRED']),
+      );
+      expect(byKey.Assets.statusOptions).toEqual(
+        expect.arrayContaining(['AVAILABLE', 'ISSUED']),
+      );
+    });
+
+    it('Employee: applies a locationId filter and flattens the location relation to a plain name string', async () => {
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'e-1',
+          employeeCode: 'E001',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          departmentId: 'dept-1',
+          status: 'ACTIVE',
+          dateOfJoining: new Date('2024-01-01'),
+          location: { name: 'Bengaluru' },
+        },
+      ]);
+
+      const result = await service.buildReport({
+        entity: 'Employee',
+        fields: ['firstName', 'location'],
+        locationId: 'loc-1',
+      });
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ locationId: 'loc-1' }),
+        }),
+      );
+      expect(result.rows[0]).toEqual({
+        id: 'e-1',
+        firstName: 'Ada',
+        location: 'Bengaluru',
+      });
+    });
+
+    it('Attendance/Leave/Assets: combine departmentId and locationId into the same employee-relation filter', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+      await service.buildReport({
+        entity: 'Attendance',
+        departmentId: 'dept-1',
+        locationId: 'loc-1',
+      });
+      expect(prisma.attendanceRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            employee: { departmentId: 'dept-1', locationId: 'loc-1' },
+          }),
+        }),
+      );
+
+      prisma.leaveApplication.findMany.mockResolvedValue([]);
+      await service.buildReport({ entity: 'Leave', locationId: 'loc-1' });
+      expect(prisma.leaveApplication.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ employee: { locationId: 'loc-1' } }),
+        }),
+      );
+
+      prisma.asset.findMany.mockResolvedValue([]);
+      await service.buildReport({ entity: 'Assets', locationId: 'loc-1' });
+      expect(prisma.asset.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            assignments: {
+              some: { employee: { locationId: 'loc-1' }, returnedAt: null },
+            },
+          }),
+        }),
+      );
+    });
+
     it('Employee: applies department/status/date-range filters and projects only requested fields plus id', async () => {
       prisma.employee.findMany.mockResolvedValue([
         {
