@@ -23,6 +23,7 @@ import {
   listEmployees,
   listPendingInvitations,
   resendInvitation,
+  downloadActiveEmployees,
   computeDisplayCompletionPercentage,
   type Employee,
   type EmployeeStatus,
@@ -43,6 +44,7 @@ const STATUS_OPTIONS: EmployeeStatus[] = [
 export function EmployeePage() {
   const { user } = useAuth()
   const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   // Section 6 Access Control: the backend already scopes /employees down to
   // just this employee's own record for the EMPLOYEE role — these flags only
   // adjust the surrounding chrome (filters/pagination don't mean anything
@@ -59,6 +61,8 @@ export function EmployeePage() {
   const [invitations, setInvitations] = useState<PendingInvitation[]>([])
   const [invitationError, setInvitationError] = useState<string | null>(null)
   const [invitationMessage, setInvitationMessage] = useState<string | null>(null)
+  const [exportingActive, setExportingActive] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const pageSize = 20
 
@@ -87,6 +91,18 @@ export function EmployeePage() {
 
   function refresh() {
     setRefreshKey((k) => k + 1)
+  }
+
+  async function handleExportActive() {
+    setExportError(null)
+    setExportingActive(true)
+    try {
+      await downloadActiveEmployees()
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : 'Failed to download active employees')
+    } finally {
+      setExportingActive(false)
+    }
   }
 
   async function handleResend(employeeId: string) {
@@ -119,6 +135,11 @@ export function EmployeePage() {
           )}
           {isHrAdmin && <BulkImportDialog onImported={refresh} />}
           {isHrAdmin && <CreateEmployeeDialog onCreated={refresh} />}
+          {isSuperAdmin && (
+            <Button variant="outline" disabled={exportingActive} onClick={handleExportActive}>
+              {exportingActive ? 'Downloading…' : 'Download Active Employees'}
+            </Button>
+          )}
           {isSelfView && user && (
             <Link to={`/employee/${user.id}`}>
               <Button>Add / Update My Details</Button>
@@ -126,6 +147,8 @@ export function EmployeePage() {
           )}
         </div>
       </div>
+
+      {exportError && <p className="text-sm text-destructive">{exportError}</p>}
 
       {isSelfView && (
         <p className="text-sm text-muted-foreground">

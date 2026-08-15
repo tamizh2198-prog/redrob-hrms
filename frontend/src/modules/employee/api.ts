@@ -256,6 +256,25 @@ export async function downloadEmployeeBulkImportTemplate() {
   URL.revokeObjectURL(url)
 }
 
+// Super Admin-only: Excel export of the active roster (Employee Directory).
+export async function downloadActiveEmployees() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/employees/export/active`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download active employees', res.status)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'active-employees.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 // Auth Phase 2: invitation + activation
 export interface InviteEmployeeResult {
   employee: Employee

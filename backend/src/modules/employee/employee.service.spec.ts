@@ -586,6 +586,36 @@ describe('EmployeeService', () => {
     });
   });
 
+  describe('This task: Super Admin Excel export of the active roster', () => {
+    it('queries only ACTIVE/ACTIVE_PROBATION employees and returns a non-empty xlsx buffer', async () => {
+      prisma.employee.findMany.mockResolvedValueOnce([
+        {
+          employeeCode: 'MNR-2026-0001',
+          firstName: 'Zara',
+          lastName: 'Pandey',
+          workEmail: 'zara@co.com',
+          phone: '9999999999',
+          employmentType: 'FULL_TIME',
+          dateOfJoining: new Date('2024-04-14'),
+          status: 'ACTIVE',
+          department: { name: 'Engineering' },
+          designation: { name: 'Software Engineer' },
+          location: { name: 'Bengaluru' },
+        },
+      ]);
+
+      const buffer = await service.exportActiveEmployees();
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: { in: [EmployeeStatus.ACTIVE, EmployeeStatus.ACTIVE_PROBATION] } },
+        }),
+      );
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('Section 6 data-scope: an Employee only sees their own record in the directory list', () => {
     it("returns just the requester's own record for an EMPLOYEE, ignoring list filters", async () => {
       prisma.employee.findUnique.mockResolvedValueOnce({

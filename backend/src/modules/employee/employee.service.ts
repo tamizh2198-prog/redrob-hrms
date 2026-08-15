@@ -24,12 +24,13 @@ import {
 } from './invitation-token.util';
 import { computeProfileCompletion } from './profile-completion.util';
 import { getReportingHierarchyIds } from '../../shared/employee/reporting-hierarchy.util';
+import { buildActiveEmployeesWorkbook } from './employee-export.util';
 
 const INVITATION_TTL_HOURS = 72;
 
 type SafeEmployee = Omit<Employee, 'passwordHash'>;
 
-const ACTIVE_STATUSES: EmployeeStatus[] = [
+export const ACTIVE_STATUSES: EmployeeStatus[] = [
   EmployeeStatus.ACTIVE,
   EmployeeStatus.ACTIVE_PROBATION,
 ];
@@ -916,6 +917,45 @@ export class EmployeeService {
       this.prisma.location.findMany({ where: { isActive: true } }),
     ]);
     return { departments, designations, locations };
+  }
+
+  // Super Admin-only Excel export of the active roster (Employee module).
+  // Reuses ACTIVE_STATUSES — the same ACTIVE + ACTIVE_PROBATION definition
+  // "active" already means everywhere else in this service.
+  async exportActiveEmployees(): Promise<Buffer> {
+    const employees = await this.prisma.employee.findMany({
+      where: { status: { in: ACTIVE_STATUSES } },
+      select: {
+        employeeCode: true,
+        firstName: true,
+        lastName: true,
+        workEmail: true,
+        phone: true,
+        employmentType: true,
+        dateOfJoining: true,
+        status: true,
+        department: { select: { name: true } },
+        designation: { select: { name: true } },
+        location: { select: { name: true } },
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+
+    return buildActiveEmployeesWorkbook(
+      employees.map((e) => ({
+        employeeCode: e.employeeCode,
+        firstName: e.firstName,
+        lastName: e.lastName,
+        workEmail: e.workEmail,
+        phone: e.phone,
+        department: e.department?.name ?? null,
+        designation: e.designation?.name ?? null,
+        location: e.location?.name ?? null,
+        employmentType: e.employmentType,
+        dateOfJoining: e.dateOfJoining,
+        status: e.status,
+      })),
+    );
   }
 
   // Section 6 Access Control: an Employee sees only their own record here —
