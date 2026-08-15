@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
@@ -70,10 +71,22 @@ export class AuditInterceptor implements NestInterceptor {
           `${method} ${originalUrl} by ${user?.userId ?? 'anonymous'}`,
         );
         const response = context.switchToHttp().getResponse<Response>();
+        // A StreamableFile wraps a raw Buffer, which is itself a plain
+        // object of numeric byte-index keys — redact() would recurse into
+        // every single byte as an "entry", producing a response body of
+        // (sometimes millions of) keys. That blew past Railway's log-rate
+        // limit, made this synchronous audit write pathologically slow,
+        // and stored the entire exported file's bytes in the audit log —
+        // which is how every POST /analytics/reports/build export (CSV,
+        // Excel, and PDF alike, since all three return a StreamableFile)
+        // ended up failing instead of downloading.
         void this.auditService.record({
           ...base,
           statusCode: response.statusCode,
-          responseBody: redact(responseBody),
+          responseBody:
+            responseBody instanceof StreamableFile
+              ? { note: '[file download — body not logged]' }
+              : redact(responseBody),
         });
       }),
       catchError((error: { status?: number; message?: string }) => {
