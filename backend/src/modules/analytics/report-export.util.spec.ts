@@ -1,4 +1,5 @@
-import { toCsv, toExcelXml, toPdf, exportReport } from './report-export.util';
+import ExcelJS from 'exceljs';
+import { toCsv, toRealExcel, toPdf, exportReport } from './report-export.util';
 
 const sample = {
   entity: 'Employee',
@@ -28,23 +29,34 @@ describe('report-export.util (Section 7.13 Phase 4)', () => {
     });
   });
 
-  describe('toExcelXml', () => {
-    it('produces well-formed SpreadsheetML with one Row per record plus header', () => {
-      const xml = toExcelXml(sample);
-      expect(xml).toContain('<Workbook');
-      expect((xml.match(/<Row>/g) ?? []).length).toBe(sample.rows.length + 1);
-      expect(xml).toContain('<Data ss:Type="String">Ada</Data>');
+  describe('toRealExcel', () => {
+    it('produces a genuine, re-readable .xlsx with a header row plus one row per record', async () => {
+      const buffer = await toRealExcel(sample);
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as never);
+      const sheet = workbook.worksheets[0];
+      expect(sheet.getRow(1).values).toEqual([undefined, 'id', 'firstName', 'status']);
+      expect(sheet.getRow(2).values).toEqual([undefined, 'e-1', 'Ada', 'ACTIVE']);
+      expect(sheet.rowCount).toBe(sample.rows.length + 1);
     });
 
-    it('XML-escapes cell values', () => {
-      const xml = toExcelXml(sample);
-      expect(xml).toContain('Grace, &quot;Hopper&quot;');
+    it('preserves values containing commas/quotes as plain text, unescaped', async () => {
+      const buffer = await toRealExcel(sample);
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as never);
+      const sheet = workbook.worksheets[0];
+      expect(sheet.getRow(3).values).toEqual([
+        undefined,
+        'e-2',
+        'Grace, "Hopper"',
+        'INACTIVE',
+      ]);
     });
 
-    it('handles zero rows without throwing', () => {
-      expect(() =>
-        toExcelXml({ entity: 'Employee', total: 0, rows: [] }),
-      ).not.toThrow();
+    it('handles zero rows without throwing', async () => {
+      await expect(
+        toRealExcel({ entity: 'Employee', total: 0, rows: [] }),
+      ).resolves.toBeInstanceOf(Buffer);
     });
   });
 
@@ -85,13 +97,14 @@ describe('report-export.util (Section 7.13 Phase 4)', () => {
   });
 
   describe('exportReport', () => {
-    it('routes csv/excel/pdf to the correct content type and extension', () => {
-      expect(exportReport(sample, 'csv').contentType).toBe('text/csv');
-      expect(exportReport(sample, 'excel').contentType).toBe(
-        'application/vnd.ms-excel',
+    it('routes csv/excel/pdf to the correct content type and extension', async () => {
+      expect((await exportReport(sample, 'csv')).contentType).toBe('text/csv');
+      expect((await exportReport(sample, 'excel')).contentType).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
-      expect(exportReport(sample, 'pdf').contentType).toBe('application/pdf');
-      expect(exportReport(sample, 'pdf').extension).toBe('pdf');
+      expect((await exportReport(sample, 'excel')).extension).toBe('xlsx');
+      expect((await exportReport(sample, 'pdf')).contentType).toBe('application/pdf');
+      expect((await exportReport(sample, 'pdf')).extension).toBe('pdf');
     });
   });
 });

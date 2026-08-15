@@ -664,6 +664,28 @@ describe('EmployeeService', () => {
       expect(result.items).toHaveLength(2);
     });
 
+    it('this task: search matches firstName, lastName, or employeeCode (case-insensitive)', async () => {
+      prisma.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
+      prisma.employee.count.mockResolvedValueOnce(1);
+
+      await service.findAll(
+        { search: 'ada' },
+        { userId: 'hr-1', role: Role.HR_ADMIN },
+      );
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { firstName: { contains: 'ada', mode: 'insensitive' } },
+              { lastName: { contains: 'ada', mode: 'insensitive' } },
+              { employeeCode: { contains: 'ada', mode: 'insensitive' } },
+            ],
+          }),
+        }),
+      );
+    });
+
     it('scopes the directory to a Manager\'s own reporting tree, not the whole company', async () => {
       // getReportingHierarchyIds BFS: mgr-1 -> [emp-1, emp-2] -> [emp-3] -> []
       prisma.employee.findMany

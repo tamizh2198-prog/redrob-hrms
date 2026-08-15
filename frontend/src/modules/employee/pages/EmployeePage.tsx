@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -55,6 +56,8 @@ export function EmployeePage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<EmployeeStatus | undefined>(undefined)
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -66,17 +69,28 @@ export function EmployeePage() {
 
   const pageSize = 20
 
+  // Debounced so typing a name/employee code doesn't fire a request per
+  // keystroke — 300ms is a common, unobtrusive delay for search-as-you-type.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch])
+
   useEffect(() => {
     setLoading(true)
     setError(null)
-    listEmployees({ status, page, pageSize })
+    listEmployees({ status, search: debouncedSearch || undefined, page, pageSize })
       .then((res) => {
         setEmployees(res.items)
         setTotal(res.total)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [status, page, refreshKey])
+  }, [status, debouncedSearch, page, refreshKey])
 
   function refreshInvitations() {
     listPendingInvitations()
@@ -160,6 +174,14 @@ export function EmployeePage() {
 
       {!isSelfView && (
         <div className="flex items-center gap-2">
+          {isHrAdmin && (
+            <Input
+              className="w-64"
+              placeholder="Search by name or employee code"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          )}
           <Select
             value={status ?? 'ALL'}
             onValueChange={(value) =>

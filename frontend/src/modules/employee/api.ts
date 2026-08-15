@@ -154,6 +154,7 @@ export function listEmployees(params: {
   departmentId?: string
   locationId?: string
   status?: EmployeeStatus
+  search?: string
   page?: number
   pageSize?: number
 }) {
@@ -162,6 +163,7 @@ export function listEmployees(params: {
       departmentId: params.departmentId,
       locationId: params.locationId,
       status: params.status,
+      search: params.search,
       page: params.page?.toString(),
       pageSize: params.pageSize?.toString(),
     },

@@ -993,6 +993,13 @@ export class EmployeeService {
       ...(query.departmentId && { departmentId: query.departmentId }),
       ...(query.locationId && { locationId: query.locationId }),
       ...(query.status && { status: query.status }),
+      ...(query.search && {
+        OR: [
+          { firstName: { contains: query.search, mode: 'insensitive' } },
+          { lastName: { contains: query.search, mode: 'insensitive' } },
+          { employeeCode: { contains: query.search, mode: 'insensitive' } },
+        ],
+      }),
     };
 
     const [items, total] = await Promise.all([

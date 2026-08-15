@@ -414,7 +414,12 @@ describe('AnalyticsService', () => {
 
     it('Attendance: filters by department via the employee relation and by status', async () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([
-        { id: 'a-1', employeeId: 'e-1', date: new Date(), status: 'PRESENT' },
+        {
+          id: 'a-1',
+          date: new Date(),
+          status: 'PRESENT',
+          employee: { employeeCode: 'MNR-2026-0001', firstName: 'Ada', lastName: 'Lovelace' },
+        },
       ]);
 
       await service.buildReport({
@@ -434,10 +439,11 @@ describe('AnalyticsService', () => {
     });
 
     it('Leave: filters by start-date range and groups by status with recordIds', async () => {
+      const emp = { employeeCode: 'MNR-2026-0001', firstName: 'Ada', lastName: 'Lovelace' };
       prisma.leaveApplication.findMany.mockResolvedValue([
-        { id: 'l-1', employeeId: 'e-1', status: 'APPROVED' },
-        { id: 'l-2', employeeId: 'e-2', status: 'APPROVED' },
-        { id: 'l-3', employeeId: 'e-3', status: 'PENDING' },
+        { id: 'l-1', status: 'APPROVED', employee: emp },
+        { id: 'l-2', status: 'APPROVED', employee: emp },
+        { id: 'l-3', status: 'PENDING', employee: emp },
       ]);
 
       const result = await service.buildReport({

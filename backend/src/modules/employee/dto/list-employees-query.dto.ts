@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { EmployeeStatus } from '@prisma/client';
 
 export class ListEmployeesQueryDto {
@@ -10,6 +10,13 @@ export class ListEmployeesQueryDto {
   @IsOptional()
   @IsUUID()
   locationId?: string;
+
+  // Matches against firstName, lastName, or employeeCode (case-insensitive
+  // substring) — the Employee Directory search bar, HR Admin/Super Admin
+  // only (same scope as the rest of this list endpoint).
+  @IsOptional()
+  @IsString()
+  search?: string;
 
   @IsOptional()
   @IsEnum(EmployeeStatus)

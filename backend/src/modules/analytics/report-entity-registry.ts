@@ -88,7 +88,8 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
     key: 'Attendance',
     label: 'Attendance',
     fields: [
-      'employeeId',
+      'employeeCode',
+      'employeeName',
       'date',
       'status',
       'checkInTime',
@@ -107,8 +108,8 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
       'WEEK_OFF',
       'WFH',
     ],
-    fetch: (prisma, f) =>
-      prisma.attendanceRecord.findMany({
+    fetch: async (prisma, f) => {
+      const rows = await prisma.attendanceRecord.findMany({
         where: {
           ...((f.departmentId || f.locationId) && {
             employee: {
@@ -123,14 +124,22 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
         },
         select: {
           id: true,
-          employeeId: true,
           date: true,
           status: true,
           checkInTime: true,
           checkOutTime: true,
           workHours: true,
+          employee: { select: { employeeCode: true, firstName: true, lastName: true } },
         },
-      }),
+      });
+      // A raw employeeId UUID isn't useful to read in a report — resolve it
+      // to the same employeeCode/name a human would look someone up by.
+      return rows.map(({ employee, ...rest }) => ({
+        ...rest,
+        employeeCode: employee.employeeCode,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+      }));
+    },
   },
 
   // Date-range filters on start date (an application starting within the
@@ -140,7 +149,8 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
     key: 'Leave',
     label: 'Leave',
     fields: [
-      'employeeId',
+      'employeeCode',
+      'employeeName',
       'leaveTypeId',
       'startDate',
       'endDate',
@@ -149,8 +159,8 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
     ],
     groupableFields: ['status', 'leaveTypeId'],
     statusOptions: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
-    fetch: (prisma, f) =>
-      prisma.leaveApplication.findMany({
+    fetch: async (prisma, f) => {
+      const rows = await prisma.leaveApplication.findMany({
         where: {
           ...((f.departmentId || f.locationId) && {
             employee: {
@@ -165,14 +175,20 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
         },
         select: {
           id: true,
-          employeeId: true,
           leaveTypeId: true,
           startDate: true,
           endDate: true,
           daysCount: true,
           status: true,
+          employee: { select: { employeeCode: true, firstName: true, lastName: true } },
         },
-      }),
+      });
+      return rows.map(({ employee, ...rest }) => ({
+        ...rest,
+        employeeCode: employee.employeeCode,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+      }));
+    },
   },
 
   // Maps to Candidate — the row-level record a hiring-pipeline report
