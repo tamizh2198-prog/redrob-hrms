@@ -70,14 +70,15 @@ function toDateDisplay(value: string | null): string {
   return value ? value.slice(0, 10) : '—'
 }
 
-// This task: Half Day Leave and Unpaid Leave are still fully tracked
-// (applications, accrual, payroll) — this only hides their balance cards
-// from this display; the underlying LeaveType rows/balances are untouched.
-const HIDDEN_BALANCE_LEAVE_TYPE_NAMES = ['Half Day Leave', 'Unpaid Leave']
+// This task: Half Day and Unpaid leave types (e.g. "Half Day Sick Leave",
+// "Unpaid Sick Leave") are still fully tracked (applications, accrual,
+// payroll) — this only hides their balance cards from this display; the
+// underlying LeaveType rows/balances are untouched. Substring match (not
+// exact name) since these prefixes/qualifiers combine with any base leave
+// type name, not just "Half Day Leave"/"Unpaid Leave" literally.
 function isHiddenBalanceLeaveType(name: string) {
-  return HIDDEN_BALANCE_LEAVE_TYPE_NAMES.some(
-    (hidden) => hidden.toLowerCase() === name.trim().toLowerCase(),
-  )
+  const normalized = name.trim().toLowerCase()
+  return normalized.includes('half day') || normalized.includes('unpaid')
 }
 
 // This task (Part 7/8): this is the ADMIN view of an employee record,
