@@ -154,6 +154,7 @@ export function listEmployees(params: {
   departmentId?: string
   locationId?: string
   status?: EmployeeStatus
+  search?: string
   page?: number
   pageSize?: number
 }) {
@@ -162,6 +163,7 @@ export function listEmployees(params: {
       departmentId: params.departmentId,
       locationId: params.locationId,
       status: params.status,
+      search: params.search,
       page: params.page?.toString(),
       pageSize: params.pageSize?.toString(),
     },
@@ -250,6 +252,25 @@ export async function downloadEmployeeBulkImportTemplate() {
   const link = document.createElement('a')
   link.href = url
   link.download = 'employee-bulk-import-template.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+// Super Admin-only: Excel export of the active roster (Employee Directory).
+export async function downloadActiveEmployees() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/employees/export/active`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download active employees', res.status)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'active-employees.xlsx'
   document.body.appendChild(link)
   link.click()
   link.remove()

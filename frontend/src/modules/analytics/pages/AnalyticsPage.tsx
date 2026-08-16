@@ -12,7 +12,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
-import { getReferenceData, type ManagerOption } from '@/modules/employee/api'
+import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
 import {
   getDashboard,
   listReportEntities,
@@ -99,6 +99,7 @@ export function AnalyticsPage() {
   const [entities, setEntities] = useState<ReportEntity[]>([])
   const [entityKey, setEntityKey] = useState('')
   const [departmentId, setDepartmentId] = useState('')
+  const [locationId, setLocationId] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [status, setStatus] = useState('')
@@ -109,6 +110,8 @@ export function AnalyticsPage() {
   const [message, setMessage] = useState<string | null>(null)
 
   const [people, setPeople] = useState<ManagerOption[]>([])
+  const [departments, setDepartments] = useState<ReferenceOption[]>([])
+  const [locations, setLocations] = useState<ReferenceOption[]>([])
   const [savedReports, setSavedReports] = useState<SavedReport[]>([])
   const [savedName, setSavedName] = useState('')
   const [savedSchedule, setSavedSchedule] = useState<ReportSchedule>('WEEKLY')
@@ -119,7 +122,17 @@ export function AnalyticsPage() {
     if (isHrAdmin) {
       listReportEntities().then(setEntities).catch(() => setEntities([]))
       refreshSavedReports()
-      getReferenceData().then((r) => setPeople(r.managers)).catch(() => setPeople([]))
+      getReferenceData()
+        .then((r) => {
+          setPeople(r.managers)
+          setDepartments(r.departments)
+          setLocations(r.locations)
+        })
+        .catch(() => {
+          setPeople([])
+          setDepartments([])
+          setLocations([])
+        })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -173,6 +186,7 @@ export function AnalyticsPage() {
     return {
       entity: entityKey,
       departmentId: departmentId || undefined,
+      locationId: locationId || undefined,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       status: status || undefined,
@@ -238,6 +252,11 @@ export function AnalyticsPage() {
                 onValueChange={(v) => {
                   setEntityKey(v)
                   setGroupBy('')
+                  // Status options are entity-specific (EmployeeStatus vs
+                  // AttendanceStatus vs LeaveApplicationStatus vs
+                  // CandidateStage vs AssetStatus) — a value valid for the
+                  // previous entity may not exist for the new one.
+                  setStatus('')
                   setResult(null)
                 }}
               >
@@ -257,8 +276,41 @@ export function AnalyticsPage() {
             </div>
 
             <div className="flex flex-col gap-1">
-              <Label>Department ID</Label>
-              <Input className="w-40" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} />
+              <Label>Department</Label>
+              <Select value={departmentId} onValueChange={setDepartmentId}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="All departments">
+                    {(v: string) => departments.find((d) => d.id === v)?.name ?? 'All departments'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All departments</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label>Location</Label>
+              <Select value={locationId} onValueChange={setLocationId}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="All locations">
+                    {(v: string) => locations.find((l) => l.id === v)?.name ?? 'All locations'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All locations</SelectItem>
+                  {locations.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      {l.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -273,7 +325,19 @@ export function AnalyticsPage() {
 
             <div className="flex flex-col gap-1">
               <Label>Status</Label>
-              <Input className="w-32" value={status} onChange={(e) => setStatus(e.target.value)} />
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Any status">{(v: string) => (v ? label(v) : 'Any status')}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Any status</SelectItem>
+                  {selectedEntity?.statusOptions.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {label(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex flex-col gap-1">

@@ -15,6 +15,16 @@ export interface ManagerDashboard {
   attendanceToday: Array<{ status: string; count: number }>
   pendingApprovalsCount: number
   teamGoalProgressPercent: number | null
+  teamMembers: Array<{
+    id: string
+    employeeCode: string
+    firstName: string
+    lastName: string
+    status: string
+    photoUrl: string | null
+    designation: string | null
+    department: string | null
+  }>
 }
 
 export interface HrAdminDashboard {
@@ -36,6 +46,7 @@ export interface ReportEntity {
   label: string
   fields: string[]
   groupableFields: string[]
+  statusOptions: string[]
 }
 
 export interface ReportRow {
@@ -68,6 +79,7 @@ export interface BuildReportParams {
   entity: string
   fields?: string[]
   departmentId?: string
+  locationId?: string
   dateFrom?: string
   dateTo?: string
   status?: string

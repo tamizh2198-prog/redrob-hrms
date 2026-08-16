@@ -205,8 +205,12 @@ async function main() {
   };
 
   const superAdminPasswordHash = await hashPassword(SUPER_ADMIN_SEED_PASSWORD);
+  // Keyed on workEmail, not employeeCode: employeeCode gets reassigned by
+  // the MNR-<year>-<seq> backfill/generator over an environment's lifetime,
+  // so matching on it here would stop finding these rows on re-seed and
+  // fall into create(), colliding on the already-taken workEmail instead.
   const superAdmin = await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-SEED-0001' },
+    where: { workEmail: 'aditi.rao@redrob.seed' },
     // Section 11: MFA state is reset on every seed run too, not just the
     // password — otherwise re-seeding leaves this account demanding a
     // TOTP code from whatever authenticator last enrolled it, which a
@@ -231,7 +235,7 @@ async function main() {
   const demoPasswordHash = await hashPassword(DEMO_SEED_PASSWORD);
 
   const hrAdmin = await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-SEED-0002' },
+    where: { workEmail: 'priya.sharma@redrob.seed' },
     update: {
       passwordHash: demoPasswordHash,
       mfaEnabled: false,
@@ -251,7 +255,7 @@ async function main() {
   });
 
   const manager = await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-SEED-0003' },
+    where: { workEmail: 'karan.mehta@redrob.seed' },
     update: { passwordHash: demoPasswordHash },
     create: {
       ...baseFields,
@@ -267,7 +271,7 @@ async function main() {
   });
 
   await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-SEED-0004' },
+    where: { workEmail: 'rahul.verma@redrob.seed' },
     update: { passwordHash: demoPasswordHash },
     create: {
       ...baseFields,

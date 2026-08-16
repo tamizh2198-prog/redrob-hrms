@@ -586,6 +586,36 @@ describe('EmployeeService', () => {
     });
   });
 
+  describe('This task: Super Admin Excel export of the active roster', () => {
+    it('queries only ACTIVE/ACTIVE_PROBATION employees and returns a non-empty xlsx buffer', async () => {
+      prisma.employee.findMany.mockResolvedValueOnce([
+        {
+          employeeCode: 'MNR-2026-0001',
+          firstName: 'Zara',
+          lastName: 'Pandey',
+          workEmail: 'zara@co.com',
+          phone: '9999999999',
+          employmentType: 'FULL_TIME',
+          dateOfJoining: new Date('2024-04-14'),
+          status: 'ACTIVE',
+          department: { name: 'Engineering' },
+          designation: { name: 'Software Engineer' },
+          location: { name: 'Bengaluru' },
+        },
+      ]);
+
+      const buffer = await service.exportActiveEmployees();
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: { in: [EmployeeStatus.ACTIVE, EmployeeStatus.ACTIVE_PROBATION] } },
+        }),
+      );
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('Section 6 data-scope: an Employee only sees their own record in the directory list', () => {
     it("returns just the requester's own record for an EMPLOYEE, ignoring list filters", async () => {
       prisma.employee.findUnique.mockResolvedValueOnce({
@@ -632,6 +662,58 @@ describe('EmployeeService', () => {
 
       expect(prisma.employee.findUnique).not.toHaveBeenCalled();
       expect(result.items).toHaveLength(2);
+    });
+
+    it('this task: search matches firstName, lastName, or employeeCode (case-insensitive)', async () => {
+      prisma.employee.findMany.mockResolvedValue([{ id: 'emp-1' }]);
+      prisma.employee.count.mockResolvedValueOnce(1);
+
+      await service.findAll(
+        { search: 'ada' },
+        { userId: 'hr-1', role: Role.HR_ADMIN },
+      );
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { firstName: { contains: 'ada', mode: 'insensitive' } },
+              { lastName: { contains: 'ada', mode: 'insensitive' } },
+              { employeeCode: { contains: 'ada', mode: 'insensitive' } },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('scopes the directory to a Manager\'s own reporting tree, not the whole company', async () => {
+      // getReportingHierarchyIds BFS: mgr-1 -> [emp-1, emp-2] -> [emp-3] -> []
+      prisma.employee.findMany
+        .mockResolvedValueOnce([{ id: 'emp-1' }, { id: 'emp-2' }])
+        .mockResolvedValueOnce([{ id: 'emp-3' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { id: 'mgr-1' },
+          { id: 'emp-1' },
+          { id: 'emp-2' },
+          { id: 'emp-3' },
+        ]);
+      prisma.employee.count.mockResolvedValueOnce(4);
+
+      const result = await service.findAll(
+        {},
+        { userId: 'mgr-1', role: Role.MANAGER },
+      );
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(result.items).toHaveLength(4);
+      const listCall =
+        prisma.employee.findMany.mock.calls[
+          prisma.employee.findMany.mock.calls.length - 1
+        ][0];
+      expect(listCall.where.id.in).toEqual(
+        expect.arrayContaining(['mgr-1', 'emp-1', 'emp-2', 'emp-3']),
+      );
     });
   });
 

@@ -1,25 +1,21 @@
-import * as dns from 'dns';
-import * as nodemailer from 'nodemailer';
 import { EmailService } from './email.service';
-
-jest.mock('nodemailer');
-jest.mock('dns', () => ({
-  promises: { resolve4: jest.fn() },
-}));
 
 describe('EmailService (Auth Phase 2)', () => {
   const originalEnv = { ...process.env };
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
 
   afterEach(() => {
     process.env = { ...originalEnv };
     jest.clearAllMocks();
   });
 
-  it('reports sent=false and does not throw when SMTP is not configured', async () => {
-    delete process.env.SMTP_HOST;
-    delete process.env.SMTP_PORT;
-    delete process.env.SMTP_USER;
-    delete process.env.SMTP_PASS;
+  it('reports sent=false and does not throw when RESEND_API_KEY is not configured', async () => {
+    delete process.env.RESEND_API_KEY;
 
     const service = new EmailService();
     const result = await service.send({
@@ -29,62 +25,78 @@ describe('EmailService (Auth Phase 2)', () => {
     });
 
     expect(result).toEqual({ sent: false });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  describe('This task: prefer IPv4 for Gmail SMTP to avoid unreachable IPv6 routes', () => {
+  describe('This task: send via Resend HTTPS API instead of SMTP, since Railway blocks outbound SMTP below its Pro plan', () => {
     beforeEach(() => {
-      process.env.SMTP_HOST = 'smtp.gmail.com';
-      process.env.SMTP_PORT = '587';
-      process.env.SMTP_USER = 'user@gmail.com';
-      process.env.SMTP_PASS = 'app-password';
+      process.env.RESEND_API_KEY = 're_test_key';
+      process.env.EMAIL_FROM = 'hrms@mckinleyrice.co';
     });
 
-    it('connects using the resolved IPv4 address while keeping the original host as the TLS servername', async () => {
-      (dns.promises.resolve4 as jest.Mock).mockResolvedValue(['142.250.31.109']);
-      const sendMail = jest.fn().mockResolvedValue({});
-      (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+    it('posts to the Resend API with the API key and from address, and reports sent=true on success', async () => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200 });
 
       const service = new EmailService();
-      const result = await service.send({ to: 'jane@co.com', subject: 'Test', text: 'Hello' });
+      const result = await service.send({
+        to: 'jane@co.com',
+        subject: 'Test',
+        text: 'Hello',
+      });
 
       expect(result).toEqual({ sent: true });
-      expect(nodemailer.createTransport).toHaveBeenCalledWith(
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.resend.com/emails',
         expect.objectContaining({
-          host: '142.250.31.109',
-          servername: 'smtp.gmail.com',
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer re_test_key',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({
+            from: 'hrms@mckinleyrice.co',
+            to: 'jane@co.com',
+            subject: 'Test',
+            text: 'Hello',
+          }),
         }),
       );
     });
 
-    it('falls back to hostname-based resolution if the IPv4 lookup fails', async () => {
-      (dns.promises.resolve4 as jest.Mock).mockRejectedValue(new Error('ENOTFOUND'));
-      const sendMail = jest.fn().mockResolvedValue({});
-      (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+    it('reports sent=false and never throws when the Resend API returns a non-2xx response', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 422,
+        text: () => Promise.resolve('{"message":"invalid from address"}'),
+      });
 
       const service = new EmailService();
-      const result = await service.send({ to: 'jane@co.com', subject: 'Test', text: 'Hello' });
+      const result = await service.send({
+        to: 'jane@co.com',
+        subject: 'Test',
+        text: 'Hello',
+      });
 
-      expect(result).toEqual({ sent: true });
-      const callArg = (nodemailer.createTransport as jest.Mock).mock.calls[0][0];
-      expect(callArg.host).toBe('smtp.gmail.com');
-      expect(callArg.servername).toBeUndefined();
+      expect(result).toEqual({ sent: false });
     });
 
-    it('bounds connect/greeting/socket timeouts so an unreachable host fails fast instead of hanging the request', async () => {
-      (dns.promises.resolve4 as jest.Mock).mockResolvedValue(['142.250.31.109']);
-      const sendMail = jest.fn().mockResolvedValue({});
-      (nodemailer.createTransport as jest.Mock).mockReturnValue({ sendMail });
+    it('reports sent=false and never throws when the request itself fails (network error/timeout)', async () => {
+      fetchMock.mockRejectedValue(new Error('The operation was aborted'));
+
+      const service = new EmailService();
+      await expect(
+        service.send({ to: 'jane@co.com', subject: 'Test', text: 'Hello' }),
+      ).resolves.toEqual({ sent: false });
+    });
+
+    it('bounds the request with a timeout so an unreachable API fails fast instead of hanging the caller', async () => {
+      fetchMock.mockResolvedValue({ ok: true, status: 200 });
 
       const service = new EmailService();
       await service.send({ to: 'jane@co.com', subject: 'Test', text: 'Hello' });
 
-      expect(nodemailer.createTransport).toHaveBeenCalledWith(
-        expect.objectContaining({
-          connectionTimeout: expect.any(Number),
-          greetingTimeout: expect.any(Number),
-          socketTimeout: expect.any(Number),
-        }),
-      );
+      const options = fetchMock.mock.calls[0][1];
+      expect(options.signal).toBeInstanceOf(AbortSignal);
     });
   });
 });

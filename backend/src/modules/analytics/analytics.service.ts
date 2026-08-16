@@ -115,15 +115,34 @@ export class AnalyticsService {
 
     // `in: []` for an empty teamIds simply matches no rows — no special
     // casing needed for a manager with no reports.
-    const [attendanceToday, pendingApprovals, teamGoals] = await Promise.all([
-      this.prisma.attendanceRecord.groupBy({
-        by: ['status'],
-        where: { employeeId: { in: teamIds }, date: today },
-        _count: true,
-      }),
-      this.leaveService.listPendingApprovals(managerId),
-      this.prisma.goal.findMany({ where: { employeeId: { in: teamIds } } }),
-    ]);
+    const [attendanceToday, pendingApprovals, teamGoals, teamMembers] =
+      await Promise.all([
+        this.prisma.attendanceRecord.groupBy({
+          by: ['status'],
+          where: { employeeId: { in: teamIds }, date: today },
+          _count: true,
+        }),
+        this.leaveService.listPendingApprovals(managerId),
+        this.prisma.goal.findMany({ where: { employeeId: { in: teamIds } } }),
+        // "My Team" roster — direct + indirect reports (teamIds is the same
+        // full downward tree teamSize/attendanceToday/teamGoals already
+        // scope to), so a manager sees everyone under them, not just direct
+        // reports.
+        this.prisma.employee.findMany({
+          where: { id: { in: teamIds } },
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+            status: true,
+            photoUrl: true,
+            designation: { select: { name: true } },
+            department: { select: { name: true } },
+          },
+          orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+        }),
+      ]);
 
     const avgGoalProgress =
       teamGoals.length === 0
@@ -146,6 +165,16 @@ export class AnalyticsService {
       })),
       pendingApprovalsCount: pendingApprovals.length,
       teamGoalProgressPercent: avgGoalProgress,
+      teamMembers: teamMembers.map((m) => ({
+        id: m.id,
+        employeeCode: m.employeeCode,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        status: m.status,
+        photoUrl: m.photoUrl,
+        designation: m.designation?.name ?? null,
+        department: m.department?.name ?? null,
+      })),
     };
   }
 
@@ -263,6 +292,7 @@ export class AnalyticsService {
       label: e.label,
       fields: e.fields,
       groupableFields: e.groupableFields,
+      statusOptions: e.statusOptions,
     }));
   }
 
@@ -280,6 +310,7 @@ export class AnalyticsService {
 
     const rows = await entityDef.fetch(this.prisma, {
       departmentId: dto.departmentId,
+      locationId: dto.locationId,
       dateFrom: dto.dateFrom ? new Date(dto.dateFrom) : undefined,
       dateTo: dto.dateTo ? new Date(dto.dateTo) : undefined,
       status: dto.status,

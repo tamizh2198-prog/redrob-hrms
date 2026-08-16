@@ -43,7 +43,7 @@ export class AnalyticsController {
     const result = await this.analyticsService.buildReport(dto);
     if (!dto.format) return result;
 
-    const { buffer, contentType, extension } = exportReport(result, dto.format);
+    const { buffer, contentType, extension } = await exportReport(result, dto.format);
     return new StreamableFile(buffer, {
       type: contentType,
       disposition: `attachment; filename="${dto.entity}-report.${extension}"`,

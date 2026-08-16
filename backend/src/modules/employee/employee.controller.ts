@@ -141,6 +141,19 @@ export class EmployeeController {
     return this.employeeService.listPendingInvitations();
   }
 
+  // This task: Super Admin-only Excel export of the active roster. Same
+  // registration-order requirement as the routes above — must come before
+  // the `:id` routes below.
+  @Get('export/active')
+  @Roles(Role.SUPER_ADMIN)
+  async exportActiveEmployees() {
+    const buffer = await this.employeeService.exportActiveEmployees();
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: 'attachment; filename="active-employees.xlsx"',
+    });
+  }
+
   @Post('invite')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   inviteEmployee(

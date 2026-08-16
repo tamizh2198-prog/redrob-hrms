@@ -668,7 +668,7 @@ async function main() {
     approverId: string;
     sequence: number;
     decision: ApprovalDecision;
-    decidedAt: Date;
+    decidedAt: Date | null;
   }[] = [];
 
   for (const emp of activeEmployees) {
@@ -730,6 +730,17 @@ async function main() {
           sequence: 1,
           decision: ApprovalDecision.REJECTED,
           decidedAt: addDays(createdAt, 1),
+        });
+      } else if (status === LeaveApplicationStatus.PENDING) {
+        // This task: a PENDING application with no approval step at all is
+        // undecidable — decideLeave() throws "No pending approval step
+        // found" for any actor/role, since there's no PENDING step to match.
+        approvalStepRows.push({
+          applicationId: application.id,
+          approverId: managerOf(emp),
+          sequence: 1,
+          decision: ApprovalDecision.PENDING,
+          decidedAt: null,
         });
       }
     }

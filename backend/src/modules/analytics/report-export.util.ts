@@ -1,3 +1,5 @@
+import ExcelJS from 'exceljs';
+
 export interface ReportExportInput {
   entity: string;
   total: number;
@@ -34,32 +36,28 @@ export function toCsv(result: ReportExportInput): string {
   return lines.join('\r\n');
 }
 
-// SpreadsheetML 2003 XML — a plain-text, zero-dependency format that Excel
-// opens natively, unlike a real .xlsx (a zip of multiple XML parts) which
-// would require a library to produce correctly.
-export function toExcelXml(result: ReportExportInput): string {
+// This task: was previously hand-rolled SpreadsheetML 2003 XML served with
+// a .xls extension — Excel content-sniffs the file, notices it isn't the
+// binary format a .xls extension implies, and refuses to open it with a
+// "file format and extension don't match" error. ExcelJS is already a real
+// dependency (used by the Employee bulk-import template and active-
+// employees export), so this now produces a genuine .xlsx instead.
+export async function toRealExcel(result: ReportExportInput): Promise<Buffer> {
   const headers = result.rows.length ? Object.keys(result.rows[0]) : [];
-  const escape = (value: unknown) =>
-    formatCell(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  const cell = (value: unknown) =>
-    `<Cell><Data ss:Type="String">${escape(value)}</Data></Cell>`;
-  const headerRow = `<Row>${headers.map(cell).join('')}</Row>`;
-  const dataRows = result.rows
-    .map((row) => `<Row>${headers.map((h) => cell(row[h])).join('')}</Row>`)
-    .join('');
-  return (
-    '<?xml version="1.0"?>\n' +
-    '<?mso-application progid="Excel.Sheet"?>\n' +
-    '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" ' +
-    'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n' +
-    `<Worksheet ss:Name="${escape(result.entity) || 'Report'}">\n` +
-    `<Table>${headerRow}${dataRows}</Table>\n` +
-    '</Worksheet>\n</Workbook>'
-  );
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet((result.entity || 'Report').slice(0, 31));
+  sheet.columns = headers.map((h) => ({
+    header: h,
+    key: h,
+    width: Math.max(h.length + 2, 12),
+  }));
+  for (const row of result.rows) {
+    const values: Record<string, string> = {};
+    for (const h of headers) values[h] = formatCell(row[h]);
+    sheet.addRow(values);
+  }
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }
 
 const PDF_PAGE_WIDTH = 612;
@@ -139,10 +137,10 @@ export function toPdf(result: ReportExportInput): Buffer {
   return Buffer.from(pdf, 'latin1');
 }
 
-export function exportReport(
+export async function exportReport(
   result: ReportExportInput,
   format: ReportExportFormat,
-): { buffer: Buffer; contentType: string; extension: string } {
+): Promise<{ buffer: Buffer; contentType: string; extension: string }> {
   switch (format) {
     case 'csv':
       return {
@@ -152,9 +150,10 @@ export function exportReport(
       };
     case 'excel':
       return {
-        buffer: Buffer.from(toExcelXml(result), 'utf-8'),
-        contentType: 'application/vnd.ms-excel',
-        extension: 'xls',
+        buffer: await toRealExcel(result),
+        contentType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        extension: 'xlsx',
       };
     case 'pdf':
       return {

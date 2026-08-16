@@ -90,10 +90,12 @@ describe('AnalyticsService', () => {
 
   describe('Business Rule: a Manager dashboard never shows data outside their reporting hierarchy', () => {
     it('scopes attendance/goal queries to the recursive reports list only', async () => {
-      // mgr-1 -> emp-1 -> emp-2 (indirect report two levels down)
+      // mgr-1 -> emp-1 -> emp-2 (indirect report two levels down), then the
+      // teamMembers roster query itself (also prisma.employee.findMany).
       prisma.employee.findMany
         .mockResolvedValueOnce([{ id: 'emp-1' }])
         .mockResolvedValueOnce([{ id: 'emp-2' }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       prisma.attendanceRecord.groupBy.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
@@ -118,6 +120,7 @@ describe('AnalyticsService', () => {
       prisma.employee.findMany
         .mockResolvedValueOnce([{ id: 'direct-1' }])
         .mockResolvedValueOnce([{ id: 'indirect-1' }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       prisma.attendanceRecord.groupBy.mockResolvedValue([]);
       prisma.goal.findMany.mockResolvedValue([]);
@@ -135,6 +138,45 @@ describe('AnalyticsService', () => {
       const result = (await service.getDashboard('mgr-1', 'MANAGER')) as any;
       expect(leaveService.listPendingApprovals).toHaveBeenCalledWith('mgr-1');
       expect(result.pendingApprovalsCount).toBe(1);
+    });
+
+    it("returns the reporting-tree roster as teamMembers, for a manager's dashboard team list", async () => {
+      // mgr-1 -> emp-1 (BFS), no further reports, then the roster query.
+      prisma.employee.findMany
+        .mockResolvedValueOnce([{ id: 'emp-1' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'emp-1',
+            employeeCode: 'MNR-2026-0010',
+            firstName: 'Zara',
+            lastName: 'Pandey',
+            status: 'ACTIVE',
+            photoUrl: null,
+            designation: { name: 'Software Engineer' },
+            department: { name: 'Engineering' },
+          },
+        ]);
+      prisma.attendanceRecord.groupBy.mockResolvedValue([]);
+      prisma.goal.findMany.mockResolvedValue([]);
+
+      const result = (await service.getDashboard('mgr-1', 'MANAGER')) as any;
+
+      expect(prisma.employee.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: { id: { in: ['emp-1'] } } }),
+      );
+      expect(result.teamMembers).toEqual([
+        {
+          id: 'emp-1',
+          employeeCode: 'MNR-2026-0010',
+          firstName: 'Zara',
+          lastName: 'Pandey',
+          status: 'ACTIVE',
+          photoUrl: null,
+          designation: 'Software Engineer',
+          department: 'Engineering',
+        },
+      ]);
     });
   });
 
@@ -242,6 +284,94 @@ describe('AnalyticsService', () => {
       );
     });
 
+    it("exposes each entity's statusOptions, since Status means a different enum per entity (EmployeeStatus/AttendanceStatus/LeaveApplicationStatus/CandidateStage/AssetStatus)", () => {
+      const entities = service.listReportEntities();
+      const byKey = Object.fromEntries(entities.map((e) => [e.key, e]));
+      expect(byKey.Employee.statusOptions).toEqual(
+        expect.arrayContaining(['ACTIVE', 'ACTIVE_PROBATION', 'TERMINATED']),
+      );
+      expect(byKey.Attendance.statusOptions).toEqual(
+        expect.arrayContaining(['PRESENT', 'ABSENT', 'WFH']),
+      );
+      expect(byKey.Leave.statusOptions).toEqual(
+        expect.arrayContaining(['PENDING', 'APPROVED', 'REJECTED']),
+      );
+      expect(byKey.ATS.statusOptions).toEqual(
+        expect.arrayContaining(['APPLIED', 'HIRED']),
+      );
+      expect(byKey.Assets.statusOptions).toEqual(
+        expect.arrayContaining(['AVAILABLE', 'ISSUED']),
+      );
+    });
+
+    it('Employee: applies a locationId filter and flattens the location relation to a plain name string', async () => {
+      prisma.employee.findMany.mockResolvedValue([
+        {
+          id: 'e-1',
+          employeeCode: 'E001',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          departmentId: 'dept-1',
+          status: 'ACTIVE',
+          dateOfJoining: new Date('2024-01-01'),
+          location: { name: 'Bengaluru' },
+        },
+      ]);
+
+      const result = await service.buildReport({
+        entity: 'Employee',
+        fields: ['firstName', 'location'],
+        locationId: 'loc-1',
+      });
+
+      expect(prisma.employee.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ locationId: 'loc-1' }),
+        }),
+      );
+      expect(result.rows[0]).toEqual({
+        id: 'e-1',
+        firstName: 'Ada',
+        location: 'Bengaluru',
+      });
+    });
+
+    it('Attendance/Leave/Assets: combine departmentId and locationId into the same employee-relation filter', async () => {
+      prisma.attendanceRecord.findMany.mockResolvedValue([]);
+      await service.buildReport({
+        entity: 'Attendance',
+        departmentId: 'dept-1',
+        locationId: 'loc-1',
+      });
+      expect(prisma.attendanceRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            employee: { departmentId: 'dept-1', locationId: 'loc-1' },
+          }),
+        }),
+      );
+
+      prisma.leaveApplication.findMany.mockResolvedValue([]);
+      await service.buildReport({ entity: 'Leave', locationId: 'loc-1' });
+      expect(prisma.leaveApplication.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ employee: { locationId: 'loc-1' } }),
+        }),
+      );
+
+      prisma.asset.findMany.mockResolvedValue([]);
+      await service.buildReport({ entity: 'Assets', locationId: 'loc-1' });
+      expect(prisma.asset.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            assignments: {
+              some: { employee: { locationId: 'loc-1' }, returnedAt: null },
+            },
+          }),
+        }),
+      );
+    });
+
     it('Employee: applies department/status/date-range filters and projects only requested fields plus id', async () => {
       prisma.employee.findMany.mockResolvedValue([
         {
@@ -284,7 +414,12 @@ describe('AnalyticsService', () => {
 
     it('Attendance: filters by department via the employee relation and by status', async () => {
       prisma.attendanceRecord.findMany.mockResolvedValue([
-        { id: 'a-1', employeeId: 'e-1', date: new Date(), status: 'PRESENT' },
+        {
+          id: 'a-1',
+          date: new Date(),
+          status: 'PRESENT',
+          employee: { employeeCode: 'MNR-2026-0001', firstName: 'Ada', lastName: 'Lovelace' },
+        },
       ]);
 
       await service.buildReport({
@@ -304,10 +439,11 @@ describe('AnalyticsService', () => {
     });
 
     it('Leave: filters by start-date range and groups by status with recordIds', async () => {
+      const emp = { employeeCode: 'MNR-2026-0001', firstName: 'Ada', lastName: 'Lovelace' };
       prisma.leaveApplication.findMany.mockResolvedValue([
-        { id: 'l-1', employeeId: 'e-1', status: 'APPROVED' },
-        { id: 'l-2', employeeId: 'e-2', status: 'APPROVED' },
-        { id: 'l-3', employeeId: 'e-3', status: 'PENDING' },
+        { id: 'l-1', status: 'APPROVED', employee: emp },
+        { id: 'l-2', status: 'APPROVED', employee: emp },
+        { id: 'l-3', status: 'PENDING', employee: emp },
       ]);
 
       const result = await service.buildReport({
