@@ -70,6 +70,16 @@ function toDateDisplay(value: string | null): string {
   return value ? value.slice(0, 10) : '—'
 }
 
+// This task: Half Day Leave and Unpaid Leave are still fully tracked
+// (applications, accrual, payroll) — this only hides their balance cards
+// from this display; the underlying LeaveType rows/balances are untouched.
+const HIDDEN_BALANCE_LEAVE_TYPE_NAMES = ['Half Day Leave', 'Unpaid Leave']
+function isHiddenBalanceLeaveType(name: string) {
+  return HIDDEN_BALANCE_LEAVE_TYPE_NAMES.some(
+    (hidden) => hidden.toLowerCase() === name.trim().toLowerCase(),
+  )
+}
+
 // This task (Part 7/8): this is the ADMIN view of an employee record,
 // reached from the Employee Directory. It intentionally stays separate
 // from the employee's own "My Profile" (Auth Phase 3) — this page never
@@ -597,19 +607,21 @@ export function EmployeeDetailPage() {
         <div>
           <h3 className="mb-2 text-sm font-medium text-muted-foreground">Leave Balance / Quota</h3>
           <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-            {leaveBalances.map((b) => (
-              <div key={b.leaveType.id} className="rounded-md bg-muted px-3 py-2">
-                <div className="font-medium">{b.leaveType.name}</div>
-                <div className="text-muted-foreground">
-                  Opening: {b.balance.openingBalance} · Accrued: {b.balance.accrued}
+            {leaveBalances
+              .filter((b) => !isHiddenBalanceLeaveType(b.leaveType.name))
+              .map((b) => (
+                <div key={b.leaveType.id} className="rounded-md bg-muted px-3 py-2">
+                  <div className="font-medium">{b.leaveType.name}</div>
+                  <div className="text-muted-foreground">
+                    Opening: {b.balance.openingBalance} · Accrued: {b.balance.accrued}
+                  </div>
+                  <div className="text-muted-foreground">
+                    Used: {b.balance.used} · Carried: {b.balance.carriedForward}
+                  </div>
+                  <div className="font-medium">Available: {b.available}</div>
                 </div>
-                <div className="text-muted-foreground">
-                  Used: {b.balance.used} · Carried: {b.balance.carriedForward}
-                </div>
-                <div className="font-medium">Available: {b.available}</div>
-              </div>
-            ))}
-            {leaveBalances.length === 0 && (
+              ))}
+            {leaveBalances.filter((b) => !isHiddenBalanceLeaveType(b.leaveType.name)).length === 0 && (
               <p className="col-span-full text-muted-foreground">No leave types configured yet.</p>
             )}
           </div>
