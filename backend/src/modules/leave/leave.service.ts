@@ -94,6 +94,52 @@ export class LeaveService {
     });
   }
 
+  // Lazily creates the per-company "Comp Off" leave type on first use,
+  // rather than seeding it ahead of time — mirrors DefaultCompanyService's
+  // own getOrCreate() pattern. accrualRate/accrualFrequency are irrelevant
+  // here since isCompOff: true excludes it from runMonthlyAccrual() above.
+  private async getOrCreateCompOffLeaveType(companyId: string) {
+    const existing = await this.prisma.leaveType.findFirst({
+      where: { companyId, isCompOff: true },
+    });
+    if (existing) return existing;
+    return this.prisma.leaveType.create({
+      data: {
+        companyId,
+        name: 'Comp Off',
+        code: 'CO',
+        accrualFrequency: 'MONTHLY',
+        accrualRate: 0,
+        isCompOff: true,
+        maxCarryForward: 0,
+        isEncashable: false,
+        allowsNegativeBalance: false,
+      },
+    });
+  }
+
+  // Called by CompOffService when a comp-off request is approved — the
+  // single place LeaveBalance.accrued is touched for comp-off, same
+  // single-source-of-truth style as every other balance mutation here.
+  async creditCompOffDay(employeeId: string): Promise<void> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    const leaveType = await this.getOrCreateCompOffLeaveType(
+      employee.companyId,
+    );
+    const balance = await this.getOrCreateBalance(
+      employeeId,
+      leaveType.id,
+      new Date().getFullYear(),
+    );
+    await this.prisma.leaveBalance.update({
+      where: { id: balance.id },
+      data: { accrued: balance.accrued + 1 },
+    });
+  }
+
   async getBalances(
     employeeId: string,
     year: number,
@@ -123,8 +169,11 @@ export class LeaveService {
     const frequencies: LeaveAccrualFrequency[] = isQuarterStart
       ? [LeaveAccrualFrequency.MONTHLY, LeaveAccrualFrequency.QUARTERLY]
       : [LeaveAccrualFrequency.MONTHLY];
+    // isCompOff leave types are credited one-time by CompOffService on
+    // approval, never on this recurring cadence — excluding them here is
+    // what prevents the cron from double-crediting/clobbering them.
     const leaveTypes = await this.prisma.leaveType.findMany({
-      where: { accrualFrequency: { in: frequencies } },
+      where: { accrualFrequency: { in: frequencies }, isCompOff: false },
     });
     const employees = await this.prisma.employee.findMany({
       where: { status: { in: ['ACTIVE', 'ACTIVE_PROBATION'] } },

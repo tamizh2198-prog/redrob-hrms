@@ -20,20 +20,36 @@ import {
   getRoster,
   getHybridSchedule,
   setHybridSchedule,
+  myWfoWfhRequests,
+  pendingWfoWfhRequestsForMe,
+  decideWfoWfhRequest,
+  listAllWfoWfhRequests,
+  addWfoWfhComment,
+  listWfoWfhComments,
   type Shift,
   type RosterEntry,
+  type WfoWfhRequest,
+  type WfoWfhComment,
 } from '../api'
 import { BulkWfoUploadDialog } from '../components/BulkWfoUploadDialog'
+import { WfoWfhRequestDialog } from '../components/WfoWfhRequestDialog'
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function ShiftPage() {
   const { user } = useAuth()
   const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [myRoster, setMyRoster] = useState<RosterEntry[]>([])
   const [employees, setEmployees] = useState<ManagerOption[]>([])
+
+  const [myWfoWfh, setMyWfoWfh] = useState<WfoWfhRequest[]>([])
+  const [pendingWfoWfh, setPendingWfoWfh] = useState<WfoWfhRequest[]>([])
+  const [allWfoWfh, setAllWfoWfh] = useState<WfoWfhRequest[]>([])
+  const [wfoWfhComments, setWfoWfhComments] = useState<Record<string, WfoWfhComment[]>>({})
+  const [newCommentBody, setNewCommentBody] = useState<Record<string, string>>({})
 
   const [newShiftName, setNewShiftName] = useState('')
   const [newShiftStart, setNewShiftStart] = useState('10:00')
@@ -61,6 +77,11 @@ export function ShiftPage() {
       getRoster(user.id, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10))
         .then(setMyRoster)
         .catch(() => setMyRoster([]))
+    }
+    myWfoWfhRequests().then(setMyWfoWfh).catch(() => setMyWfoWfh([]))
+    pendingWfoWfhRequestsForMe().then(setPendingWfoWfh).catch(() => setPendingWfoWfh([]))
+    if (isSuperAdmin) {
+      listAllWfoWfhRequests().then(setAllWfoWfh).catch(() => setAllWfoWfh([]))
     }
   }
 
@@ -134,6 +155,43 @@ export function ShiftPage() {
     }
   }
 
+  async function handleWfoWfhDecision(id: string, approve: boolean) {
+    setError(null)
+    try {
+      await decideWfoWfhRequest(id, approve)
+      setPendingWfoWfh((prev) => prev.filter((r) => r.id !== id))
+      refresh()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to record decision')
+    }
+  }
+
+  async function loadWfoWfhComments(id: string) {
+    try {
+      const comments = await listWfoWfhComments(id)
+      setWfoWfhComments((prev) => ({ ...prev, [id]: comments }))
+    } catch {
+      // Not the assigned approver/privileged — nothing to show.
+    }
+  }
+
+  async function handleAddWfoWfhComment(id: string) {
+    const body = newCommentBody[id]
+    if (!body) return
+    setError(null)
+    try {
+      await addWfoWfhComment(id, body)
+      setNewCommentBody((prev) => ({ ...prev, [id]: '' }))
+      loadWfoWfhComments(id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to add comment')
+    }
+  }
+
+  function wfoWfhRequestLabel(r: WfoWfhRequest) {
+    return `${r.originalDate.slice(0, 10)} → ${r.requestedWorkMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'} (comp: ${r.compensatoryDate.slice(0, 10)} → ${r.compensatoryWorkMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'})`
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Shift &amp; Roster</h1>
@@ -157,6 +215,115 @@ export function ShiftPage() {
           {myRoster.length === 0 && <p className="text-muted-foreground">No roster entries yet.</p>}
         </ul>
       </div>
+
+      <div className="rounded-md border p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-medium">WFO/WFH Change Requests</h2>
+          <WfoWfhRequestDialog onSubmitted={refresh} />
+        </div>
+        <ul className="flex flex-col gap-2 text-sm">
+          {myWfoWfh.map((r) => (
+            <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
+              <span>{wfoWfhRequestLabel(r)}</span>
+              <Badge
+                variant={
+                  r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
+                }
+              >
+                {r.status}
+              </Badge>
+            </li>
+          ))}
+          {myWfoWfh.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
+        </ul>
+      </div>
+
+      {pendingWfoWfh.length > 0 && (
+        <div className="rounded-md border p-4">
+          <h2 className="mb-2 font-medium">Pending WFO/WFH Requests to Decide</h2>
+          <ul className="flex flex-col gap-3 text-sm">
+            {pendingWfoWfh.map((r) => (
+              <li key={r.id} className="rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">
+                      {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                    </div>
+                    <div className="text-muted-foreground">{wfoWfhRequestLabel(r)}</div>
+                    <div className="text-muted-foreground">Reason: {r.reason}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleWfoWfhDecision(r.id, true)}>
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => handleWfoWfhDecision(r.id, false)}>
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+                {wfoWfhComments[r.id] === undefined ? (
+                  <Button
+                    className="mt-2 h-auto p-0 text-xs"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => loadWfoWfhComments(r.id)}
+                  >
+                    Show Super Admin comments
+                  </Button>
+                ) : (
+                  <ul className="mt-2 flex flex-col gap-1 border-t pt-2 text-xs text-muted-foreground">
+                    {wfoWfhComments[r.id].map((c) => (
+                      <li key={c.id}>{c.body}</li>
+                    ))}
+                    {wfoWfhComments[r.id].length === 0 && <li>No comments yet.</li>}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {isSuperAdmin && (
+        <div className="rounded-md border p-4">
+          <h2 className="mb-2 font-medium">All WFO/WFH Requests (Super Admin)</h2>
+          <ul className="flex flex-col gap-3 text-sm">
+            {allWfoWfh.map((r) => (
+              <li key={r.id} className="rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">
+                      {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                    </div>
+                    <div className="text-muted-foreground">{wfoWfhRequestLabel(r)}</div>
+                  </div>
+                  <Badge
+                    variant={
+                      r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
+                    }
+                  >
+                    {r.status}
+                  </Badge>
+                </div>
+                <div className="mt-2 flex gap-2 border-t pt-2">
+                  <Input
+                    className="h-8 text-xs"
+                    placeholder="Comment for the manager…"
+                    value={newCommentBody[r.id] ?? ''}
+                    onChange={(e) =>
+                      setNewCommentBody((prev) => ({ ...prev, [r.id]: e.target.value }))
+                    }
+                  />
+                  <Button size="sm" variant="outline" onClick={() => handleAddWfoWfhComment(r.id)}>
+                    Add Comment
+                  </Button>
+                </div>
+              </li>
+            ))}
+            {allWfoWfh.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
+          </ul>
+        </div>
+      )}
 
       {isHrAdmin && (
         <>

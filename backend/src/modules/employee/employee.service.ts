@@ -64,8 +64,11 @@ const EMPLOYEE_OWNED_MODELS = [
   'optionalHolidaySelection',
   'attendanceRecord',
   'regularizationRequest',
+  'overtimeClaim',
+  'wfoWfhChangeRequest',
   'leaveBalance',
   'leaveApplication',
+  'compOffRequest',
   'onboardingChecklist',
   'preboardingSubmission',
   'assetAssignment',
@@ -98,6 +101,10 @@ const NULLABLE_EMPLOYEE_REFERENCES: ReadonlyArray<{
   { model: 'ticket', field: 'assignedAgentId' },
   { model: 'shiftSwapRequest', field: 'approverId' },
   { model: 'regularizationRequest', field: 'approverId' },
+  { model: 'overtimeClaim', field: 'approverId' },
+  { model: 'overtimeClaim', field: 'managerApproverId' },
+  { model: 'wfoWfhChangeRequest', field: 'approverId' },
+  { model: 'compOffRequest', field: 'approverId' },
 ];
 
 // 3. Required (NOT NULL) references to genuine business records with
@@ -167,6 +174,11 @@ const BLOCKING_EMPLOYEE_REFERENCES: ReadonlyArray<{
     model: 'workflowApprovalDecision',
     field: 'approverId',
     label: 'workflow approval decision (as approver)',
+  },
+  {
+    model: 'superAdminRequestComment',
+    field: 'authorId',
+    label: 'super admin comment on a work request',
   },
 ];
 

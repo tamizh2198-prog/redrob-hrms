@@ -27,6 +27,7 @@ import {
 } from '@/modules/employee/api'
 import { listCalendar, type Holiday } from '@/modules/holiday/api'
 import { listAnnouncements, ackAnnouncement, type Announcement } from '@/modules/announcements/api'
+import { CompOffCard } from '@/modules/leave/components/CompOffCard'
 
 // This task: a simple landing page, separate from Analytics — the
 // role-specific content here is just a placeholder message, not a
@@ -50,6 +51,7 @@ export function DashboardPage() {
       <WelcomeBanner name={user?.name} role={user?.role} />
       <HighPriorityAnnouncements />
       {user?.role === 'MANAGER' && <MyTeamCard />}
+      <CompOffCard />
       <Card>
         <CardHeader>
           <CardTitle>Getting Started</CardTitle>

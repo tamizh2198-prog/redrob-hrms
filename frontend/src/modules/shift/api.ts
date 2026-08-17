@@ -25,6 +25,27 @@ export interface HybridSchedule {
   officeWeekdays: number[]
 }
 
+export interface WfoWfhRequest {
+  id: string
+  employeeId: string
+  employee?: { firstName: string; lastName: string; employeeCode: string }
+  originalDate: string
+  requestedWorkMode: 'OFFICE' | 'WORK_FROM_HOME'
+  compensatoryDate: string
+  compensatoryWorkMode: 'OFFICE' | 'WORK_FROM_HOME'
+  reason: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  approverId: string | null
+  createdAt: string
+}
+
+export interface WfoWfhComment {
+  id: string
+  authorId: string
+  body: string
+  createdAt: string
+}
+
 export function listShifts() {
   return api<Shift[]>('/shifts')
 }
@@ -103,6 +124,45 @@ export async function bulkUploadWfoSchedule(file: File, dryRun: boolean) {
     throw new ApiError(body.message ?? 'Bulk upload failed', res.status)
   }
   return res.json() as Promise<BulkWfoUploadResult>
+}
+
+export function submitWfoWfhRequest(data: {
+  originalDate: string
+  requestedWorkMode: 'OFFICE' | 'WORK_FROM_HOME'
+  compensatoryDate: string
+  reason: string
+}) {
+  return api<WfoWfhRequest>('/wfo-wfh-requests', { method: 'POST', body: data })
+}
+
+export function myWfoWfhRequests() {
+  return api<WfoWfhRequest[]>('/wfo-wfh-requests/mine')
+}
+
+export function pendingWfoWfhRequestsForMe() {
+  return api<WfoWfhRequest[]>('/wfo-wfh-requests/pending-for-me')
+}
+
+export function decideWfoWfhRequest(id: string, approve: boolean, comment?: string) {
+  return api<{ status: string }>(`/wfo-wfh-requests/${id}/decision`, {
+    method: 'POST',
+    body: { approve, comment },
+  })
+}
+
+export function listAllWfoWfhRequests(status?: string) {
+  return api<WfoWfhRequest[]>('/wfo-wfh-requests', { params: status ? { status } : undefined })
+}
+
+export function addWfoWfhComment(id: string, body: string) {
+  return api<WfoWfhComment>(`/wfo-wfh-requests/${id}/comments`, {
+    method: 'POST',
+    body: { body },
+  })
+}
+
+export function listWfoWfhComments(id: string) {
+  return api<WfoWfhComment[]>(`/wfo-wfh-requests/${id}/comments`)
 }
 
 export async function downloadWfoTemplate() {

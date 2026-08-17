@@ -1,4 +1,6 @@
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
 
 export type AttendanceStatus =
   | 'PRESENT'
@@ -72,6 +74,31 @@ export interface RegularizationRequest {
   createdAt: string
 }
 
+// Two-stage approval: the assigned manager (approverId) decides first — a
+// reject there is terminal. An approval moves the claim to
+// PENDING_SUPER_ADMIN, where any Super Admin gives the final decision.
+export type OvertimeClaimStatus = 'PENDING_MANAGER' | 'PENDING_SUPER_ADMIN' | 'APPROVED' | 'REJECTED'
+
+export interface OvertimeClaim {
+  id: string
+  employeeId: string
+  employee?: { firstName: string; lastName: string; employeeCode: string }
+  date: string
+  hoursClaimed: number
+  reason: string
+  status: OvertimeClaimStatus
+  approverId: string | null
+  managerApproverId: string | null
+  createdAt: string
+}
+
+export interface RequestComment {
+  id: string
+  authorId: string
+  body: string
+  createdAt: string
+}
+
 export function punch(type: 'IN' | 'OUT') {
   return api<{ status: AttendanceStatus }>('/attendance/punch', {
     method: 'POST',
@@ -118,6 +145,95 @@ export function importBiometric(rows: Array<Record<string, string>>) {
     unmatchedCount: number
     unmatched: Array<{ employeeCode: string; date: string }>
   }>('/attendance/import', { method: 'POST', body: { rows } })
+}
+
+// Excel counterpart to importBiometric() above — bypasses the shared api()
+// helper (which always JSON-encodes the body) since this sends a real file
+// as multipart form data, same reasoning as employee/api.ts's
+// bulkImportEmployeesFromFile().
+export async function importBiometricFromFile(file: File) {
+  const token = localStorage.getItem('accessToken')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_URL}/attendance/import/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }))
+    throw new ApiError(body.message ?? 'Biometric import failed', res.status)
+  }
+  return res.json() as Promise<{
+    totalRows: number
+    matchedCount: number
+    unmatchedCount: number
+    unmatched: Array<{ employeeCode: string; date: string }>
+  }>
+}
+
+export async function downloadBiometricImportTemplate() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/attendance/import/template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download template', res.status)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'biometric-import-template.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+export function submitOvertimeClaim(data: { date: string; hoursClaimed: number; reason: string }) {
+  return api<OvertimeClaim>('/attendance/overtime', { method: 'POST', body: data })
+}
+
+export function myOvertimeClaims(employeeId: string) {
+  return api<OvertimeClaim[]>('/attendance/overtime', { params: { employeeId } })
+}
+
+// Claims awaiting the assigned manager's decision (stage 1).
+export function pendingOvertimeForMe(approverId: string) {
+  return api<OvertimeClaim[]>('/attendance/overtime', {
+    params: { approverId, status: 'PENDING_MANAGER' },
+  })
+}
+
+// Claims the manager already approved, awaiting final Super Admin sign-off
+// (stage 2) — company-wide, not approverId-scoped, since any Super Admin
+// can act.
+export function pendingSuperAdminOvertime() {
+  return api<OvertimeClaim[]>('/attendance/overtime/pending-super-admin')
+}
+
+export function decideOvertimeClaim(id: string, approve: boolean, comment?: string) {
+  return api<{ status: string }>(`/attendance/overtime/${id}/decision`, {
+    method: 'POST',
+    body: { approve, comment },
+  })
+}
+
+export function listAllOvertimeClaims(status?: string) {
+  return api<OvertimeClaim[]>('/attendance/overtime/all', {
+    params: status ? { status } : undefined,
+  })
+}
+
+export function addOvertimeComment(id: string, body: string) {
+  return api<RequestComment>(`/attendance/overtime/${id}/comments`, {
+    method: 'POST',
+    body: { body },
+  })
+}
+
+export function listOvertimeComments(id: string) {
+  return api<RequestComment[]>(`/attendance/overtime/${id}/comments`)
 }
 
 export function lockMonth(year: number, month: number) {

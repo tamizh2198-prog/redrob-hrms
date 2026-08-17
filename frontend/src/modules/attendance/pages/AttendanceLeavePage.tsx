@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Pencil, Upload, CalendarPlus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, Upload, CalendarPlus, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -36,6 +36,14 @@ import {
   listRegularizations,
   decideRegularization,
   importBiometric,
+  importBiometricFromFile,
+  downloadBiometricImportTemplate,
+  pendingOvertimeForMe,
+  pendingSuperAdminOvertime,
+  decideOvertimeClaim,
+  listAllOvertimeClaims,
+  addOvertimeComment,
+  listOvertimeComments,
   lockMonth,
   ATTENDANCE_STATUS_COLOR,
   formatDuration,
@@ -43,8 +51,11 @@ import {
   type CalendarDay,
   type CalendarDayStatus,
   type RegularizationRequest,
+  type OvertimeClaim,
+  type RequestComment as AttendanceRequestComment,
 } from '../api'
 import { RegularizeDialog } from '../components/RegularizeDialog'
+import { OvertimeClaimDialog } from '../components/OvertimeClaimDialog'
 import {
   listLeaveTypes,
   createLeaveType,
@@ -55,24 +66,22 @@ import {
   myApplications,
   pendingApprovals,
   isHalfDayApplication,
+  pendingCompOffForMe,
+  decideCompOff,
+  listAllCompOffRequests,
+  addCompOffComment,
+  listCompOffComments,
   type LeaveType,
   type LeaveBalanceEntry,
   type LeaveApplication,
+  type CompOffRequest,
+  type RequestComment,
 } from '@/modules/leave/api'
 import { getDashboard, type Dashboard } from '@/modules/analytics/api'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
-]
-
-const SAMPLE_BIOMETRIC_ROWS = [
-  {
-    employeeCode: 'EMP-2026-0001',
-    date: '2026-08-06',
-    checkInTime: '2026-08-06T09:00:00',
-    checkOutTime: '2026-08-06T18:00:00',
-  },
 ]
 
 function todayIso() {
@@ -140,8 +149,14 @@ export function AttendanceLeavePage() {
   const [punching, setPunching] = useState(false)
 
   const [pendingRegularizations, setPendingRegularizations] = useState<RegularizationRequest[]>([])
+  const [pendingOvertime, setPendingOvertime] = useState<OvertimeClaim[]>([])
+  const [pendingSuperAdminOT, setPendingSuperAdminOT] = useState<OvertimeClaim[]>([])
+  const [allOvertime, setAllOvertime] = useState<OvertimeClaim[]>([])
+  const [overtimeComments, setOvertimeComments] = useState<Record<string, AttendanceRequestComment[]>>({})
+  const [newOvertimeComment, setNewOvertimeComment] = useState<Record<string, string>>({})
 
   const [importRaw, setImportRaw] = useState('')
+  const [importFile, setImportFile] = useState<File | null>(null)
   const [importFileName, setImportFileName] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -152,6 +167,11 @@ export function AttendanceLeavePage() {
   const [myApps, setMyApps] = useState<LeaveApplication[]>([])
   const [pendingApprovalsList, setPendingApprovalsList] = useState<LeaveApplication[]>([])
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+
+  const [pendingCompOff, setPendingCompOff] = useState<CompOffRequest[]>([])
+  const [allCompOff, setAllCompOff] = useState<CompOffRequest[]>([])
+  const [compOffComments, setCompOffComments] = useState<Record<string, RequestComment[]>>({})
+  const [newCompOffComment, setNewCompOffComment] = useState<Record<string, string>>({})
 
   const [leaveTypeId, setLeaveTypeId] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -201,6 +221,15 @@ export function AttendanceLeavePage() {
       .catch(() => setPendingRegularizations([]))
   }
 
+  function loadPendingOvertime() {
+    if (!user) return
+    pendingOvertimeForMe(user.id).then(setPendingOvertime).catch(() => setPendingOvertime([]))
+    if (isSuperAdmin) {
+      listAllOvertimeClaims().then(setAllOvertime).catch(() => setAllOvertime([]))
+      pendingSuperAdminOvertime().then(setPendingSuperAdminOT).catch(() => setPendingSuperAdminOT([]))
+    }
+  }
+
   // This task: awaitable (was fire-and-forget) so callers like
   // handleLeaveDecision can be sure the pending list/history/balance have
   // actually finished refreshing with server-confirmed state before
@@ -213,9 +242,11 @@ export function AttendanceLeavePage() {
       getBalances(user.id).then(setBalances).catch(() => setBalances([])),
       myApplications().then(setMyApps).catch(() => setMyApps([])),
       pendingApprovals().then(setPendingApprovalsList).catch(() => setPendingApprovalsList([])),
+      pendingCompOffForMe().then(setPendingCompOff).catch(() => setPendingCompOff([])),
     ]
     if (isSuperAdmin) {
       tasks.push(getDashboard().then(setDashboard).catch(() => setDashboard(null)))
+      tasks.push(listAllCompOffRequests().then(setAllCompOff).catch(() => setAllCompOff([])))
     }
     await Promise.all(tasks)
   }
@@ -233,6 +264,7 @@ export function AttendanceLeavePage() {
 
   useEffect(() => {
     loadPendingRegularizations()
+    loadPendingOvertime()
     loadLeave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
@@ -262,27 +294,70 @@ export function AttendanceLeavePage() {
     loadCalendar()
   }
 
-  function loadFileIntoImportRaw(file: File) {
-    const reader = new FileReader()
-    reader.onload = () => {
-      setImportRaw(String(reader.result ?? ''))
-      setImportFileName(file.name)
+  async function handleOvertimeDecision(id: string, approve: boolean) {
+    await decideOvertimeClaim(id, approve)
+    setPendingOvertime((p) => p.filter((c) => c.id !== id))
+    setPendingSuperAdminOT((p) => p.filter((c) => c.id !== id))
+    loadPendingOvertime()
+  }
+
+  async function loadOvertimeComments(id: string) {
+    try {
+      const comments = await listOvertimeComments(id)
+      setOvertimeComments((prev) => ({ ...prev, [id]: comments }))
+    } catch {
+      // Not the assigned approver/privileged — nothing to show.
     }
+  }
+
+  async function handleAddOvertimeComment(id: string) {
+    const body = newOvertimeComment[id]
+    if (!body) return
+    try {
+      await addOvertimeComment(id, body)
+      setNewOvertimeComment((prev) => ({ ...prev, [id]: '' }))
+      loadOvertimeComments(id)
+    } catch (err) {
+      setAttError(err instanceof ApiError ? err.message : 'Failed to add comment')
+    }
+  }
+
+  function loadImportFile(file: File) {
+    setImportFile(file)
+    setImportFileName(file.name)
+    setImportResult(null)
+    if (file.name.toLowerCase().endsWith('.xlsx')) {
+      setImportRaw('')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setImportRaw(String(reader.result ?? ''))
     reader.readAsText(file)
   }
 
   async function handleImport() {
     setAttError(null)
     try {
-      const rows = JSON.parse(importRaw || '[]')
-      const res = await importBiometric(rows)
+      const res =
+        importFile && importFile.name.toLowerCase().endsWith('.xlsx')
+          ? await importBiometricFromFile(importFile)
+          : await importBiometric(JSON.parse(importRaw || '[]'))
       setImportResult(
         `${res.matchedCount}/${res.totalRows} matched. Unmatched: ${
           res.unmatched.map((u) => u.employeeCode).join(', ') || 'none'
         }`,
       )
     } catch (err) {
-      setAttError(err instanceof Error ? err.message : 'Import failed')
+      setAttError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Import failed')
+    }
+  }
+
+  async function handleDownloadSample() {
+    setAttError(null)
+    try {
+      await downloadBiometricImportTemplate()
+    } catch (err) {
+      setAttError(err instanceof ApiError ? err.message : 'Failed to download sample')
     }
   }
 
@@ -355,6 +430,42 @@ export function AttendanceLeavePage() {
     loadLeave()
   }
 
+  async function handleCompOffDecision(id: string, approve: boolean) {
+    setDecidingId(id)
+    setLeaveError(null)
+    setLeaveMessage(null)
+    try {
+      await decideCompOff(id, approve)
+      await loadLeave()
+      setLeaveMessage(approve ? 'Comp-off request approved.' : 'Comp-off request rejected.')
+    } catch (err) {
+      setLeaveError(err instanceof ApiError ? err.message : 'Failed to record decision')
+    } finally {
+      setDecidingId(null)
+    }
+  }
+
+  async function loadCompOffComments(id: string) {
+    try {
+      const comments = await listCompOffComments(id)
+      setCompOffComments((prev) => ({ ...prev, [id]: comments }))
+    } catch {
+      // Not the assigned approver/privileged — nothing to show.
+    }
+  }
+
+  async function handleAddCompOffComment(id: string) {
+    const body = newCompOffComment[id]
+    if (!body) return
+    try {
+      await addCompOffComment(id, body)
+      setNewCompOffComment((prev) => ({ ...prev, [id]: '' }))
+      loadCompOffComments(id)
+    } catch (err) {
+      setLeaveError(err instanceof ApiError ? err.message : 'Failed to add comment')
+    }
+  }
+
   async function handleCreateType() {
     setLeaveError(null)
     try {
@@ -384,10 +495,6 @@ export function AttendanceLeavePage() {
   function countFor(status: string) {
     return attendanceToday.find((a) => a.status === status)?.count ?? 0
   }
-
-  const sampleHref = `data:application/json;charset=utf-8,${encodeURIComponent(
-    JSON.stringify(SAMPLE_BIOMETRIC_ROWS, null, 2),
-  )}`
 
   return (
     <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-start">
@@ -528,18 +635,30 @@ export function AttendanceLeavePage() {
                             ? `${d.regularization.status}: ${d.regularization.reason}`
                             : '—'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="flex gap-1">
                           {!isFutureDay && (
-                            <RegularizeDialog
-                              date={d.date}
-                              currentStatus={d.status}
-                              onSubmitted={loadCalendar}
-                              trigger={
-                                <Button size="icon-sm" variant="ghost" aria-label="Regularize">
-                                  <Pencil />
-                                </Button>
-                              }
-                            />
+                            <>
+                              <RegularizeDialog
+                                date={d.date}
+                                currentStatus={d.status}
+                                onSubmitted={loadCalendar}
+                                trigger={
+                                  <Button size="icon-sm" variant="ghost" aria-label="Regularize">
+                                    <Pencil />
+                                  </Button>
+                                }
+                              />
+                              <OvertimeClaimDialog
+                                date={d.date}
+                                currentOvertimeHours={null}
+                                onSubmitted={loadPendingOvertime}
+                                trigger={
+                                  <Button size="icon-sm" variant="ghost" aria-label="Claim overtime">
+                                    <Clock />
+                                  </Button>
+                                }
+                              />
+                            </>
                           )}
                         </TableCell>
                       </TableRow>
@@ -583,7 +702,129 @@ export function AttendanceLeavePage() {
               </ul>
             </PanelSection>
           )}
+
+          {pendingOvertime.length > 0 && (
+            <PanelSection>
+              <h2 className="mb-2 font-medium">Pending OT Claims to Decide (Manager)</h2>
+              <ul className="flex flex-col gap-3 text-sm">
+                {pendingOvertime.map((c) => (
+                  <li key={c.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">
+                          {c.employee ? `${c.employee.firstName} ${c.employee.lastName}` : c.employeeId}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {c.date.slice(0, 10)} — {c.hoursClaimed}h: {c.reason}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => handleOvertimeDecision(c.id, true)}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleOvertimeDecision(c.id, false)}>
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                    {overtimeComments[c.id] === undefined ? (
+                      <Button
+                        className="mt-2 h-auto p-0 text-xs"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => loadOvertimeComments(c.id)}
+                      >
+                        Show Super Admin comments
+                      </Button>
+                    ) : (
+                      <ul className="mt-2 flex flex-col gap-1 border-t pt-2 text-xs text-muted-foreground">
+                        {overtimeComments[c.id].map((cm) => (
+                          <li key={cm.id}>{cm.body}</li>
+                        ))}
+                        {overtimeComments[c.id].length === 0 && <li>No comments yet.</li>}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </PanelSection>
+          )}
+
+          {isSuperAdmin && pendingSuperAdminOT.length > 0 && (
+            <PanelSection>
+              <h2 className="mb-2 font-medium">Pending OT Claims — Final Approval (Super Admin)</h2>
+              <ul className="flex flex-col gap-3 text-sm">
+                {pendingSuperAdminOT.map((c) => (
+                  <li key={c.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">
+                          {c.employee ? `${c.employee.firstName} ${c.employee.lastName}` : c.employeeId}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {c.date.slice(0, 10)} — {c.hoursClaimed}h: {c.reason} (manager-approved)
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => handleOvertimeDecision(c.id, true)}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleOvertimeDecision(c.id, false)}>
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </PanelSection>
+          )}
         </Panel>
+
+        {isSuperAdmin && (
+          <Panel>
+            <PanelSection>
+              <h2 className="mb-2 font-medium">All OT Claims (Super Admin)</h2>
+              <ul className="flex flex-col gap-3 text-sm">
+                {allOvertime.map((c) => (
+                  <li key={c.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">
+                          {c.employee ? `${c.employee.firstName} ${c.employee.lastName}` : c.employeeId}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {c.date.slice(0, 10)} — {c.hoursClaimed}h: {c.reason}
+                        </div>
+                      </div>
+                      <Badge
+                        variant={
+                          c.status === 'APPROVED' ? 'default' : c.status === 'REJECTED' ? 'destructive' : 'outline'
+                        }
+                      >
+                        {c.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex gap-2 border-t pt-2">
+                      <Input
+                        className="h-8 text-xs"
+                        placeholder="Comment for the manager…"
+                        value={newOvertimeComment[c.id] ?? ''}
+                        onChange={(e) =>
+                          setNewOvertimeComment((prev) => ({ ...prev, [c.id]: e.target.value }))
+                        }
+                      />
+                      <Button size="sm" variant="outline" onClick={() => handleAddOvertimeComment(c.id)}>
+                        Add Comment
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+                {allOvertime.length === 0 && <p className="text-muted-foreground">No claims yet.</p>}
+              </ul>
+            </PanelSection>
+          </Panel>
+        )}
 
         {(leaveMessage || leaveError) && (
           <div>
@@ -776,7 +1017,108 @@ export function AttendanceLeavePage() {
             </PanelSection>
           )}
 
+          {pendingCompOff.length > 0 && (
+            <PanelSection>
+              <h2 className="mb-2 font-medium">Pending Comp-Off Requests to Decide</h2>
+              <ul className="flex flex-col gap-3 text-sm">
+                {pendingCompOff.map((r) => (
+                  <li key={r.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">
+                          {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                        </div>
+                        <div className="text-muted-foreground">
+                          Worked {r.workedDate.slice(0, 10)} — {r.reason}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          disabled={decidingId === r.id}
+                          onClick={() => handleCompOffDecision(r.id, true)}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={decidingId === r.id}
+                          onClick={() => handleCompOffDecision(r.id, false)}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                    {compOffComments[r.id] === undefined ? (
+                      <Button
+                        className="mt-2 h-auto p-0 text-xs"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => loadCompOffComments(r.id)}
+                      >
+                        Show Super Admin comments
+                      </Button>
+                    ) : (
+                      <ul className="mt-2 flex flex-col gap-1 border-t pt-2 text-xs text-muted-foreground">
+                        {compOffComments[r.id].map((c) => (
+                          <li key={c.id}>{c.body}</li>
+                        ))}
+                        {compOffComments[r.id].length === 0 && <li>No comments yet.</li>}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </PanelSection>
+          )}
+
         </Panel>
+
+        {isSuperAdmin && (
+          <Panel>
+            <PanelSection>
+              <h2 className="mb-2 font-medium">All Comp-Off Requests (Super Admin)</h2>
+              <ul className="flex flex-col gap-3 text-sm">
+                {allCompOff.map((r) => (
+                  <li key={r.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">
+                          {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                        </div>
+                        <div className="text-muted-foreground">
+                          Worked {r.workedDate.slice(0, 10)} — {r.reason}
+                        </div>
+                      </div>
+                      <Badge
+                        variant={
+                          r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
+                        }
+                      >
+                        {r.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex gap-2 border-t pt-2">
+                      <Input
+                        className="h-8 text-xs"
+                        placeholder="Comment for the manager…"
+                        value={newCompOffComment[r.id] ?? ''}
+                        onChange={(e) =>
+                          setNewCompOffComment((prev) => ({ ...prev, [r.id]: e.target.value }))
+                        }
+                      />
+                      <Button size="sm" variant="outline" onClick={() => handleAddCompOffComment(r.id)}>
+                        Add Comment
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+                {allCompOff.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
+              </ul>
+            </PanelSection>
+          </Panel>
+        )}
 
         {isHrAdmin && (
           <Panel>
@@ -833,10 +1175,10 @@ export function AttendanceLeavePage() {
 
         {/* Biometric Attendance: kept at the very bottom — an infrequent
             HR/Admin tool, not part of the daily employee flow above. Still
-            calls the exact same importBiometric(rows)/lockMonth() APIs —
-            only the input affordance changed from a raw textarea to a
-            drop-zone that reads the chosen/dropped file's text into the
-            same importRaw state. */}
+            calls the exact same importBiometric(rows)/lockMonth() APIs for a
+            JSON file — an .xlsx file instead goes straight to the multipart
+            importBiometricFromFile() upload, matching the sample workbook
+            Download Sample now produces. */}
         {isHrAdmin && (
           <Panel>
             <PanelSection>
@@ -856,42 +1198,43 @@ export function AttendanceLeavePage() {
                     e.preventDefault()
                     setDragOver(false)
                     const file = e.dataTransfer.files?.[0]
-                    if (file) loadFileIntoImportRaw(file)
+                    if (file) loadImportFile(file)
                   }}
                 >
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".json,application/json"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.json,application/json"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0]
-                      if (file) loadFileIntoImportRaw(file)
+                      if (file) loadImportFile(file)
                     }}
                   />
                   <Upload className="mb-1 size-5 text-muted-foreground" />
                   <div className="font-medium">Upload Biometric File</div>
                   <div className="text-xs text-muted-foreground">
-                    Drag &amp; drop your file here, or click to browse (JSON)
+                    Drag &amp; drop your file here, or click to browse (Excel or JSON)
                   </div>
                   {importFileName && (
                     <div className="mt-1 text-xs text-foreground">Selected: {importFileName}</div>
                   )}
                 </div>
                 <div className="flex flex-col gap-2 sm:w-40">
-                  <Button variant="outline" onClick={handleImport} disabled={!importRaw}>
+                  <Button variant="outline" onClick={handleImport} disabled={!importFile}>
                     Import
                   </Button>
                   <Button variant="outline" onClick={handleLock}>
                     Lock {month}/{year}
                   </Button>
-                  <a
-                    href={sampleHref}
-                    download="biometric-sample.json"
-                    className="text-center text-xs text-muted-foreground underline underline-offset-2"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDownloadSample}
+                    className="h-auto p-0 text-xs font-normal text-muted-foreground underline underline-offset-2"
                   >
                     Download Sample
-                  </a>
+                  </Button>
                 </div>
               </div>
               {importResult && <p className="mt-2 text-sm">{importResult}</p>}

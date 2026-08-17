@@ -623,7 +623,7 @@ describe('LeaveService', () => {
       const result = await service.runMonthlyAccrual(2026, 5); // May, not a quarter start
 
       expect(prisma.leaveType.findMany).toHaveBeenCalledWith({
-        where: { accrualFrequency: { in: ['MONTHLY'] } },
+        where: { accrualFrequency: { in: ['MONTHLY'] }, isCompOff: false },
       });
       expect(result.accrualsRun).toBe(0);
     });

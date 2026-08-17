@@ -267,9 +267,13 @@ model Employee {
   shiftSwapRequestsReceived  ShiftSwapRequest[]         @relation("SwapCounterpart")
   attendanceRecords          AttendanceRecord[]
   regularizationRequests     RegularizationRequest[]
+  overtimeClaims             OvertimeClaim[]
+  wfoWfhRequests             WfoWfhChangeRequest[]
   leaveBalances              LeaveBalance[]
   leaveApplications          LeaveApplication[]
+  compOffRequests            CompOffRequest[]
   optionalHolidaySelections  OptionalHolidaySelection[]
+  superAdminRequestComments  SuperAdminRequestComment[]
 
   requisitionsAsHiringManager  JobRequisition[]        @relation("RequisitionHiringManager")
   interviewRoundsAsInterviewer InterviewRound[]        @relation("InterviewerRounds")
@@ -488,6 +492,37 @@ model ShiftSwapRequest {
   createdAt     DateTime        @default(now())
 }
 
+enum WfoWfhRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Employee-initiated work-mode swap: originalDate -> requestedWorkMode, and
+// in exchange compensatoryDate -> the opposite mode (WorkMode only has two
+// values, so compensatoryWorkMode is always deterministic — recomputed
+// server-side at submit time, never trusted from the client). Approving
+// flips RosterEntry.workMode on both dates in one transaction.
+model WfoWfhChangeRequest {
+  id                   String              @id @default(uuid())
+  employeeId           String
+  employee             Employee            @relation(fields: [employeeId], references: [id])
+  originalDate         DateTime
+  requestedWorkMode    WorkMode
+  compensatoryDate     DateTime
+  compensatoryWorkMode WorkMode
+  reason               String
+  status               WfoWfhRequestStatus @default(PENDING)
+  // Loose string, not a Prisma relation — same shape as
+  // RegularizationRequest.approverId/ShiftSwapRequest.approverId above.
+  approverId           String?
+  decidedAt            DateTime?
+  createdAt            DateTime            @default(now())
+
+  @@index([employeeId])
+  @@index([approverId])
+}
+
 // ---------------------------------------------------------------------------
 // Holiday Calendar (Section 7.5)
 // ---------------------------------------------------------------------------
@@ -579,6 +614,40 @@ model RegularizationRequest {
   @@index([employeeId])
 }
 
+// Two-stage approval: the assigned manager (approverId) decides first: a
+// reject there is terminal. An approval escalates to PENDING_SUPER_ADMIN,
+// where any Super Admin (not just approverId) gives the final decision.
+enum OvertimeClaimStatus {
+  PENDING_MANAGER
+  PENDING_SUPER_ADMIN
+  APPROVED
+  REJECTED
+}
+
+// Employee-initiated claim for overtime worked on a given date. Purely a
+// recorded claim — approving/rejecting only flips its own status, no
+// AttendanceRecord/LeaveBalance side effect (no auto pay/leave conversion).
+model OvertimeClaim {
+  id                String              @id @default(uuid())
+  employeeId        String
+  employee          Employee            @relation(fields: [employeeId], references: [id])
+  date              DateTime
+  hoursClaimed      Float
+  reason            String
+  status            OvertimeClaimStatus @default(PENDING_MANAGER)
+  approverId        String?
+  // Audit trail for the manager stage specifically, since approverId stays
+  // put as "who was assigned" while status moves on to PENDING_SUPER_ADMIN —
+  // these capture who actually clicked approve and when.
+  managerApproverId String?
+  managerDecidedAt  DateTime?
+  decidedAt         DateTime?
+  createdAt         DateTime            @default(now())
+
+  @@index([employeeId])
+  @@index([approverId])
+}
+
 // ---------------------------------------------------------------------------
 // Leave Management (Section 7.3)
 // ---------------------------------------------------------------------------
@@ -616,11 +685,41 @@ model LeaveType {
   isEncashable              Boolean               @default(false)
   requiresDocumentAfterDays Int?
   allowsNegativeBalance     Boolean               @default(false)
+  // Marks the lazily-created per-company "Comp Off" leave type. Comp-off
+  // credit is an event-driven +1 (see LeaveService.creditCompOffDay), not a
+  // recurring cadence, so it doesn't belong in accrualFrequency's enum —
+  // this flag just tells runMonthlyAccrual() to skip these rows outright.
+  isCompOff                 Boolean               @default(false)
 
   balances     LeaveBalance[]
   applications LeaveApplication[]
 
   @@unique([companyId, name])
+}
+
+enum CompOffRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Employee-initiated claim for a compensatory day off after working a
+// holiday/week-off. Approving credits 1 day to the employee's "Comp Off"
+// LeaveBalance (see LeaveService.creditCompOffDay) — spendable afterward
+// through the normal leave-application flow.
+model CompOffRequest {
+  id         String               @id @default(uuid())
+  employeeId String
+  employee   Employee             @relation(fields: [employeeId], references: [id])
+  workedDate DateTime
+  reason     String
+  status     CompOffRequestStatus @default(PENDING)
+  approverId String?
+  decidedAt  DateTime?
+  createdAt  DateTime             @default(now())
+
+  @@index([employeeId])
+  @@index([approverId])
 }
 
 model LeaveBalance {
@@ -1657,6 +1756,29 @@ model WorkflowApprovalDecision {
   decidedAt DateTime @default(now())
 
   @@index([requestId])
+}
+
+enum RequestCommentType {
+  WFO_WFH_CHANGE
+  COMP_OFF
+  OVERTIME
+}
+
+// Super Admin oversight comment directed at the assigned manager, never
+// visible to the requesting employee. requestType/requestId is a loose
+// reference (not a hard FK) — same generic-linkage idea as
+// ApprovalRequest's sourceModule/sourceRecordId above, letting one row shape
+// work across all three request tables without a polymorphic FK.
+model SuperAdminRequestComment {
+  id          String             @id @default(uuid())
+  requestType RequestCommentType
+  requestId   String
+  authorId    String
+  author      Employee           @relation(fields: [authorId], references: [id])
+  body        String
+  createdAt   DateTime           @default(now())
+
+  @@index([requestType, requestId])
 }
 
 // ---------------------------------------------------------------------------

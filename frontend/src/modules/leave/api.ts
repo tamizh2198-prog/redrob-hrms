@@ -31,6 +31,24 @@ export interface LeaveApplication {
   createdAt: string
 }
 
+export interface CompOffRequest {
+  id: string
+  employeeId: string
+  employee?: { firstName: string; lastName: string; employeeCode: string }
+  workedDate: string
+  reason: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  approverId: string | null
+  createdAt: string
+}
+
+export interface RequestComment {
+  id: string
+  authorId: string
+  body: string
+  createdAt: string
+}
+
 // Phase 6E: daysCount === 0.5 unambiguously means a half-day application —
 // only a HALF_DAY request can ever produce a non-integer daysCount, so no
 // new field/column is needed to represent it for display.
@@ -94,4 +112,38 @@ export function getApplicationsForEmployee(employeeId: string) {
 
 export function teamCalendar(from: string, to: string) {
   return api<LeaveApplication[]>('/leave/team-calendar', { params: { from, to } })
+}
+
+export function submitCompOffRequest(data: { workedDate: string; reason: string }) {
+  return api<CompOffRequest>('/comp-off-requests', { method: 'POST', body: data })
+}
+
+export function myCompOffRequests() {
+  return api<CompOffRequest[]>('/comp-off-requests/mine')
+}
+
+export function pendingCompOffForMe() {
+  return api<CompOffRequest[]>('/comp-off-requests/pending-for-me')
+}
+
+export function decideCompOff(id: string, approve: boolean, comment?: string) {
+  return api<{ status: string }>(`/comp-off-requests/${id}/decision`, {
+    method: 'POST',
+    body: { approve, comment },
+  })
+}
+
+export function listAllCompOffRequests(status?: string) {
+  return api<CompOffRequest[]>('/comp-off-requests', { params: status ? { status } : undefined })
+}
+
+export function addCompOffComment(id: string, body: string) {
+  return api<RequestComment>(`/comp-off-requests/${id}/comments`, {
+    method: 'POST',
+    body: { body },
+  })
+}
+
+export function listCompOffComments(id: string) {
+  return api<RequestComment[]>(`/comp-off-requests/${id}/comments`)
 }

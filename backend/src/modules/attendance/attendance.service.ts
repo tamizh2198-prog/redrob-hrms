@@ -8,6 +8,7 @@ import {
   AttendanceRecord,
   AttendanceSource,
   AttendanceStatus,
+  RequestCommentType,
   Role,
   Shift,
 } from '@prisma/client';
@@ -18,8 +19,13 @@ import {
   assertCanAccessEmployeeData,
   type EmployeeDataRequester,
 } from '../../shared/employee/reporting-hierarchy.util';
+import {
+  addSuperAdminComment,
+  listSuperAdminComments,
+} from '../../shared/request-comments/request-comment.util';
 import { RegularizeDto } from './dto/regularize.dto';
 import { ImportBiometricDto } from './dto/import-biometric.dto';
+import { CreateOvertimeClaimDto } from './dto/create-overtime-claim.dto';
 
 // Regularization requests must be submitted within this many days of the
 // attendance date (Section 7.2 Business Rules: "configurable window").
@@ -520,6 +526,243 @@ export class AttendanceService {
       delete safeEmployee.passwordHash;
       return { ...r, employee: safeEmployee };
     });
+  }
+
+  // Same "manager, else any HR Admin/Super Admin, else fail explicitly"
+  // fallback LeaveService.applyLeave() uses.
+  private async findHrAdminId(excludeId?: string): Promise<string | null> {
+    const hrAdmin = await this.prisma.employee.findFirst({
+      where: {
+        role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] },
+        ...(excludeId && { id: { not: excludeId } }),
+      },
+    });
+    return hrAdmin?.id ?? null;
+  }
+
+  // Overtime's second approval stage is strictly Super Admin (not the
+  // broader HR Admin/Super Admin "privileged" set the first stage falls
+  // back to) — this finds every Super Admin to notify once a claim reaches
+  // PENDING_SUPER_ADMIN, since any of them (not one assigned person) may
+  // give the final decision.
+  private async listSuperAdminIds(): Promise<string[]> {
+    const superAdmins = await this.prisma.employee.findMany({
+      where: { role: Role.SUPER_ADMIN },
+      select: { id: true },
+    });
+    return superAdmins.map((s) => s.id);
+  }
+
+  // Employee-initiated claim for overtime worked on a date — a recorded
+  // claim only, matching Regularization's shape. Two-stage approval: the
+  // assigned manager decides first (a reject there is terminal); an
+  // approval escalates to any Super Admin for final sign-off. Either way,
+  // deciding only flips this claim's own status/stage — no
+  // AttendanceRecord/LeaveBalance side effect (no auto pay/leave
+  // conversion).
+  async submitOvertimeClaim(employeeId: string, dto: CreateOvertimeClaimDto) {
+    const date = startOfDay(new Date(dto.date));
+    if (date > startOfDay(new Date())) {
+      throw new BadRequestException(
+        'Cannot claim overtime for a future date',
+      );
+    }
+
+    const duplicate = await this.prisma.overtimeClaim.findFirst({
+      where: {
+        employeeId,
+        date,
+        status: { in: ['PENDING_MANAGER', 'PENDING_SUPER_ADMIN', 'APPROVED'] },
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException(
+        'An overtime claim for this date already exists',
+      );
+    }
+
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    let approverId = employee.reportingManagerId;
+    if (!approverId) {
+      approverId = await this.findHrAdminId(employeeId);
+      if (!approverId) {
+        throw new BadRequestException(
+          'No approver is configured for this employee — assign a reporting manager or an HR Admin first',
+        );
+      }
+    }
+
+    const claim = await this.prisma.overtimeClaim.create({
+      data: {
+        employeeId,
+        date,
+        hoursClaimed: dto.hoursClaimed,
+        reason: dto.reason,
+        approverId,
+      },
+    });
+
+    await this.notifications.send({
+      recipientId: approverId,
+      template: 'overtime.submitted',
+      data: { claimId: claim.id },
+    });
+
+    return claim;
+  }
+
+  async decideOvertimeClaim(
+    claimId: string,
+    actorId: string,
+    dto: { approve: boolean; comment?: string },
+    actorRole?: Role,
+  ) {
+    const claim = await this.prisma.overtimeClaim.findUnique({
+      where: { id: claimId },
+    });
+    if (!claim) throw new NotFoundException('Overtime claim not found');
+
+    if (claim.status === 'PENDING_MANAGER') {
+      const isAssignedApprover = claim.approverId === actorId;
+      if (!isAssignedApprover && !isPrivileged(actorRole)) {
+        throw new ForbiddenException(
+          'Only the assigned manager or an HR Admin/Super Admin can decide this claim',
+        );
+      }
+
+      if (!dto.approve) {
+        await this.prisma.overtimeClaim.update({
+          where: { id: claimId },
+          data: { status: 'REJECTED', decidedAt: new Date() },
+        });
+        await this.notifications.send({
+          recipientId: claim.employeeId,
+          template: 'overtime.rejected',
+          data: { comment: dto.comment },
+        });
+        return { status: 'REJECTED' };
+      }
+
+      await this.prisma.overtimeClaim.update({
+        where: { id: claimId },
+        data: {
+          status: 'PENDING_SUPER_ADMIN',
+          managerApproverId: actorId,
+          managerDecidedAt: new Date(),
+        },
+      });
+      const superAdminIds = await this.listSuperAdminIds();
+      await Promise.all(
+        superAdminIds.map((recipientId) =>
+          this.notifications.send({
+            recipientId,
+            template: 'overtime.manager-approved',
+            data: { claimId },
+          }),
+        ),
+      );
+      return { status: 'PENDING_SUPER_ADMIN' };
+    }
+
+    if (claim.status === 'PENDING_SUPER_ADMIN') {
+      if (actorRole !== Role.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Only a Super Admin can give final approval for this claim',
+        );
+      }
+
+      const finalStatus = dto.approve ? 'APPROVED' : 'REJECTED';
+      await this.prisma.overtimeClaim.update({
+        where: { id: claimId },
+        data: { status: finalStatus, decidedAt: new Date() },
+      });
+      await this.notifications.send({
+        recipientId: claim.employeeId,
+        template: dto.approve ? 'overtime.approved' : 'overtime.rejected',
+        data: { comment: dto.comment },
+      });
+      return { status: finalStatus };
+    }
+
+    throw new BadRequestException('This claim was already decided');
+  }
+
+  listPendingSuperAdminOvertime() {
+    return this.listOvertimeClaims({ status: 'PENDING_SUPER_ADMIN' });
+  }
+
+  listOvertimeClaims(filter: {
+    employeeId?: string;
+    approverId?: string;
+    status?: 'PENDING_MANAGER' | 'PENDING_SUPER_ADMIN' | 'APPROVED' | 'REJECTED';
+  }) {
+    return this.prisma.overtimeClaim
+      .findMany({
+        where: {
+          employeeId: filter.employeeId,
+          approverId: filter.approverId,
+          status: filter.status,
+        },
+        include: { employee: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      .then((claims) =>
+        claims.map((c) => {
+          if (!c.employee) return c;
+          const safeEmployee: Partial<typeof c.employee> = { ...c.employee };
+          delete safeEmployee.passwordHash;
+          return { ...c, employee: safeEmployee };
+        }),
+      );
+  }
+
+  async addOvertimeComment(claimId: string, authorId: string, body: string) {
+    const claim = await this.prisma.overtimeClaim.findUnique({
+      where: { id: claimId },
+    });
+    if (!claim) throw new NotFoundException('Overtime claim not found');
+
+    const comment = await addSuperAdminComment(this.prisma, {
+      requestType: RequestCommentType.OVERTIME,
+      requestId: claimId,
+      authorId,
+      body,
+    });
+
+    if (claim.approverId) {
+      await this.notifications.send({
+        recipientId: claim.approverId,
+        template: 'overtime.comment-added',
+        data: { claimId },
+      });
+    }
+
+    return comment;
+  }
+
+  async listOvertimeComments(
+    claimId: string,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    const claim = await this.prisma.overtimeClaim.findUnique({
+      where: { id: claimId },
+    });
+    if (!claim) throw new NotFoundException('Overtime claim not found');
+    if (claim.approverId !== actorId && !isPrivileged(actorRole)) {
+      throw new ForbiddenException(
+        'Only the assigned approver or an HR Admin/Super Admin can view these comments',
+      );
+    }
+    return listSuperAdminComments(
+      this.prisma,
+      RequestCommentType.OVERTIME,
+      claimId,
+    );
   }
 
   // Called by LeaveService when a leave application is approved/cancelled —

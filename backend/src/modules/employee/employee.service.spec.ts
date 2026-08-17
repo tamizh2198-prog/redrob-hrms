@@ -24,8 +24,11 @@ const EMPLOYEE_OWNED_MODEL_NAMES = [
   'optionalHolidaySelection',
   'attendanceRecord',
   'regularizationRequest',
+  'overtimeClaim',
+  'wfoWfhChangeRequest',
   'leaveBalance',
   'leaveApplication',
+  'compOffRequest',
   'onboardingChecklist',
   'preboardingSubmission',
   'assetAssignment',
@@ -56,6 +59,7 @@ const EMPLOYEE_OWNED_MODEL_NAMES = [
   'workflowDefinition',
   'approvalRequest',
   'workflowApprovalDecision',
+  'superAdminRequestComment',
 ] as const;
 
 function createMockPrisma() {
