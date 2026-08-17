@@ -71,6 +71,8 @@ export interface RegularizationRequest {
   employee?: { firstName: string; lastName: string; employeeCode: string }
   date: string
   requestedStatus: AttendanceStatus
+  requestedCheckInTime: string | null
+  requestedCheckOutTime: string | null
   reason: string
   approverId: string | null
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -129,6 +131,8 @@ export function getCalendar(employeeId: string, year: number, month: number) {
 export function regularize(data: {
   date: string
   requestedStatus: AttendanceStatus
+  checkInTime?: string
+  checkOutTime?: string
   reason: string
 }) {
   return api<RegularizationRequest>('/attendance/regularize', {

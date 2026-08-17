@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Role, RequestCommentType } from '@prisma/client';
+import { AttendanceStatus, Role, RequestCommentType } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { CalendarService } from '../../shared/calendar/calendar.service';
@@ -59,6 +59,17 @@ export class CompOffService {
     return { ...request, employee: safeEmployee };
   }
 
+  // Comp-off decisions are notify-only for Super Admin, not another
+  // approval gate — every Super Admin gets a heads-up once the assigned
+  // manager decides, but none of them are required (or able) to act on it.
+  private async listSuperAdminIds(): Promise<string[]> {
+    const superAdmins = await this.prisma.employee.findMany({
+      where: { role: Role.SUPER_ADMIN },
+      select: { id: true },
+    });
+    return superAdmins.map((s) => s.id);
+  }
+
   async submit(employeeId: string, dto: CreateCompOffRequestDto) {
     const workedDate = startOfDay(new Date(dto.workedDate));
     if (workedDate > startOfDay(new Date())) {
@@ -80,7 +91,20 @@ export class CompOffService {
     const record = await this.prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: workedDate } },
     });
-    if (!record?.checkInTime) {
+    // Not just checkInTime: an approved regularization (decideRegularization
+    // in attendance.service.ts) only ever writes AttendanceRecord.status,
+    // never checkInTime — an employee who forgot to punch in on a holiday,
+    // filed a regularization for it, and got it approved would otherwise be
+    // told "no attendance record shows you worked" despite the approval.
+    const workedStatuses: AttendanceStatus[] = [
+      AttendanceStatus.PRESENT,
+      AttendanceStatus.LATE,
+      AttendanceStatus.HALF_DAY,
+      AttendanceStatus.EARLY_EXIT,
+    ];
+    const workedThisDay =
+      !!record?.checkInTime || (!!record && workedStatuses.includes(record.status));
+    if (!workedThisDay) {
       throw new BadRequestException(
         'No attendance record shows you worked on this date',
       );
@@ -142,10 +166,14 @@ export class CompOffService {
       throw new BadRequestException('This request was already decided');
     }
 
+    // Manager-only: unlike Regularization/WFO-WFH, an HR Admin/Super Admin
+    // can't decide a comp-off request just by being privileged — only the
+    // employee's actual assigned approver (their reporting manager, or the
+    // fallback HR Admin above if they have none) can.
     const isAssignedApprover = request.approverId === actorId;
-    if (!isAssignedApprover && !isPrivileged(actorRole)) {
+    if (!isAssignedApprover) {
       throw new ForbiddenException(
-        'Only the assigned approver or an HR Admin/Super Admin can decide this request',
+        'Only the assigned manager can decide this request',
       );
     }
 
@@ -162,12 +190,30 @@ export class CompOffService {
       });
     }
 
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: request.employeeId },
+    });
+    const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : request.employeeId;
+    const workedDateStr = request.workedDate.toISOString().slice(0, 10);
+
     await this.notifications.send({
       recipientId: request.employeeId,
       template: dto.approve ? 'comp-off.approved' : 'comp-off.rejected',
-      body: `Your comp-off request for working on ${request.workedDate.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
+      body: `Your comp-off request for working on ${workedDateStr} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
       data: { comment: dto.comment },
     });
+
+    const superAdminIds = await this.listSuperAdminIds();
+    await Promise.all(
+      superAdminIds.map((recipientId) =>
+        this.notifications.send({
+          recipientId,
+          template: 'comp-off.decided',
+          body: `${employeeName}'s comp-off request for working on ${workedDateStr} was ${dto.approve ? 'approved' : 'rejected'} by their manager.`,
+          data: { requestId, employeeId: request.employeeId, workedDate: workedDateStr, approved: dto.approve },
+        }),
+      ),
+    );
 
     return { status: dto.approve ? 'APPROVED' : 'REJECTED' };
   }

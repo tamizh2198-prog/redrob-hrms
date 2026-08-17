@@ -611,6 +611,12 @@ model RegularizationRequest {
   employee        Employee             @relation(fields: [employeeId], references: [id])
   date            DateTime
   requestedStatus AttendanceStatus
+  // "HH:mm" wall-clock strings, same convention as Shift.startTime/endTime —
+  // combined with `date` at approval time via the existing
+  // combineDateAndTime() helper. Optional: some requestedStatus values
+  // (e.g. WFH) don't need an exact time.
+  requestedCheckInTime  String?
+  requestedCheckOutTime String?
   reason          String
   evidenceRef     String?
   approverId      String?
@@ -629,9 +635,11 @@ model RegularizationRequest {
   @@index([decidedById])
 }
 
-// Two-stage approval: the assigned manager (approverId) decides first: a
-// reject there is terminal. An approval escalates to PENDING_SUPER_ADMIN,
-// where any Super Admin (not just approverId) gives the final decision.
+// Single-stage approval: the assigned manager (approverId) decides, and
+// that decision is final — Super Admin is notified with the complete claim
+// details either way, but isn't a second approval gate. PENDING_SUPER_ADMIN
+// is kept only so any claim that reached it before this change can still be
+// resolved; new claims never enter that state.
 enum OvertimeClaimStatus {
   PENDING_MANAGER
   PENDING_SUPER_ADMIN

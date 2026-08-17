@@ -20,7 +20,10 @@ function createMockPrisma() {
       update: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    employee: { findUnique: jest.fn(), findMany: jest.fn() },
+    employee: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
   };
 }

@@ -41,17 +41,30 @@ export function RegularizeDialog({
 }) {
   const [open, setOpen] = useState(false)
   const [requestedStatus, setRequestedStatus] = useState<AttendanceStatus>('PRESENT')
+  const [checkInTime, setCheckInTime] = useState('')
+  const [checkOutTime, setCheckOutTime] = useState('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // WFH doesn't need a specific clock-in/out time to regularize to.
+  const needsTime = requestedStatus !== 'WFH'
 
   async function handleSubmit() {
     setSubmitting(true)
     setError(null)
     try {
-      await regularize({ date, requestedStatus, reason })
+      await regularize({
+        date,
+        requestedStatus,
+        checkInTime: needsTime && checkInTime ? checkInTime : undefined,
+        checkOutTime: needsTime && checkOutTime ? checkOutTime : undefined,
+        reason,
+      })
       setOpen(false)
       setReason('')
+      setCheckInTime('')
+      setCheckOutTime('')
       onSubmitted()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to submit regularization')
@@ -96,6 +109,26 @@ export function RegularizeDialog({
               </SelectContent>
             </Select>
           </div>
+          {needsTime && (
+            <div className="flex gap-3">
+              <div className="flex flex-1 flex-col gap-1">
+                <Label>Check-in time</Label>
+                <Input
+                  type="time"
+                  value={checkInTime}
+                  onChange={(e) => setCheckInTime(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-1 flex-col gap-1">
+                <Label>Check-out time</Label>
+                <Input
+                  type="time"
+                  value={checkOutTime}
+                  onChange={(e) => setCheckOutTime(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-1">
             <Label>Reason</Label>
             <Input value={reason} onChange={(e) => setReason(e.target.value)} />

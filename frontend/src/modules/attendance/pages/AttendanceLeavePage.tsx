@@ -79,6 +79,7 @@ import {
   type RequestComment,
 } from '@/modules/leave/api'
 import { getDashboard, type Dashboard } from '@/modules/analytics/api'
+import { CompOffCard } from '@/modules/leave/components/CompOffCard'
 import { BulkBiometricUploadDialog } from '../components/BulkBiometricUploadDialog'
 
 const MONTH_NAMES = [
@@ -1444,6 +1445,14 @@ export function AttendanceLeavePage() {
           >
             {showLeaveHistory ? 'Hide Leaves Taken' : 'View Leaves Taken'}
           </Button>
+        </div>
+
+        {/* Comp-off gets its own tracker, separate from the generic Leave
+            Balance list above — same card used on the Dashboard, so
+            applying/tracking stays in sync no matter where an employee
+            does it from. */}
+        <div className="mt-4">
+          <CompOffCard />
         </div>
       </aside>
     </div>

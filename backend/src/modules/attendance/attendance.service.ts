@@ -345,25 +345,35 @@ export class AttendanceService {
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
+    // Regularization is decided by HR Admin, not the reporting manager —
+    // Super Admin is notified once decideRegularization() below settles it,
+    // but doesn't approve it themselves.
+    const approverId = await this.findHrAdminId(employeeId);
+    if (!approverId) {
+      throw new BadRequestException(
+        'No approver is configured for this company — assign an HR Admin first',
+      );
+    }
+
     const request = await this.prisma.regularizationRequest.create({
       data: {
         employeeId,
         date: startOfDay(date),
         requestedStatus: dto.requestedStatus,
+        requestedCheckInTime: dto.checkInTime,
+        requestedCheckOutTime: dto.checkOutTime,
         reason: dto.reason,
         evidenceRef: dto.evidenceRef,
-        approverId: employee.reportingManagerId,
+        approverId,
       },
     });
 
-    if (employee.reportingManagerId) {
-      await this.notifications.send({
-        recipientId: employee.reportingManagerId,
-        template: 'regularization.submitted',
-        body: `${employee.firstName} ${employee.lastName} submitted an attendance regularization request for ${startOfDay(date).toISOString().slice(0, 10)}.`,
-        data: { requestId: request.id },
-      });
-    }
+    await this.notifications.send({
+      recipientId: approverId,
+      template: 'regularization.submitted',
+      body: `${employee.firstName} ${employee.lastName} submitted an attendance regularization request for ${startOfDay(date).toISOString().slice(0, 10)}.`,
+      data: { requestId: request.id },
+    });
 
     return request;
   }
@@ -394,6 +404,16 @@ export class AttendanceService {
     await this.assertNotLocked(request.employeeId, request.date, actorRole);
 
     if (dto.approve) {
+      // Requested times are optional (e.g. WFH doesn't need one) — an
+      // approval with no time still marks the day worked via `status`
+      // alone, same as before this field existed.
+      const checkInTime = request.requestedCheckInTime
+        ? combineDateAndTime(request.date, request.requestedCheckInTime)
+        : undefined;
+      const checkOutTime = request.requestedCheckOutTime
+        ? combineDateAndTime(request.date, request.requestedCheckOutTime)
+        : undefined;
+
       await this.prisma.$transaction([
         this.prisma.attendanceRecord.upsert({
           where: {
@@ -402,11 +422,17 @@ export class AttendanceService {
               date: request.date,
             },
           },
-          update: { status: request.requestedStatus },
+          update: {
+            status: request.requestedStatus,
+            ...(checkInTime && { checkInTime }),
+            ...(checkOutTime && { checkOutTime }),
+          },
           create: {
             employeeId: request.employeeId,
             date: request.date,
             status: request.requestedStatus,
+            checkInTime,
+            checkOutTime,
           },
         }),
         this.prisma.regularizationRequest.update({
@@ -429,6 +455,31 @@ export class AttendanceService {
       body: `Your attendance regularization request for ${request.date.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
       data: { comment: dto.comment },
     });
+
+    const decidedEmployee = await this.prisma.employee.findUnique({
+      where: { id: request.employeeId },
+      select: { firstName: true, lastName: true },
+    });
+    const decidedEmployeeName = decidedEmployee
+      ? `${decidedEmployee.firstName} ${decidedEmployee.lastName}`
+      : request.employeeId;
+    const superAdminIds = await this.listSuperAdminIds();
+    await Promise.all(
+      superAdminIds.map((recipientId) =>
+        this.notifications.send({
+          recipientId,
+          template: 'regularization.decided',
+          body: `${decidedEmployeeName}'s attendance regularization request for ${request.date.toISOString().slice(0, 10)} (requested status: ${request.requestedStatus}, reason: "${request.reason}") was ${dto.approve ? 'approved' : 'rejected'} by HR Admin.`,
+          data: {
+            requestId,
+            employeeId: request.employeeId,
+            date: request.date.toISOString().slice(0, 10),
+            requestedStatus: request.requestedStatus,
+            approved: dto.approve,
+          },
+        }),
+      ),
+    );
 
     return { status: dto.approve ? 'APPROVED' : 'REJECTED' };
   }
@@ -754,11 +805,10 @@ export class AttendanceService {
     return hrAdmin?.id ?? null;
   }
 
-  // Overtime's second approval stage is strictly Super Admin (not the
-  // broader HR Admin/Super Admin "privileged" set the first stage falls
-  // back to) — this finds every Super Admin to notify once a claim reaches
-  // PENDING_SUPER_ADMIN, since any of them (not one assigned person) may
-  // give the final decision.
+  // Regularization/Overtime decisions are notify-only for Super Admin —
+  // every Super Admin gets the full details once HR Admin/the manager
+  // decides, but none of them are required (or, for new claims, able) to
+  // act on it themselves.
   private async listSuperAdminIds(): Promise<string[]> {
     const superAdmins = await this.prisma.employee.findMany({
       where: { role: Role.SUPER_ADMIN },
@@ -768,12 +818,14 @@ export class AttendanceService {
   }
 
   // Employee-initiated claim for overtime worked on a date — a recorded
-  // claim only, matching Regularization's shape. Two-stage approval: the
-  // assigned manager decides first (a reject there is terminal); an
-  // approval escalates to any Super Admin for final sign-off. Either way,
-  // deciding only flips this claim's own status/stage — no
+  // claim only, matching Regularization's shape. Single-stage approval: the
+  // assigned manager's decision is final; every Super Admin is notified
+  // with the complete claim details either way, but isn't a second
+  // approval gate. Deciding only flips this claim's own status — no
   // AttendanceRecord/LeaveBalance side effect (no auto pay/leave
-  // conversion).
+  // conversion). PENDING_SUPER_ADMIN is kept in the schema only to resolve
+  // any claims that reached it before this change — new claims never enter
+  // that state.
   async submitOvertimeClaim(employeeId: string, dto: CreateOvertimeClaimDto) {
     const date = startOfDay(new Date(dto.date));
     if (date > startOfDay(new Date())) {
@@ -850,40 +902,46 @@ export class AttendanceService {
         );
       }
 
-      if (!dto.approve) {
-        await this.prisma.overtimeClaim.update({
-          where: { id: claimId },
-          data: { status: 'REJECTED', decidedAt: new Date() },
-        });
-        await this.notifications.send({
-          recipientId: claim.employeeId,
-          template: 'overtime.rejected',
-          body: `Your overtime claim for ${claim.date.toISOString().slice(0, 10)} was rejected.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
-          data: { comment: dto.comment },
-        });
-        return { status: 'REJECTED' };
-      }
-
+      // Single-stage: the manager's decision is final — Super Admin is
+      // notified with the complete claim details either way, but isn't a
+      // second approval gate (matches Regularization/Comp-off's
+      // notify-only pattern for Super Admin).
+      const finalStatus = dto.approve ? 'APPROVED' : 'REJECTED';
       await this.prisma.overtimeClaim.update({
         where: { id: claimId },
         data: {
-          status: 'PENDING_SUPER_ADMIN',
+          status: finalStatus,
           managerApproverId: actorId,
           managerDecidedAt: new Date(),
+          decidedAt: new Date(),
         },
       });
+      await this.notifications.send({
+        recipientId: claim.employeeId,
+        template: dto.approve ? 'overtime.approved' : 'overtime.rejected',
+        body: `Your overtime claim for ${claim.date.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
+        data: { comment: dto.comment },
+      });
+
       const superAdminIds = await this.listSuperAdminIds();
       await Promise.all(
         superAdminIds.map((recipientId) =>
           this.notifications.send({
             recipientId,
-            template: 'overtime.manager-approved',
-            body: `${claim.employee.firstName} ${claim.employee.lastName}'s overtime claim for ${claim.date.toISOString().slice(0, 10)} was approved by their manager and is awaiting your final sign-off.`,
-            data: { claimId },
+            template: 'overtime.decided',
+            body: `${claim.employee.firstName} ${claim.employee.lastName} (${claim.employee.employeeCode}) claimed ${claim.hoursClaimed} hour${claim.hoursClaimed === 1 ? '' : 's'} of overtime for ${claim.date.toISOString().slice(0, 10)} — reason: "${claim.reason}". ${dto.approve ? 'Approved' : 'Rejected'} by their manager.`,
+            data: {
+              claimId,
+              employeeId: claim.employeeId,
+              date: claim.date.toISOString().slice(0, 10),
+              hoursClaimed: claim.hoursClaimed,
+              reason: claim.reason,
+              approved: dto.approve,
+            },
           }),
         ),
       );
-      return { status: 'PENDING_SUPER_ADMIN' };
+      return { status: finalStatus };
     }
 
     if (claim.status === 'PENDING_SUPER_ADMIN') {
