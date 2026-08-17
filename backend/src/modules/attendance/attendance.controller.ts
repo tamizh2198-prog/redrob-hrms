@@ -79,6 +79,39 @@ export class AttendanceController {
     });
   }
 
+  // Company-wide browse for HR Admin/Super Admin — GET /attendance/regularize
+  // above only ever returns requests matching employeeId/approverId, so an
+  // HR Admin who isn't literally the assigned approver had no way to see
+  // requests at all (only to decide them, via decideRegularization's
+  // isPrivileged escalation path). Registered before the ':id/decision'
+  // route below only for readability — 'all' is a GET, that route is a POST,
+  // so there's no literal-vs-dynamic-segment collision either way.
+  @Get('regularize/all')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listAllRegularizations(
+    @Query('status') status?: 'PENDING' | 'APPROVED' | 'REJECTED',
+  ) {
+    return this.attendanceService.listAllRegularizations(status);
+  }
+
+  // Visibility for Manager/HR Admin/Super Admin into who actually worked a
+  // holiday/week-off — independent of whether that employee has filed a
+  // Comp-Off request for it. Manager sees their own reports; HR/Super Admin
+  // see company-wide.
+  @Get('worked-off-days')
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listWorkedOffDays(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.attendanceService.listWorkedOffDays(
+      user,
+      new Date(from),
+      new Date(to),
+    );
+  }
+
   @Post('regularize/:id/decision')
   decideRegularization(
     @Param('id') id: string,

@@ -234,6 +234,7 @@ export class AttendanceService {
       }),
       this.prisma.regularizationRequest.findMany({
         where: { employeeId, date: { gte: from, lte: to } },
+        include: { decidedBy: { select: { firstName: true, lastName: true } } },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -264,6 +265,7 @@ export class AttendanceService {
         status: string;
         requestedStatus: AttendanceStatus;
         reason: string;
+        decidedByName: string | null;
       } | null;
       // This task: the Holiday row's name, when this day resolves to
       // AttendanceStatus.HOLIDAY — same Holiday lookup CalendarService
@@ -280,6 +282,9 @@ export class AttendanceService {
             status: reg.status,
             requestedStatus: reg.requestedStatus,
             reason: reg.reason,
+            decidedByName: reg.decidedBy
+              ? `${reg.decidedBy.firstName} ${reg.decidedBy.lastName}`
+              : null,
           }
         : null;
       if (existing) {
@@ -355,6 +360,7 @@ export class AttendanceService {
       await this.notifications.send({
         recipientId: employee.reportingManagerId,
         template: 'regularization.submitted',
+        body: `${employee.firstName} ${employee.lastName} submitted an attendance regularization request for ${startOfDay(date).toISOString().slice(0, 10)}.`,
         data: { requestId: request.id },
       });
     }
@@ -405,13 +411,13 @@ export class AttendanceService {
         }),
         this.prisma.regularizationRequest.update({
           where: { id: requestId },
-          data: { status: 'APPROVED', decidedAt: new Date() },
+          data: { status: 'APPROVED', decidedAt: new Date(), decidedById: actorId },
         }),
       ]);
     } else {
       await this.prisma.regularizationRequest.update({
         where: { id: requestId },
-        data: { status: 'REJECTED', decidedAt: new Date() },
+        data: { status: 'REJECTED', decidedAt: new Date(), decidedById: actorId },
       });
     }
 
@@ -420,6 +426,7 @@ export class AttendanceService {
       template: dto.approve
         ? 'regularization.approved'
         : 'regularization.rejected',
+      body: `Your attendance regularization request for ${request.date.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
       data: { comment: dto.comment },
     });
 
@@ -631,9 +638,22 @@ export class AttendanceService {
     return { lockedRecords: result.count, year, month };
   }
 
-  // This task: found live while testing the new unified page — this
-  // endpoint was returning the included employee's passwordHash unstripped,
-  // same class of bug as the one just fixed in LeaveService.
+  // Strips passwordHash off both the requesting employee and the actor who
+  // decided the request — same class of bug as the employee-only version
+  // this replaces (found live while testing the unified page).
+  private stripRegularizationPasswordHashes<
+    T extends {
+      employee?: Record<string, unknown> | null;
+      decidedBy?: Record<string, unknown> | null;
+    },
+  >(request: T) {
+    const safeEmployee = request.employee ? { ...request.employee } : request.employee;
+    if (safeEmployee) delete safeEmployee.passwordHash;
+    const safeDecidedBy = request.decidedBy ? { ...request.decidedBy } : request.decidedBy;
+    if (safeDecidedBy) delete safeDecidedBy.passwordHash;
+    return { ...request, employee: safeEmployee, decidedBy: safeDecidedBy };
+  }
+
   async listRegularizations(filter: {
     employeeId?: string;
     approverId?: string;
@@ -645,15 +665,81 @@ export class AttendanceService {
         approverId: filter.approverId,
         status: filter.status,
       },
-      include: { employee: true },
+      include: { employee: true, decidedBy: true },
       orderBy: { createdAt: 'desc' },
     });
-    return requests.map((r) => {
-      if (!r.employee) return r;
-      const safeEmployee: Partial<typeof r.employee> = { ...r.employee };
-      delete safeEmployee.passwordHash;
-      return { ...r, employee: safeEmployee };
+    return requests.map((r) => this.stripRegularizationPasswordHashes(r));
+  }
+
+  // Company-wide view for HR Admin/Super Admin — listRegularizations() above
+  // is always scoped by employeeId/approverId, so an HR Admin who isn't the
+  // literal assigned approver on most requests had no way to browse them at
+  // all (they can still decide any of them via the isPrivileged escalation
+  // path in decideRegularization(), just couldn't see them first).
+  async listAllRegularizations(status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
+    const requests = await this.prisma.regularizationRequest.findMany({
+      where: { status },
+      include: { employee: true, decidedBy: true },
+      orderBy: { createdAt: 'desc' },
     });
+    return requests.map((r) => this.stripRegularizationPasswordHashes(r));
+  }
+
+  // Section 1 visibility ask: managers/HR/Super Admin should be able to see
+  // which employees actually worked a holiday/week-off, independent of
+  // whether that employee has (yet) filed a Comp-Off request for it — a
+  // Manager sees their own reports, HR Admin/Super Admin see company-wide.
+  async listWorkedOffDays(
+    requester: { userId: string; role: string },
+    from: Date,
+    to: Date,
+  ) {
+    const isPrivilegedViewer =
+      requester.role === Role.HR_ADMIN || requester.role === Role.SUPER_ADMIN;
+    const employees = await this.prisma.employee.findMany({
+      where: isPrivilegedViewer ? {} : { reportingManagerId: requester.userId },
+      select: { id: true, firstName: true, lastName: true, employeeCode: true },
+    });
+    if (employees.length === 0) return [];
+    const employeeById = new Map(employees.map((e) => [e.id, e]));
+
+    const records = await this.prisma.attendanceRecord.findMany({
+      where: {
+        employeeId: { in: [...employeeById.keys()] },
+        date: { gte: startOfDay(from), lte: startOfDay(to) },
+        checkInTime: { not: null },
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    const results: Array<{
+      employeeId: string;
+      employeeName: string;
+      employeeCode: string;
+      date: string;
+      compOffStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | null;
+    }> = [];
+    for (const record of records) {
+      const nonWorking = await this.calendar.isNonWorkingDay(
+        record.employeeId,
+        record.date,
+      );
+      if (!nonWorking) continue;
+
+      const compOff = await this.prisma.compOffRequest.findFirst({
+        where: { employeeId: record.employeeId, workedDate: record.date },
+        select: { status: true },
+      });
+      const employee = employeeById.get(record.employeeId)!;
+      results.push({
+        employeeId: record.employeeId,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+        employeeCode: employee.employeeCode,
+        date: record.date.toISOString().slice(0, 10),
+        compOffStatus: compOff?.status ?? null,
+      });
+    }
+    return results;
   }
 
   // Same "manager, else any HR Admin/Super Admin, else fail explicitly"
@@ -737,6 +823,7 @@ export class AttendanceService {
     await this.notifications.send({
       recipientId: approverId,
       template: 'overtime.submitted',
+      body: `${employee.firstName} ${employee.lastName} submitted an overtime claim for ${date.toISOString().slice(0, 10)} (${dto.hoursClaimed} hour${dto.hoursClaimed === 1 ? '' : 's'}) and is awaiting your approval.`,
       data: { claimId: claim.id },
     });
 
@@ -751,6 +838,7 @@ export class AttendanceService {
   ) {
     const claim = await this.prisma.overtimeClaim.findUnique({
       where: { id: claimId },
+      include: { employee: true },
     });
     if (!claim) throw new NotFoundException('Overtime claim not found');
 
@@ -770,6 +858,7 @@ export class AttendanceService {
         await this.notifications.send({
           recipientId: claim.employeeId,
           template: 'overtime.rejected',
+          body: `Your overtime claim for ${claim.date.toISOString().slice(0, 10)} was rejected.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
           data: { comment: dto.comment },
         });
         return { status: 'REJECTED' };
@@ -789,6 +878,7 @@ export class AttendanceService {
           this.notifications.send({
             recipientId,
             template: 'overtime.manager-approved',
+            body: `${claim.employee.firstName} ${claim.employee.lastName}'s overtime claim for ${claim.date.toISOString().slice(0, 10)} was approved by their manager and is awaiting your final sign-off.`,
             data: { claimId },
           }),
         ),
@@ -811,6 +901,7 @@ export class AttendanceService {
       await this.notifications.send({
         recipientId: claim.employeeId,
         template: dto.approve ? 'overtime.approved' : 'overtime.rejected',
+        body: `Your overtime claim for ${claim.date.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
         data: { comment: dto.comment },
       });
       return { status: finalStatus };
@@ -865,6 +956,7 @@ export class AttendanceService {
       await this.notifications.send({
         recipientId: claim.approverId,
         template: 'overtime.comment-added',
+        body: `A new comment was added to the overtime claim dated ${claim.date.toISOString().slice(0, 10)}: "${body}"`,
         data: { claimId },
       });
     }
@@ -941,6 +1033,7 @@ export class AttendanceService {
     slaThreshold.setHours(slaThreshold.getHours() - REGULARIZATION_SLA_HOURS);
     return this.prisma.regularizationRequest.findMany({
       where: { status: 'PENDING', createdAt: { lt: slaThreshold } },
+      include: { employee: true },
     });
   }
 }

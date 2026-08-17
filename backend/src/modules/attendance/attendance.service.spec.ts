@@ -501,6 +501,7 @@ describe('AttendanceService', () => {
         status: 'PENDING',
         requestedStatus: AttendanceStatus.WFH,
         reason: 'Worked from client site',
+        decidedByName: null,
       });
     });
 

@@ -29,6 +29,7 @@ export interface CalendarDay {
     status: 'PENDING' | 'APPROVED' | 'REJECTED'
     requestedStatus: AttendanceStatus
     reason: string
+    decidedByName: string | null
   } | null
   // Set when status is HOLIDAY — the Holiday Calendar entry's name, from
   // the same Holiday source Dashboard/HolidayPage read from.
@@ -67,11 +68,24 @@ export const ATTENDANCE_STATUS_COLOR: Record<CalendarDayStatus, string> = {
 export interface RegularizationRequest {
   id: string
   employeeId: string
+  employee?: { firstName: string; lastName: string; employeeCode: string }
   date: string
   requestedStatus: AttendanceStatus
   reason: string
+  approverId: string | null
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  decidedById: string | null
+  decidedBy?: { firstName: string; lastName: string; employeeCode: string } | null
+  decidedAt: string | null
   createdAt: string
+}
+
+export interface WorkedOffDay {
+  employeeId: string
+  employeeName: string
+  employeeCode: string
+  date: string
+  compOffStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | null
 }
 
 // Two-stage approval: the assigned manager (approverId) decides first — a
@@ -136,6 +150,20 @@ export function decideRegularization(id: string, approve: boolean, comment?: str
     method: 'POST',
     body: { approve, comment },
   })
+}
+
+// Company-wide browse for HR Admin/Super Admin — unlike listRegularizations()
+// above, not scoped to a specific employeeId/approverId.
+export function listAllRegularizations(status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
+  return api<RegularizationRequest[]>('/attendance/regularize/all', {
+    params: status ? { status } : undefined,
+  })
+}
+
+// Which employees actually worked a holiday/week-off in a date range —
+// Manager sees their own reports, HR Admin/Super Admin see company-wide.
+export function listWorkedOffDays(from: string, to: string) {
+  return api<WorkedOffDay[]>('/attendance/worked-off-days', { params: { from, to } })
 }
 
 export function importBiometric(rows: Array<Record<string, string>>) {

@@ -273,6 +273,7 @@ model Employee {
   shiftSwapRequestsReceived  ShiftSwapRequest[]         @relation("SwapCounterpart")
   attendanceRecords          AttendanceRecord[]
   regularizationRequests     RegularizationRequest[]
+  regularizationsDecided     RegularizationRequest[]    @relation("RegularizationDecidedBy")
   overtimeClaims             OvertimeClaim[]
   wfoWfhRequests             WfoWfhChangeRequest[]
   leaveBalances              LeaveBalance[]
@@ -614,10 +615,18 @@ model RegularizationRequest {
   evidenceRef     String?
   approverId      String?
   status          RegularizationStatus @default(PENDING)
+  // The actor who actually clicked Approve/Reject — distinct from approverId
+  // (the assigned approver at submission time), since an HR Admin/Super Admin
+  // escalation-target decide (see AttendanceService.decideRegularization's
+  // isPrivileged branch) never updates approverId, so without this field
+  // there'd be no record of who really made the call.
+  decidedById     String?
+  decidedBy       Employee?            @relation("RegularizationDecidedBy", fields: [decidedById], references: [id])
   decidedAt       DateTime?
   createdAt       DateTime             @default(now())
 
   @@index([employeeId])
+  @@index([decidedById])
 }
 
 // Two-stage approval: the assigned manager (approverId) decides first: a

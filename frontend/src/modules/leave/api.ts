@@ -9,6 +9,7 @@ export interface LeaveType {
   maxCarryForward: number
   isEncashable: boolean
   allowsNegativeBalance: boolean
+  isCompOff: boolean
 }
 
 export interface LeaveBalanceEntry {

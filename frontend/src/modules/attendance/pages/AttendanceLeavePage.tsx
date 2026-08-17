@@ -34,6 +34,8 @@ import {
   punch,
   getCalendar,
   listRegularizations,
+  listAllRegularizations,
+  listWorkedOffDays,
   decideRegularization,
   importBiometric,
   pendingOvertimeForMe,
@@ -49,6 +51,7 @@ import {
   type CalendarDay,
   type CalendarDayStatus,
   type RegularizationRequest,
+  type WorkedOffDay,
   type OvertimeClaim,
   type RequestComment as AttendanceRequestComment,
 } from '../api'
@@ -168,6 +171,8 @@ export function AttendanceLeavePage() {
   const [punching, setPunching] = useState(false)
 
   const [pendingRegularizations, setPendingRegularizations] = useState<RegularizationRequest[]>([])
+  const [allRegularizations, setAllRegularizations] = useState<RegularizationRequest[]>([])
+  const [workedOffDays, setWorkedOffDays] = useState<WorkedOffDay[]>([])
   const [pendingOvertime, setPendingOvertime] = useState<OvertimeClaim[]>([])
   const [pendingSuperAdminOT, setPendingSuperAdminOT] = useState<OvertimeClaim[]>([])
   const [allOvertime, setAllOvertime] = useState<OvertimeClaim[]>([])
@@ -237,6 +242,23 @@ export function AttendanceLeavePage() {
     listRegularizations({ approverId: user.id, status: 'PENDING' })
       .then(setPendingRegularizations)
       .catch(() => setPendingRegularizations([]))
+    if (isHrAdmin) {
+      listAllRegularizations().then(setAllRegularizations).catch(() => setAllRegularizations([]))
+    }
+  }
+
+  // Manager sees their own reports, HR Admin/Super Admin see company-wide —
+  // last 30 days is enough to answer "who worked a weekend/holiday recently"
+  // without paging.
+  function loadWorkedOffDays() {
+    if (!user) return
+    if (user.role !== 'MANAGER' && !isHrAdmin) return
+    const to = new Date()
+    const from = new Date(to)
+    from.setDate(from.getDate() - 30)
+    listWorkedOffDays(from.toISOString().slice(0, 10), to.toISOString().slice(0, 10))
+      .then(setWorkedOffDays)
+      .catch(() => setWorkedOffDays([]))
   }
 
   function loadPendingOvertime() {
@@ -282,6 +304,7 @@ export function AttendanceLeavePage() {
 
   useEffect(() => {
     loadPendingRegularizations()
+    loadWorkedOffDays()
     loadPendingOvertime()
     loadLeave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,6 +333,7 @@ export function AttendanceLeavePage() {
     await decideRegularization(id, approve)
     setPendingRegularizations((p) => p.filter((r) => r.id !== id))
     loadCalendar()
+    if (isHrAdmin) listAllRegularizations().then(setAllRegularizations).catch(() => {})
   }
 
   async function handleOvertimeDecision(id: string, approve: boolean) {
@@ -639,7 +663,11 @@ export function AttendanceLeavePage() {
                         <TableCell>{formatDuration(d.workHours)}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {d.regularization
-                            ? `${d.regularization.status}: ${d.regularization.reason}`
+                            ? `${d.regularization.status}: ${d.regularization.reason}${
+                                d.regularization.decidedByName
+                                  ? ` (by ${d.regularization.decidedByName})`
+                                  : ''
+                              }`
                             : '—'}
                         </TableCell>
                         <TableCell className="flex gap-1">
@@ -690,7 +718,10 @@ export function AttendanceLeavePage() {
                 {pendingRegularizations.map((r) => (
                   <li key={r.id} className="flex items-center justify-between">
                     <span>
-                      {r.date.slice(0, 10)} → {r.requestedStatus}: {r.reason}
+                      <span className="font-medium">
+                        {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                      </span>{' '}
+                      — {r.date.slice(0, 10)} → {r.requestedStatus}: {r.reason}
                     </span>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => handleRegularizationDecision(r.id, true)}>
@@ -707,6 +738,63 @@ export function AttendanceLeavePage() {
                   </li>
                 ))}
               </ul>
+            </PanelSection>
+          )}
+
+          {(user?.role === 'MANAGER' || isHrAdmin) && (
+            <PanelSection>
+              <h2 className="mb-2 font-medium">Worked on a Week-Off/Holiday (Last 30 Days)</h2>
+              <p className="mb-2 text-xs text-muted-foreground">
+                {isHrAdmin
+                  ? 'Company-wide — every employee who checked in on a holiday or week-off day.'
+                  : 'Your reports who checked in on a holiday or week-off day.'}{' '}
+                Comp-Off status shows whether they&apos;ve already claimed it.
+              </p>
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Comp-Off Claimed?</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {workedOffDays.map((w) => (
+                      <TableRow key={`${w.employeeId}-${w.date}`}>
+                        <TableCell>
+                          {w.employeeName} ({w.employeeCode})
+                        </TableCell>
+                        <TableCell>{w.date}</TableCell>
+                        <TableCell>
+                          {w.compOffStatus ? (
+                            <Badge
+                              variant={
+                                w.compOffStatus === 'APPROVED'
+                                  ? 'default'
+                                  : w.compOffStatus === 'REJECTED'
+                                    ? 'destructive'
+                                    : 'outline'
+                              }
+                            >
+                              {w.compOffStatus}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">Not yet requested</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {workedOffDays.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center text-muted-foreground">
+                          No one worked a week-off/holiday in the last 30 days.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </PanelSection>
           )}
 
@@ -787,6 +875,43 @@ export function AttendanceLeavePage() {
             </PanelSection>
           )}
         </Panel>
+
+        {isHrAdmin && (
+          <Panel>
+            <PanelSection>
+              <h2 className="mb-2 font-medium">All Regularization Requests (HR Admin/Super Admin)</h2>
+              <ul className="flex flex-col gap-2 text-sm">
+                {allRegularizations.map((r) => (
+                  <li key={r.id} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">
+                          {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {r.date.slice(0, 10)} → {r.requestedStatus}: {r.reason}
+                        </div>
+                      </div>
+                      <Badge
+                        variant={
+                          r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
+                        }
+                      >
+                        {r.status}
+                      </Badge>
+                    </div>
+                    {r.decidedBy && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Decided by {r.decidedBy.firstName} {r.decidedBy.lastName}
+                      </div>
+                    )}
+                  </li>
+                ))}
+                {allRegularizations.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
+              </ul>
+            </PanelSection>
+          </Panel>
+        )}
 
         {isSuperAdmin && (
           <Panel>
@@ -939,7 +1064,12 @@ export function AttendanceLeavePage() {
                 <TableBody>
                   {myApps.map((a) => (
                     <TableRow key={a.id}>
-                      <TableCell>{a.leaveType?.name ?? leaveTypes.find((t) => t.id === a.leaveTypeId)?.name ?? '—'}</TableCell>
+                      <TableCell>
+                        {a.leaveType?.name ?? leaveTypes.find((t) => t.id === a.leaveTypeId)?.name ?? '—'}
+                        {(a.leaveType ?? leaveTypes.find((t) => t.id === a.leaveTypeId))?.isCompOff && (
+                          <Badge variant="secondary" className="ml-2">Comp-Off</Badge>
+                        )}
+                      </TableCell>
                       <TableCell>{a.startDate.slice(0, 10)}</TableCell>
                       <TableCell>{a.endDate.slice(0, 10)}</TableCell>
                       <TableCell>{isHalfDayApplication(a) ? 'Half Day' : 'Full Day'}</TableCell>
@@ -993,7 +1123,10 @@ export function AttendanceLeavePage() {
                         <TableCell>
                           {a.employee?.firstName} {a.employee?.lastName}
                         </TableCell>
-                        <TableCell>{a.leaveType?.name ?? '—'}</TableCell>
+                        <TableCell>
+                          {a.leaveType?.name ?? '—'}
+                          {a.leaveType?.isCompOff && <Badge variant="secondary" className="ml-2">Comp-Off</Badge>}
+                        </TableCell>
                         <TableCell>{a.startDate.slice(0, 10)}</TableCell>
                         <TableCell>{a.endDate.slice(0, 10)}</TableCell>
                         <TableCell>{isHalfDayApplication(a) ? 'Half Day' : 'Full Day'}</TableCell>
