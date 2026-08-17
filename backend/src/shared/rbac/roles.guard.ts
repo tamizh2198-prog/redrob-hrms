@@ -14,7 +14,10 @@ import { PrismaService } from '../database/prisma.service';
 // module outside this list (Employee, Leave Type management, Settings,
 // Roles & Permissions, Audit, ...) exactly as before, since those
 // controllers carry no @RequiresModule() for this fallback to ever reach.
-const ROLE_DEFAULT_MODULES: Partial<Record<Role, readonly string[]>> = {
+// Exported so the Roles & Permissions UI (permissions.service.ts) can
+// display HR_ASSOCIATE's real, enforced access instead of maintaining a
+// second, independent list that could drift out of sync with this one.
+export const ROLE_DEFAULT_MODULES: Partial<Record<Role, readonly string[]>> = {
   [Role.HR_ASSOCIATE]: ['ONBOARDING', 'OFFBOARDING', 'ASSETS'],
 };
 
