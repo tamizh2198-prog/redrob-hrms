@@ -95,6 +95,16 @@ export class RosterController {
     return this.shiftService.bulkSetHybridSchedule(rows, dryRunRaw === 'true');
   }
 
+  // One-off admin action: corrects RosterEntry rows generated before the
+  // Saturday/Sunday-is-week-off fix (see ShiftService.applyHybridSchedule()/
+  // assignRoster() and CalendarService.isWeekOff()). Defaults to a dry run
+  // so Super Admin can see the affected count before committing.
+  @Post('backfill-weekend-week-off')
+  @Roles(Role.SUPER_ADMIN)
+  backfillWeekendWeekOff(@Query('dryRun') dryRunRaw?: string) {
+    return this.shiftService.backfillWeekendWeekOff(dryRunRaw !== 'false');
+  }
+
   @Get(':employeeId')
   getRoster(
     @Param('employeeId') employeeId: string,
