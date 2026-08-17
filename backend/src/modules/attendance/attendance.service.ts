@@ -26,6 +26,7 @@ import {
 import { RegularizeDto } from './dto/regularize.dto';
 import { ImportBiometricDto } from './dto/import-biometric.dto';
 import { CreateOvertimeClaimDto } from './dto/create-overtime-claim.dto';
+import { BulkBiometricRow } from './biometric-import-upload.util';
 
 // Regularization requests must be submitted within this many days of the
 // attendance date (Section 7.2 Business Rules: "configurable window").
@@ -490,6 +491,133 @@ export class AttendanceService {
       matchedCount: results.length - unmatched.length,
       unmatchedCount: unmatched.length,
       unmatched,
+    };
+  }
+
+  // Bulk-upload counterpart to importBiometric() above, for the new
+  // Excel-template path (POST /attendance/import/upload) — same
+  // employeeCode-matching + computeStatus()/upsert logic, but with
+  // per-row validation errors and dry-run support, mirroring the Shift
+  // module's bulkSetHybridSchedule(). importBiometric() itself is left
+  // untouched: it's still the JSON-paste path's method, with its own
+  // matched/unmatched result shape and existing test coverage.
+  async bulkImportBiometric(
+    rows: BulkBiometricRow[],
+    dryRun: boolean,
+  ): Promise<{
+    totalRows: number;
+    successCount: number;
+    failureCount: number;
+    dryRun: boolean;
+    results: Array<{
+      row: number;
+      success: boolean;
+      employeeId?: string;
+      errors?: string[];
+    }>;
+  }> {
+    const results: Array<{
+      row: number;
+      success: boolean;
+      employeeId?: string;
+      errors?: string[];
+    }> = [];
+    const seenEmployeeDateKeys = new Set<string>();
+
+    for (const [index, row] of rows.entries()) {
+      const errors: string[] = [];
+      if (!row.employeeCode) errors.push('Employee Code is required');
+      if (!row.date || Number.isNaN(Date.parse(row.date))) {
+        errors.push('Date is missing or invalid');
+      }
+      if (row.checkInTime && Number.isNaN(Date.parse(row.checkInTime))) {
+        errors.push('Check-In Time is invalid');
+      }
+      if (row.checkOutTime && Number.isNaN(Date.parse(row.checkOutTime))) {
+        errors.push('Check-Out Time is invalid');
+      }
+      if (
+        row.checkInTime &&
+        row.checkOutTime &&
+        !Number.isNaN(Date.parse(row.checkInTime)) &&
+        !Number.isNaN(Date.parse(row.checkOutTime)) &&
+        new Date(row.checkOutTime).getTime() <=
+          new Date(row.checkInTime).getTime()
+      ) {
+        errors.push('Check-Out Time must be after Check-In Time');
+      }
+
+      const dedupeKey = `${row.employeeCode}|${row.date}`;
+      if (row.employeeCode && row.date && seenEmployeeDateKeys.has(dedupeKey)) {
+        errors.push(
+          'Duplicate row for this employee and date already present earlier in this upload',
+        );
+      }
+
+      if (errors.length > 0) {
+        results.push({ row: index, success: false, errors });
+        continue;
+      }
+      seenEmployeeDateKeys.add(dedupeKey);
+
+      const employee = await this.prisma.employee.findUnique({
+        where: { employeeCode: row.employeeCode },
+      });
+      if (!employee) {
+        results.push({
+          row: index,
+          success: false,
+          errors: [`No employee found with code "${row.employeeCode}"`],
+        });
+        continue;
+      }
+
+      if (!dryRun) {
+        const date = startOfDay(new Date(row.date));
+        const checkInTime = row.checkInTime ? new Date(row.checkInTime) : null;
+        const checkOutTime = row.checkOutTime
+          ? new Date(row.checkOutTime)
+          : null;
+        const shift = await this.calendar.getActiveShift(employee.id, date);
+        const { status, workHours, overtimeHours } = this.computeStatus(
+          checkInTime,
+          checkOutTime,
+          date,
+          shift,
+        );
+
+        await this.prisma.attendanceRecord.upsert({
+          where: { employeeId_date: { employeeId: employee.id, date } },
+          update: {
+            checkInTime,
+            checkOutTime,
+            source: AttendanceSource.BIOMETRIC,
+            status,
+            workHours,
+            overtimeHours,
+          },
+          create: {
+            employeeId: employee.id,
+            date,
+            checkInTime,
+            checkOutTime,
+            source: AttendanceSource.BIOMETRIC,
+            status,
+            workHours,
+            overtimeHours,
+          },
+        });
+      }
+
+      results.push({ row: index, success: true, employeeId: employee.id });
+    }
+
+    return {
+      totalRows: rows.length,
+      successCount: results.filter((r) => r.success).length,
+      failureCount: results.filter((r) => !r.success).length,
+      dryRun,
+      results,
     };
   }
 

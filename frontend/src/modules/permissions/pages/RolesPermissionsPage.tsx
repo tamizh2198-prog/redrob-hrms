@@ -7,7 +7,9 @@ import {
   type PermissionWithState,
 } from '../api'
 
-const ROLES: Role[] = ['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER', 'EMPLOYEE']
+// HR Associate: sits between HR Admin and Manager in privilege — added
+// alongside the existing roles, nothing else in this list changes.
+const ROLES: Role[] = ['SUPER_ADMIN', 'HR_ADMIN', 'HR_ASSOCIATE', 'MANAGER', 'EMPLOYEE']
 
 function groupByCategory(permissions: PermissionWithState[]) {
   const groups = new Map<string, PermissionWithState[]>()
@@ -95,7 +97,10 @@ export function RolesPermissionsPage() {
         <h1 className="text-xl font-semibold">Roles &amp; Permissions</h1>
         <p className="mb-4 text-sm text-muted-foreground">
           Role: <span className="font-medium">{selectedRole.replaceAll('_', ' ')}</span>
-          {!editable && ' — Full access, not editable'}
+          {!editable &&
+            (selectedRole === 'SUPER_ADMIN'
+              ? ' — Full access, not editable'
+              : ' — Access granted directly by role, not editable here')}
         </p>
 
         {error && <p className="mb-2 text-sm text-destructive">{error}</p>}

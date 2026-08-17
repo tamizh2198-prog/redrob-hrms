@@ -76,11 +76,23 @@ import {
   type RequestComment,
 } from '@/modules/leave/api'
 import { getDashboard, type Dashboard } from '@/modules/analytics/api'
+import { BulkBiometricUploadDialog } from '../components/BulkBiometricUploadDialog'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
+
+// This task: Half Day and Unpaid leave types (e.g. "Half Day Sick Leave",
+// "Unpaid Sick Leave") are still fully tracked (applications, accrual,
+// payroll) — this only hides their balance cards from this display; the
+// underlying LeaveType rows/balances are untouched. Substring match (not
+// exact name) since these prefixes/qualifiers combine with any base leave
+// type name, not just "Half Day Leave"/"Unpaid Leave" literally.
+function isHiddenBalanceLeaveType(name: string) {
+  const normalized = name.trim().toLowerCase()
+  return normalized.includes('half day') || normalized.includes('unpaid')
+}
 
 const SAMPLE_BIOMETRIC_ROWS = [
   {
@@ -1177,7 +1189,10 @@ export function AttendanceLeavePage() {
         {isHrAdmin && (
           <Panel>
             <PanelSection>
-              <h2 className="mb-3 font-medium">Biometric Attendance</h2>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-medium">Biometric Attendance</h2>
+                <BulkBiometricUploadDialog onImported={() => loadCalendar()} />
+              </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <div
                   className={`flex flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
@@ -1244,7 +1259,9 @@ export function AttendanceLeavePage() {
         <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
           <h2 className="mb-3 font-medium">Your Leave Balance</h2>
           <div className="flex flex-col gap-3">
-            {balances.map((b) => {
+            {balances
+              .filter((b) => !isHiddenBalanceLeaveType(b.leaveType.name))
+              .map((b) => {
               // This task: "Accrued" alone on the default card was
               // confusing (it looked like the total, not one component of
               // it). The default view now shows only Available/Used —
@@ -1283,7 +1300,9 @@ export function AttendanceLeavePage() {
                 </div>
               )
             })}
-            {balances.length === 0 && <p className="text-sm text-muted-foreground">No leave types configured yet.</p>}
+            {balances.filter((b) => !isHiddenBalanceLeaveType(b.leaveType.name)).length === 0 && (
+              <p className="text-sm text-muted-foreground">No leave types configured yet.</p>
+            )}
           </div>
           <Button
             variant="outline"

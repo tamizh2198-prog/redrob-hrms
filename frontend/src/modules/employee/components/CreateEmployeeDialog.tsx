@@ -57,7 +57,11 @@ const FIELD_LABELS: Record<string, string> = {
   email: 'Work email',
 }
 
-const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
+// HR Associate (Auth Phase 4/5 follow-up): included here since the backend
+// invite endpoint already accepts it unguarded — only HR_ADMIN/SUPER_ADMIN
+// stay behind the canAssignPrivilegedRole check below, matching
+// EmployeeService.inviteEmployee's own isPrivilegedRoleRequested gate.
+const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ASSOCIATE', 'HR_ADMIN', 'SUPER_ADMIN']
 
 // Task: Reporting Manager dropdown — only these roles are eligible to be
 // assigned as someone's manager. EMPLOYEE is deliberately excluded. This
