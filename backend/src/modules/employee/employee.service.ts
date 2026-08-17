@@ -10,12 +10,13 @@ import { Employee, EmployeeStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { EmailService } from '../../shared/email/email.service';
-import { hashPassword } from '../../shared/auth/password.util';
+import { hashPassword, verifyPassword } from '../../shared/auth/password.util';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { InviteEmployeeDto } from './dto/invite-employee.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import type { ActivateAccountDto } from '../../shared/auth/dto/activate-account.dto';
 import { RequesterContext, SELF_SERVICE_FIELDS } from './employee.types';
 import {
@@ -886,6 +887,35 @@ export class EmployeeService {
       employee: this.stripPasswordHash(updated),
       ...computeProfileCompletion(updated),
     };
+  }
+
+  // employeeId always comes from the JWT via CurrentUser, same as
+  // getMyProfile/updateMyProfile above — this can only ever change the
+  // caller's own password, never another employee's.
+  async changeMyPassword(employeeId: string, dto: ChangePasswordDto) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+
+    const currentPasswordMatches =
+      !!employee.passwordHash &&
+      (await verifyPassword(dto.currentPassword, employee.passwordHash));
+    if (!currentPasswordMatches) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    if (dto.newPassword !== dto.confirmNewPassword) {
+      throw new BadRequestException('New passwords do not match');
+    }
+
+    const passwordHash = await hashPassword(dto.newPassword);
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { passwordHash },
+    });
+
+    return { success: true };
   }
 
   async getReferenceData() {

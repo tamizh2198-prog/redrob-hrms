@@ -407,6 +407,16 @@ export function updateMyProfile(data: UpdateMyProfileInput) {
   return api<MyProfileResponse>('/employees/me/profile', { method: 'PATCH', body: data })
 }
 
+export interface ChangePasswordInput {
+  currentPassword: string
+  newPassword: string
+  confirmNewPassword: string
+}
+
+export function changeMyPassword(data: ChangePasswordInput) {
+  return api<{ success: true }>('/employees/me/password', { method: 'PATCH', body: data })
+}
+
 // Display-only helper for the HR Admin employee list — mirrors the
 // backend's required-field checklist purely for a cosmetic badge; the
 // authoritative completion value for gating/redirect decisions always

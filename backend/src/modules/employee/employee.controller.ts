@@ -23,6 +23,7 @@ import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { ListEmployeesQueryDto } from './dto/list-employees-query.dto';
 import { InviteEmployeeDto } from './dto/invite-employee.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { RequesterContext } from './employee.types';
 import {
   buildEmployeeImportTemplate,
@@ -191,6 +192,14 @@ export class EmployeeController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.employeeService.updateMyProfile(user.userId, dto);
+  }
+
+  @Patch('me/password')
+  changeMyPassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.employeeService.changeMyPassword(user.userId, dto);
   }
 
   @Get()

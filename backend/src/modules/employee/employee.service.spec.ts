@@ -9,6 +9,7 @@ import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 import { EmailService } from '../../shared/email/email.service';
 import { hashInvitationToken } from './invitation-token.util';
+import { hashPassword } from '../../shared/auth/password.util';
 
 // Every model deleteEmployee() touches, across all three handling
 // strategies (owned/nullable/blocking — see employee.service.ts). Some
@@ -1366,6 +1367,132 @@ describe('EmployeeService', () => {
       expect(prisma.employee.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'emp-1' } }),
       );
+    });
+  });
+
+  describe('This task: changeMyPassword', () => {
+    it('changes the password when the current password is correct and new passwords match', async () => {
+      const currentHash = await hashPassword('OldPassword1!');
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: currentHash,
+      });
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
+
+      const result = await service.changeMyPassword('emp-1', {
+        currentPassword: 'OldPassword1!',
+        newPassword: 'NewPassword2!',
+        confirmNewPassword: 'NewPassword2!',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'emp-1' } }),
+      );
+      const updateArg = prisma.employee.update.mock.calls[0][0];
+      expect(updateArg.data.passwordHash).not.toBe(currentHash);
+      expect(updateArg.data.passwordHash).not.toBe('NewPassword2!');
+    });
+
+    it('rejects with BadRequestException when the current password is incorrect', async () => {
+      const currentHash = await hashPassword('OldPassword1!');
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: currentHash,
+      });
+
+      await expect(
+        service.changeMyPassword('emp-1', {
+          currentPassword: 'WrongPassword!',
+          newPassword: 'NewPassword2!',
+          confirmNewPassword: 'NewPassword2!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects with BadRequestException when newPassword and confirmNewPassword do not match', async () => {
+      const currentHash = await hashPassword('OldPassword1!');
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: currentHash,
+      });
+
+      await expect(
+        service.changeMyPassword('emp-1', {
+          currentPassword: 'OldPassword1!',
+          newPassword: 'NewPassword2!',
+          confirmNewPassword: 'Different3!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the employee has no password set yet (e.g. still INVITED)', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: null,
+      });
+
+      await expect(
+        service.changeMyPassword('emp-1', {
+          currentPassword: 'anything',
+          newPassword: 'NewPassword2!',
+          confirmNewPassword: 'NewPassword2!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException for a missing employee id', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(
+        service.changeMyPassword('missing', {
+          currentPassword: 'x',
+          newPassword: 'NewPassword2!',
+          confirmNewPassword: 'NewPassword2!',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('SECURITY: scopes the read and write to the given employeeId only', async () => {
+      const currentHash = await hashPassword('OldPassword1!');
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: currentHash,
+      });
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
+
+      await service.changeMyPassword('emp-1', {
+        currentPassword: 'OldPassword1!',
+        newPassword: 'NewPassword2!',
+        confirmNewPassword: 'NewPassword2!',
+      });
+
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+        where: { id: 'emp-1' },
+      });
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'emp-1' } }),
+      );
+    });
+
+    it('never returns the password hash or plaintext passwords', async () => {
+      const currentHash = await hashPassword('OldPassword1!');
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        passwordHash: currentHash,
+      });
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1' });
+
+      const result = await service.changeMyPassword('emp-1', {
+        currentPassword: 'OldPassword1!',
+        newPassword: 'NewPassword2!',
+        confirmNewPassword: 'NewPassword2!',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(JSON.stringify(result)).not.toContain('OldPassword1!');
+      expect(JSON.stringify(result)).not.toContain('NewPassword2!');
     });
   });
 

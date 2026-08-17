@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { Bell, LayoutDashboard, LogOut, Settings, User, UserCircle } from 'lucide-react'
+import { Bell, KeyRound, LayoutDashboard, LogOut, Settings, User, UserCircle } from 'lucide-react'
 import { MODULE_NAV } from '@/app-routes'
 import { FloatingAssistant } from '@/modules/assistant'
 import {
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { ChangePasswordDialog } from '@/shared/auth/ChangePasswordDialog'
 import logo from '@/assets/logo.jpg'
 
 // This task: Profile, Notifications, and Settings move from the sidebar
@@ -22,6 +23,7 @@ const HEADER_ONLY_NAV_PATHS = new Set(['/notifications', '/settings'])
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -102,6 +104,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Settings /> Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setChangePasswordOpen(true)}>
+                <KeyRound /> Change Password
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={logout}>
                 <LogOut /> Sign Out
               </DropdownMenuItem>
@@ -111,6 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
       <FloatingAssistant />
+      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
     </div>
   )
 }
