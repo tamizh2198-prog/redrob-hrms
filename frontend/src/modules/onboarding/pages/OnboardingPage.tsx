@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { canAccessHrOperationalModules } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
 import {
@@ -35,7 +36,11 @@ interface TaskRow {
 
 export function OnboardingPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // This task (HR Associate, Phase 3): Onboarding is one of the 3
+  // operational HR modules HR Associate gets — same UI/actions as HR Admin
+  // here specifically, unlike Employee/CTC/Leave Type/Settings pages which
+  // stay on the plain HR_ADMIN/SUPER_ADMIN check.
+  const isHrAdmin = canAccessHrOperationalModules(user?.role)
 
   const [checklists, setChecklists] = useState<ChecklistWithEmployee[]>([])
   const [templates, setTemplates] = useState<OnboardingTemplate[]>([])

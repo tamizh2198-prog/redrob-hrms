@@ -28,13 +28,14 @@ describe('PermissionsService (Auth Phase 5: Roles & Permissions)', () => {
   });
 
   describe('listRoles', () => {
-    it('returns all four existing Role enum values, unmodified', () => {
+    it('returns all five existing Role enum values, unmodified', () => {
       const result = service.listRoles();
       expect(result).toEqual([
         { role: Role.EMPLOYEE },
         { role: Role.MANAGER },
         { role: Role.HR_ADMIN },
         { role: Role.SUPER_ADMIN },
+        { role: Role.HR_ASSOCIATE },
       ]);
     });
   });

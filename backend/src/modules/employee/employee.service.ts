@@ -986,6 +986,15 @@ export class EmployeeService {
         requester.userId,
       );
       scopedIds = [requester.userId, ...teamIds];
+    } else if (!isPrivilegedRole(requester.role)) {
+      // This task (HR Associate): the unscoped company-wide query below is
+      // an HR Admin/Super Admin surface only. Previously anyone who was
+      // neither EMPLOYEE nor MANAGER fell through to it by omission — that
+      // silently handed the full directory to any future role (like
+      // HR_ASSOCIATE) the moment it existed. Explicit allowlist instead:
+      // only a privileged role reaches the unscoped query below; everyone
+      // else (HR_ASSOCIATE included) gets no company-wide directory data.
+      return { items: [], total: 0, page, pageSize };
     }
 
     const where: Prisma.EmployeeWhereInput = {

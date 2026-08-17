@@ -215,4 +215,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
     'announcements.view',
     'assistant.use',
   ],
+  // HR Associate (Phase 2): this catalog is dormant — nothing reads it for
+  // enforcement (see the file-level comment above) — so an empty array is
+  // the safest possible default and grants nothing through this table.
+  // Real HR_ASSOCIATE access (Onboarding/Offboarding/Assets) is enforced by
+  // RolesGuard's role-default module map, not this catalog.
+  [Role.HR_ASSOCIATE]: [],
 };

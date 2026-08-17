@@ -36,6 +36,10 @@ const ROLE_MESSAGE: Record<Role, string> = {
   MANAGER: 'Review your team’s pending approvals from the Attendance and Helpdesk sections.',
   HR_ADMIN: 'Manage company-wide HR operations from the modules in the sidebar.',
   SUPER_ADMIN: 'You have full access to every module, including Roles & Permissions.',
+  // This task (HR Associate, Phase 3): scoped to the 3 operational modules
+  // they have access to — not the Employee Directory or other HR Admin
+  // functionality.
+  HR_ASSOCIATE: 'Manage Onboarding, Offboarding, and Assets from the sidebar.',
 }
 
 export function DashboardPage() {

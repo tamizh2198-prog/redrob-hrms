@@ -367,6 +367,24 @@ describe('EmployeeService', () => {
         }),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('Phase 2: masks CTC/PAN/Aadhaar for HR_ASSOCIATE viewing someone else — not a privileged role', () => {
+      const result = service.maskSensitiveFields(employee as never, {
+        userId: 'hra-1',
+        role: Role.HR_ASSOCIATE,
+      });
+      expect(result.pan).toBe('****234F');
+      expect(result.aadhaar).toBe('****9012');
+    });
+
+    it('Phase 2: reveal endpoint rejects HR_ASSOCIATE viewing someone else', async () => {
+      await expect(
+        service.revealSensitiveFields('emp-1', {
+          userId: 'hra-1',
+          role: Role.HR_ASSOCIATE,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 
   describe('employee-submitted profile changes never bypass approval', () => {
@@ -715,6 +733,19 @@ describe('EmployeeService', () => {
         expect.arrayContaining(['mgr-1', 'emp-1', 'emp-2', 'emp-3']),
       );
     });
+
+    it('Phase 2: HR_ASSOCIATE gets no company-wide directory access at all', async () => {
+      const result = await service.findAll(
+        {},
+        { userId: 'hra-1', role: Role.HR_ASSOCIATE },
+      );
+
+      expect(result).toEqual({ items: [], total: 0, page: 1, pageSize: 20 });
+      // Must never even reach the unscoped/company-wide query — this is an
+      // explicit early return, not an empty result from a query that ran.
+      expect(prisma.employee.findMany).not.toHaveBeenCalled();
+      expect(prisma.employee.count).not.toHaveBeenCalled();
+    });
   });
 
   describe('Section 6 data-scope: Manager can only read their own reports', () => {
@@ -745,6 +776,21 @@ describe('EmployeeService', () => {
 
       await expect(
         service.findOne('emp-9', { userId: 'mgr-1', role: Role.MANAGER }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('Phase 2: rejects HR_ASSOCIATE reading another employee\'s record — not a privileged role, not self, not their manager', async () => {
+      prisma.employee.findUnique
+        .mockResolvedValueOnce({
+          id: 'emp-9',
+          pan: null,
+          aadhaar: null,
+          bankAccountNumber: null,
+        })
+        .mockResolvedValueOnce({ reportingManagerId: null });
+
+      await expect(
+        service.findOne('emp-9', { userId: 'hra-1', role: Role.HR_ASSOCIATE }),
       ).rejects.toThrow(ForbiddenException);
     });
   });

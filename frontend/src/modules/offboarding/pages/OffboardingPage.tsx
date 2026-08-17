@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { canAccessHrOperationalModules } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
 import {
   submitResignation,
@@ -23,7 +24,11 @@ import {
 
 export function OffboardingPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // This task (HR Associate, Phase 3): Offboarding is one of the 3
+  // operational HR modules HR Associate gets — same UI/actions as HR Admin
+  // here specifically, unlike Employee/CTC/Leave Type/Settings pages which
+  // stay on the plain HR_ADMIN/SUPER_ADMIN check.
+  const isHrAdmin = canAccessHrOperationalModules(user?.role)
 
   const [noticePeriodDays, setNoticePeriodDays] = useState('30')
   const [lookupId, setLookupId] = useState('')

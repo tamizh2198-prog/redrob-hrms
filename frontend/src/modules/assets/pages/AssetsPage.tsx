@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
+import { canAccessHrOperationalModules } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption } from '@/modules/employee/api'
 import {
@@ -31,7 +32,12 @@ import {
 
 export function AssetsPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // This task (HR Associate, Phase 3): Assets is one of the 3 operational
+  // HR modules HR Associate gets — same HR panels as HR Admin here
+  // specifically, unlike Employee/CTC/Leave Type/Settings pages which stay
+  // on the plain HR_ADMIN/SUPER_ADMIN check. The existing MANAGER-inclusive
+  // read-only list behavior below is untouched.
+  const isHrAdmin = canAccessHrOperationalModules(user?.role)
 
   const [people, setPeople] = useState<ManagerOption[]>([])
   const [myAssignments, setMyAssignments] = useState<AssetAssignment[]>([])

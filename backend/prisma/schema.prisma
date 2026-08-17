@@ -21,6 +21,12 @@ enum Role {
   MANAGER
   HR_ADMIN
   SUPER_ADMIN
+  // HR Associate: a genuine, distinct role — not an HR_ADMIN alias and not
+  // designation-based. Gets operational access to Onboarding/Offboarding/
+  // Assets (wired in RolesGuard, Phase 2) while remaining excluded from
+  // Employee Directory, employee data, CTC, and Leave Type management,
+  // which stay scoped to HR_ADMIN/SUPER_ADMIN exactly as before.
+  HR_ASSOCIATE
 }
 
 enum Gender {
