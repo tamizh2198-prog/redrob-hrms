@@ -123,7 +123,7 @@ export class NotificationsService {
           employeeId: employee.id,
           template: payload.template,
           title: humanize(payload.template),
-          body: payload.data ? JSON.stringify(payload.data) : '',
+          body: payload.body,
           data: payload.data as Prisma.InputJsonValue | undefined,
         },
       });

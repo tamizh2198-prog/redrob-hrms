@@ -33,6 +33,7 @@ export class AttendanceRemindersService {
       await this.notifications.send({
         recipientId: record.employeeId,
         template: 'attendance.missed-punch-out',
+        body: `You didn't punch out on ${record.date.toISOString().slice(0, 10)}. Please submit a regularization request.`,
       });
     }
     if (missed.length > 0) {
@@ -48,6 +49,7 @@ export class AttendanceRemindersService {
       await this.notifications.send({
         recipientId: 'hr-admin',
         template: 'regularization.escalated',
+        body: `${request.employee.firstName} ${request.employee.lastName}'s attendance regularization request for ${request.date.toISOString().slice(0, 10)} has been pending beyond SLA and needs your attention.`,
         data: { requestId: request.id, employeeId: request.employeeId },
       });
     }

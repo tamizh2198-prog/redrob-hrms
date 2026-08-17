@@ -86,6 +86,7 @@ export class AssetsService {
           this.notifications.send({
             recipientId: approver.id,
             template: 'assets.request-pending-approval',
+            body: `${employee.firstName} ${employee.lastName} requested a ${dto.assetCategory} asset and is awaiting your approval.`,
             data: { requestId: request.id },
           }),
         ),
@@ -172,6 +173,7 @@ export class AssetsService {
     await this.notifications.send({
       recipientId: dto.employeeId,
       template: 'assets.issued-pending-acknowledgement',
+      body: `A ${asset.category}${asset.model ? ` (${asset.model})` : ''} has been issued to you and is awaiting your acknowledgement.`,
       data: { assetId },
     });
 

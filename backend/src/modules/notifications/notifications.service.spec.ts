@@ -43,6 +43,7 @@ describe('NotificationsService', () => {
       await service.dispatch({
         recipientId: 'hr-admin',
         template: 'helpdesk.ticket-created',
+        body: 'A new ticket was created.',
       });
 
       expect(prisma.notification.create).not.toHaveBeenCalled();
@@ -59,6 +60,7 @@ describe('NotificationsService', () => {
       await service.dispatch({
         recipientId: 'emp-1',
         template: 'leave.decision-made',
+        body: 'Your leave application was approved.',
         data: { approved: true },
       });
 
@@ -93,6 +95,7 @@ describe('NotificationsService', () => {
       await service.dispatch({
         recipientId: 'emp-1',
         template: 'leave.decision-made',
+        body: 'Your leave application was approved.',
       });
 
       expect(prisma.notification.create).not.toHaveBeenCalled();
@@ -115,6 +118,7 @@ describe('NotificationsService', () => {
       await service.dispatch({
         recipientId: 'emp-1',
         template: 'auth.password-reset',
+        body: 'Your password reset was requested.',
       });
 
       expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(

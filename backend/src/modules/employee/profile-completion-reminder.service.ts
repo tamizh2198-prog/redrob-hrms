@@ -40,6 +40,7 @@ export class ProfileCompletionReminderService {
       await this.notifications.send({
         recipientId: employee.id,
         template: 'profile-completion.reminder',
+        body: 'Your profile is still incomplete. Please finish filling in your details.',
       });
 
       const hrAdmins = await this.prisma.employee.findMany({
@@ -50,6 +51,7 @@ export class ProfileCompletionReminderService {
         await this.notifications.send({
           recipientId: admin.id,
           template: 'profile-completion.reminder',
+          body: `${employee.firstName} ${employee.lastName} still hasn't completed their profile 24 hours after joining.`,
           data: { employeeId: employee.id },
         });
       }

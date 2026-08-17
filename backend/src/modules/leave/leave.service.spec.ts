@@ -242,6 +242,8 @@ describe('LeaveService', () => {
         endDate: new Date('2026-03-02'),
         daysCount: 0.5,
         status: LeaveApplicationStatus.PENDING,
+        employee: { firstName: 'Jane', lastName: 'Doe' },
+        leaveType: { name: 'Earned Leave' },
         approvalSteps: [
           {
             id: 'step-1',
@@ -402,6 +404,8 @@ describe('LeaveService', () => {
         startDate: new Date('2026-03-02'),
         endDate: new Date('2026-03-09'),
         daysCount: 8,
+        employee: { firstName: 'Jane', lastName: 'Doe' },
+        leaveType: { name: 'Earned Leave' },
         approvalSteps: [
           {
             id: 'step-1',
@@ -438,6 +442,8 @@ describe('LeaveService', () => {
         startDate: new Date('2026-03-02'),
         endDate: new Date('2026-03-03'),
         daysCount: 2,
+        employee: { firstName: 'Jane', lastName: 'Doe' },
+        leaveType: { name: 'Earned Leave' },
         approvalSteps: [
           {
             id: 'step-1',

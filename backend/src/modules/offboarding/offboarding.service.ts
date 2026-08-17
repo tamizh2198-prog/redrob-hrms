@@ -207,6 +207,7 @@ export class OffboardingService {
         this.notifications.send({
           recipientId,
           template: 'offboarding.resignation-submitted',
+          body: `${employee.firstName} ${employee.lastName} submitted their resignation. Last working day: ${lastWorkingDay.toISOString().slice(0, 10)}.`,
           data: { resignationId: resignation.id, employeeId },
         }),
       ),
@@ -481,6 +482,7 @@ export class OffboardingService {
     await this.notifications.send({
       recipientId: 'hr-admin',
       template: 'offboarding.settlement-computed',
+      body: `The final settlement for resignation ${resignationId} has been computed (net payable: ${netPayable}) and is awaiting approval.`,
       data: { resignationId, netPayable },
     });
 
@@ -604,6 +606,7 @@ export class OffboardingService {
     await this.notifications.send({
       recipientId: resignation.employeeId,
       template: 'offboarding.relieving-letter-generated',
+      body: 'Your relieving letter and experience letter have been generated and are ready for download.',
       data: { resignationId },
     });
 

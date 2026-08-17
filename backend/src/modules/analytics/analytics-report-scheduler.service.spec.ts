@@ -41,6 +41,7 @@ describe('AnalyticsReportSchedulerService (Section 7.13 Phase 5)', () => {
     expect(notifications.send).toHaveBeenCalledWith({
       recipientId: 'hr-1',
       template: 'analytics.saved-report-ready',
+      body: 'Your scheduled report "Weekly headcount" is ready (42 records).',
       data: { savedReportId: 'sr-1', name: 'Weekly headcount', total: 42 },
     });
   });

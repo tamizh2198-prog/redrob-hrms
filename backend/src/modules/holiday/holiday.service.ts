@@ -58,6 +58,7 @@ export class HolidayService {
         this.notifications.send({
           recipientId: e.id,
           template: 'holiday-calendar.published',
+          body: `The ${dto.year} holiday calendar for your location has been published.`,
           data: { locationId: dto.locationId, year: dto.year },
         }),
       ),

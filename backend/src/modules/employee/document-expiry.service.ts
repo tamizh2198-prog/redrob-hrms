@@ -39,11 +39,13 @@ export class DocumentExpiryService {
         await this.notifications.send({
           recipientId: doc.employeeId,
           template: 'document.expiring',
+          body: `Your ${doc.docType} document is expiring in ${days} day${days === 1 ? '' : 's'}. Please renew and re-upload it.`,
           data: { docType: doc.docType, daysRemaining: days },
         });
         await this.notifications.send({
           recipientId: 'hr-admin',
           template: 'document.expiring',
+          body: `${doc.employee.firstName} ${doc.employee.lastName}'s ${doc.docType} document is expiring in ${days} day${days === 1 ? '' : 's'}.`,
           data: {
             employeeId: doc.employeeId,
             docType: doc.docType,

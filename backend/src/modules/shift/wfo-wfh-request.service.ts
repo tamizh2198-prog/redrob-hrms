@@ -111,6 +111,7 @@ export class WfoWfhRequestService {
     await this.notifications.send({
       recipientId: approverId,
       template: 'wfo-wfh-request.submitted',
+      body: `${employee.firstName} ${employee.lastName} requested to switch to ${dto.requestedWorkMode} on ${originalDate.toISOString().slice(0, 10)} and is awaiting your approval.`,
       data: { requestId: request.id },
     });
 
@@ -212,6 +213,7 @@ export class WfoWfhRequestService {
       template: dto.approve
         ? 'wfo-wfh-request.approved'
         : 'wfo-wfh-request.rejected',
+      body: `Your request to switch to ${request.requestedWorkMode} on ${request.originalDate.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
       data: { comment: dto.comment },
     });
 
@@ -260,6 +262,7 @@ export class WfoWfhRequestService {
       await this.notifications.send({
         recipientId: request.approverId,
         template: 'wfo-wfh-request.comment-added',
+        body: `A new comment was added to the WFO/WFH change request for ${request.originalDate.toISOString().slice(0, 10)}: "${body}"`,
         data: { requestId },
       });
     }

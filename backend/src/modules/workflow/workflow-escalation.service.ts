@@ -54,6 +54,7 @@ export class WorkflowEscalationService {
         await this.notifications.send({
           recipientId: target.id,
           template: 'workflow.sla-breach',
+          body: `Workflow "${request.workflowDefinition.name}" (${request.sourceModule}) has breached its SLA at step ${request.currentStep} and needs your attention.`,
           data: { requestId: request.id, sourceModule: request.sourceModule },
         });
       }

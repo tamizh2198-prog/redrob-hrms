@@ -341,6 +341,7 @@ export class LeaveService {
       await this.notifications.send({
         recipientId: employeeId,
         template: 'leave.insufficient-balance',
+        body: `You don't have enough ${leaveType.name} balance: requested ${daysCount}, available ${available}.`,
         data: { leaveTypeId: dto.leaveTypeId, requested: daysCount, available },
       });
       throw new BadRequestException(
@@ -399,6 +400,7 @@ export class LeaveService {
       await this.notifications.send({
         recipientId: approverIds[0],
         template: 'leave.application-submitted',
+        body: `${employee.firstName} ${employee.lastName} applied for ${leaveType.name} leave from ${startDate.toISOString().slice(0, 10)} to ${endDate.toISOString().slice(0, 10)} and is awaiting your approval.`,
         data: { applicationId: application.id },
       });
     }
@@ -414,7 +416,11 @@ export class LeaveService {
   ) {
     const application = await this.prisma.leaveApplication.findUnique({
       where: { id: applicationId },
-      include: { approvalSteps: { orderBy: { sequence: 'asc' } } },
+      include: {
+        approvalSteps: { orderBy: { sequence: 'asc' } },
+        employee: true,
+        leaveType: true,
+      },
     });
     if (!application)
       throw new NotFoundException('Leave application not found');
@@ -450,6 +456,7 @@ export class LeaveService {
       await this.notifications.send({
         recipientId: application.employeeId,
         template: 'leave.decision-made',
+        body: `Your ${application.leaveType.name} leave request from ${application.startDate.toISOString().slice(0, 10)} to ${application.endDate.toISOString().slice(0, 10)} was rejected.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
         data: { status: 'REJECTED', comment: dto.comment },
       });
       return { status: 'REJECTED' };
@@ -476,6 +483,7 @@ export class LeaveService {
       await this.notifications.send({
         recipientId: nextStep.approverId,
         template: 'leave.application-submitted',
+        body: `${application.employee.firstName} ${application.employee.lastName}'s ${application.leaveType.name} leave request from ${application.startDate.toISOString().slice(0, 10)} to ${application.endDate.toISOString().slice(0, 10)} needs your approval.`,
         data: { applicationId },
       });
       return { status: 'PENDING', nextApproverId: nextStep.approverId };
@@ -511,6 +519,7 @@ export class LeaveService {
     await this.notifications.send({
       recipientId: application.employeeId,
       template: 'leave.decision-made',
+      body: `Your ${application.leaveType.name} leave request from ${application.startDate.toISOString().slice(0, 10)} to ${application.endDate.toISOString().slice(0, 10)} was approved.`,
       data: { status: 'APPROVED' },
     });
 
@@ -577,6 +586,7 @@ export class LeaveService {
           this.notifications.send({
             recipientId: id,
             template: 'leave.cancelled',
+            body: `The leave application from ${application.startDate.toISOString().slice(0, 10)} to ${application.endDate.toISOString().slice(0, 10)} for ${employee ? `${employee.firstName} ${employee.lastName}` : 'this employee'} was cancelled.`,
           }),
       ),
     );
@@ -718,11 +728,13 @@ export class LeaveService {
         await this.notifications.send({
           recipientId: balance.employeeId,
           template: 'leave.year-end-encashment',
+          body: `${excess} day(s) of your unused ${balance.leaveType.name} leave for ${year} will be encashed.`,
           data: { amount: excess, leaveTypeId: balance.leaveTypeId },
         });
         await this.notifications.send({
           recipientId: 'hr-admin',
           template: 'leave.year-end-encashment',
+          body: `${excess} day(s) of unused ${balance.leaveType.name} leave for employee ${balance.employeeId} will be encashed for year-end ${year} close.`,
           data: { employeeId: balance.employeeId, amount: excess },
         });
       }

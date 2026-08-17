@@ -121,6 +121,7 @@ export class CompOffService {
     await this.notifications.send({
       recipientId: approverId,
       template: 'comp-off.submitted',
+      body: `${employee.firstName} ${employee.lastName} requested comp-off for working on ${workedDate.toISOString().slice(0, 10)}.`,
       data: { requestId: request.id },
     });
 
@@ -164,6 +165,7 @@ export class CompOffService {
     await this.notifications.send({
       recipientId: request.employeeId,
       template: dto.approve ? 'comp-off.approved' : 'comp-off.rejected',
+      body: `Your comp-off request for working on ${request.workedDate.toISOString().slice(0, 10)} was ${dto.approve ? 'approved' : 'rejected'}.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
       data: { comment: dto.comment },
     });
 
@@ -212,6 +214,7 @@ export class CompOffService {
       await this.notifications.send({
         recipientId: request.approverId,
         template: 'comp-off.comment-added',
+        body: `A new comment was added to the comp-off request for ${request.workedDate.toISOString().slice(0, 10)}: "${body}"`,
         data: { requestId },
       });
     }

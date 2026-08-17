@@ -105,6 +105,7 @@ export class AtsService {
     await this.notifications.send({
       recipientId: 'hr-admin',
       template: 'ats.requisition-awaiting-approval',
+      body: `A new job requisition "${requisition.title}" is awaiting your approval.`,
       data: { requisitionId: requisition.id, raisedBy: actorId },
     });
 
@@ -200,6 +201,7 @@ export class AtsService {
     await this.notifications.send({
       recipientId: requisition.hiringManagerId,
       template: 'ats.application-received',
+      body: `${candidate.name} applied for "${requisition.title}".`,
       data: { candidateId: candidate.id, requisitionId: requisition.id },
     });
 
@@ -304,6 +306,7 @@ export class AtsService {
     await this.notifications.send({
       recipientId: dto.interviewerId,
       template: 'ats.interview-scheduled',
+      body: `You've been scheduled to interview ${candidate.name} on ${new Date(dto.scheduledAt).toISOString().slice(0, 10)}.`,
       data: { candidateId, roundId: round.id },
     });
 
@@ -433,6 +436,7 @@ export class AtsService {
     await this.notifications.send({
       recipientId: offer.candidate.requisition.hiringManagerId,
       template: 'ats.offer-sent',
+      body: `The offer for "${offer.candidate.requisition.title}" was sent to ${offer.candidate.name}.`,
       data: { offerId },
     });
 
@@ -654,6 +658,7 @@ export class AtsService {
       await this.notifications.send({
         recipientId: offer.candidate.requisition.hiringManagerId,
         template: 'ats.preboarding-init-failed',
+        body: `Could not auto-create the onboarding checklist for ${offer.candidate.name}. Please run it manually.`,
         data: { employeeId: employee.id },
       });
     }
@@ -661,6 +666,7 @@ export class AtsService {
     await this.notifications.send({
       recipientId: offer.candidate.requisition.hiringManagerId,
       template: 'ats.offer-accepted',
+      body: `${offer.candidate.name} accepted the offer for "${offer.candidate.requisition.title}".`,
       data: { candidateId: offer.candidateId, employeeId: employee.id },
     });
 

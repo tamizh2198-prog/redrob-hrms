@@ -30,6 +30,7 @@ export class HelpdeskEscalationService {
         await this.notifications.send({
           recipientId,
           template: 'helpdesk.sla-warning',
+          body: `Ticket "${ticket.subject}" is at 80% of its SLA window and needs attention soon.`,
           data: { ticketId: ticket.id },
         });
       }
@@ -44,6 +45,7 @@ export class HelpdeskEscalationService {
         await this.notifications.send({
           recipientId,
           template: 'helpdesk.sla-breached',
+          body: `Ticket "${ticket.subject}" has breached its SLA and needs immediate attention.`,
           data: { ticketId: ticket.id },
         });
       }

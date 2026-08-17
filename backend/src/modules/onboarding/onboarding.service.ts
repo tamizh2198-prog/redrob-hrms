@@ -173,6 +173,7 @@ export class OnboardingService {
     await this.notifications.send({
       recipientId: employeeId,
       template: 'onboarding.checklist-created',
+      body: 'Your onboarding checklist has been created. Please complete your preboarding tasks.',
       data: { checklistId: checklist.id },
     });
 
@@ -200,6 +201,7 @@ export class OnboardingService {
         this.notifications.send({
           recipientId,
           template: 'onboarding.tasks-assigned',
+          body: `You have onboarding checklist tasks assigned for ${employee.firstName} ${employee.lastName}.`,
           data: { employeeId, checklistId: checklist.id },
         }),
       ),
@@ -377,6 +379,7 @@ export class OnboardingService {
     await this.notifications.send({
       recipientId: 'hr-admin',
       template: 'onboarding.preboarding-submitted',
+      body: `${employee.firstName} ${employee.lastName} submitted their ${fieldType} preboarding document.`,
       data: { employeeId, fieldType },
     });
 
@@ -441,6 +444,7 @@ export class OnboardingService {
     await this.notifications.send({
       recipientId: employeeId,
       template: 'onboarding.employee-activated',
+      body: 'Your onboarding is complete and your account is now fully active.',
     });
 
     return { status: 'ACTIVE_PROBATION' };

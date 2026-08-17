@@ -222,6 +222,7 @@ export class WorkflowService {
       await this.notifications.send({
         recipientId: request.requestedById,
         template: 'workflow.request-rejected',
+        body: `Your ${request.sourceModule} approval request ("${request.workflowDefinition.name}") was rejected.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
         data: { requestId: request.id, sourceModule: request.sourceModule },
       });
       return updated;
@@ -262,12 +263,18 @@ export class WorkflowService {
     currentSequence: number,
     requestedById: string,
   ) {
-    const context = ((
-      await this.prisma.approvalRequest.findUnique({
-        where: { id: requestId },
-        select: { contextJson: true },
-      })
-    )?.contextJson ?? {}) as Record<string, unknown>;
+    const requestForAdvance = await this.prisma.approvalRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        contextJson: true,
+        sourceModule: true,
+        workflowDefinition: { select: { name: true } },
+      },
+    });
+    const context = (requestForAdvance?.contextJson ?? {}) as Record<
+      string,
+      unknown
+    >;
 
     const next = steps
       .slice()
@@ -283,6 +290,7 @@ export class WorkflowService {
       await this.notifications.send({
         recipientId: requestedById,
         template: 'workflow.request-approved',
+        body: `Your ${requestForAdvance?.sourceModule ?? ''} approval request ("${requestForAdvance?.workflowDefinition?.name ?? ''}") was fully approved.`,
         data: { requestId },
       });
       return finished;
@@ -313,7 +321,10 @@ export class WorkflowService {
   ) {
     const definition = await this.prisma.approvalRequest.findUnique({
       where: { id: requestId },
-      select: { workflowDefinition: { select: { companyId: true } } },
+      select: {
+        sourceModule: true,
+        workflowDefinition: { select: { companyId: true, name: true } },
+      },
     });
     if (!definition) return;
 
@@ -327,6 +338,7 @@ export class WorkflowService {
       await this.notifications.send({
         recipientId: approverId,
         template: 'workflow.approval-assigned',
+        body: `A ${definition.sourceModule} approval request ("${definition.workflowDefinition.name}") is awaiting your decision.`,
         data: { requestId },
       });
     }

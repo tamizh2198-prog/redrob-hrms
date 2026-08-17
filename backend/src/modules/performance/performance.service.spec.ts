@@ -514,6 +514,7 @@ describe('PerformanceService', () => {
         id: 'eval-1',
         auditStatus: 'APPROVED',
         submittedBy: 'mgr-1',
+        period: new Date('2026-01-01'),
       });
 
       await service.auditMonthlyEvaluation('eval-1', { approve: true }, 'hr-1');

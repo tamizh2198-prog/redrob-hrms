@@ -44,6 +44,7 @@ export class AssistantAnomalyDigestService {
         await this.notifications.send({
           recipientId: admin.id,
           template: 'assistant.anomaly-digest',
+          body: `Weekly anomaly digest: ${anomalies.join('; ')}`,
           data: { anomalies },
         });
         digestsSent++;

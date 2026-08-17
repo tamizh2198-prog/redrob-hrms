@@ -277,6 +277,7 @@ export class ShiftService {
         this.notifications.send({
           recipientId: employeeId,
           template: 'roster.published',
+          body: `Your roster has been published for ${dto.dates.length} day${dto.dates.length === 1 ? '' : 's'} (${[...dto.dates].sort()[0]} to ${[...dto.dates].sort().slice(-1)[0]}).`,
         }),
       ),
     );

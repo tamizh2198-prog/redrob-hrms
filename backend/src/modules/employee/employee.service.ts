@@ -102,6 +102,7 @@ const NULLABLE_EMPLOYEE_REFERENCES: ReadonlyArray<{
   { model: 'ticket', field: 'assignedAgentId' },
   { model: 'shiftSwapRequest', field: 'approverId' },
   { model: 'regularizationRequest', field: 'approverId' },
+  { model: 'regularizationRequest', field: 'decidedById' },
   { model: 'overtimeClaim', field: 'approverId' },
   { model: 'overtimeClaim', field: 'managerApproverId' },
   { model: 'wfoWfhChangeRequest', field: 'approverId' },
@@ -430,6 +431,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: employee.id,
       template: 'employee.welcome',
+      body: `Welcome, ${employee.firstName}! Your employee account has been created.`,
       data: { createdBy: actorId },
     });
 
@@ -516,6 +518,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: employee.id,
       template: 'employee.invited',
+      body: `You've been invited to join. Check your email (${dto.email}) for your activation link.`,
       data: { invitedBy: actorId },
     });
 
@@ -562,6 +565,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: employee.id,
       template: 'employee.invited',
+      body: `Your invitation link has been resent. Check your email (${employee.workEmail}) for your activation link.`,
       data: { invitedBy: actorId, resend: true },
     });
 
@@ -596,6 +600,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: id,
       template: 'employee.terminated',
+      body: 'Your employment has been marked as terminated.',
       data: { terminatedBy: actorId },
     });
 
@@ -1278,6 +1283,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: 'hr-admin',
       template: 'profile-change.submitted',
+      body: `${employee.firstName} ${employee.lastName} submitted a profile change request for: ${toCreate.map((c) => c.fieldName).join(', ')}.`,
       data: { employeeId, fields: toCreate.map((c) => c.fieldName) },
     });
 
@@ -1329,6 +1335,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: request.employeeId,
       template: 'profile-change.approved',
+      body: `Your request to update ${request.fieldName} was approved.`,
     });
   }
 
@@ -1358,6 +1365,7 @@ export class EmployeeService {
     await this.notifications.send({
       recipientId: request.employeeId,
       template: 'profile-change.rejected',
+      body: `Your request to update ${request.fieldName} was rejected.${reason ? ` Comment: "${reason}"` : ''}`,
       data: { reason },
     });
   }

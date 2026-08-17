@@ -25,6 +25,7 @@ export class AnnouncementsRemindersService {
       await this.notifications.send({
         recipientId: ack.employeeId,
         template: 'announcements.reminder',
+        body: `Reminder: you haven't acknowledged the announcement "${ack.announcement.title}" yet.`,
         data: { announcementId: ack.announcementId },
       });
     }

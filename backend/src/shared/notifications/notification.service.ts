@@ -4,6 +4,7 @@ import { NotificationsService } from '../../modules/notifications/notifications.
 export interface NotificationPayload {
   recipientId: string;
   template: string;
+  body: string;
   data?: Record<string, unknown>;
 }
 

@@ -26,6 +26,7 @@ export class AnalyticsReportSchedulerService {
         await this.notifications.send({
           recipientId,
           template: 'analytics.saved-report-ready',
+          body: `Your scheduled report "${report.name}" is ready (${report.total} record${report.total === 1 ? '' : 's'}).`,
           data: {
             savedReportId: report.savedReportId,
             name: report.name,

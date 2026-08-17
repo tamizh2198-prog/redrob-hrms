@@ -87,7 +87,15 @@ export function WorkflowPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <h1 className="text-xl font-semibold">Workflow</h1>
+      <div>
+        <h1 className="text-xl font-semibold">Workflow</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Workflow isn&apos;t a separate approval system — it&apos;s two things: your unified approval
+          inbox below (everything waiting on your sign-off, from any module), and, for HR Admins, a
+          way to define extra custom approval chains (e.g. "any leave over 5 days needs HR Admin too")
+          on top of each module&apos;s normal approver.
+        </p>
+      </div>
 
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -95,8 +103,12 @@ export function WorkflowPage() {
       <div className="rounded-md border p-4 text-sm">
         <h2 className="mb-2 font-medium">My Approvals</h2>
         <p className="mb-2 text-muted-foreground">
-          A single inbox aggregating pending approvals across Leave, Attendance, Assets, Recruitment and
-          any custom workflow.
+          Everything currently waiting on your decision, in one list — leave, attendance, assets,
+          recruitment, and any custom workflow below, instead of checking each module separately. The
+          badge on the left tells you which module it came from; only items badged{' '}
+          <Badge variant="outline" className="mx-1">WORKFLOW</Badge>
+          are decided here — everything else (e.g. <Badge variant="outline" className="mx-1">LEAVE</Badge>)
+          is just a summary, so go to that module's own page to act on it.
         </p>
         <ul className="flex flex-col gap-2">
           {approvals.map((a) => (
@@ -126,6 +138,13 @@ export function WorkflowPage() {
       {isHrAdmin && (
         <div className="rounded-md border p-4 text-sm">
           <h2 className="mb-2 font-medium">Workflow Definitions</h2>
+          <p className="mb-3 text-muted-foreground">
+            A definition is an extra approval chain your company can attach to a module (e.g. LEAVE,
+            ASSETS) on top of that module's normal single approver — useful for rules like "over a
+            certain amount, a second person must also sign off." Each definition has one or more
+            ordered <strong>steps</strong>; a request moves to the next step only after the current one
+            is satisfied.
+          </p>
           <ul className="mb-3 flex flex-col gap-1">
             {definitions.map((d) => (
               <li key={d.id}>
@@ -138,9 +157,34 @@ export function WorkflowPage() {
           <div className="flex flex-col gap-2">
             <Label>Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Leave Approval > 5 days" />
+            <p className="text-xs text-muted-foreground">A short label for your own reference — not shown to employees.</p>
+
             <Label>Module</Label>
             <Input value={moduleName} onChange={(e) => setModuleName(e.target.value)} placeholder="LEAVE" />
+            <p className="text-xs text-muted-foreground">
+              Which module this chain applies to — must match a module name exactly, e.g. LEAVE, ATTENDANCE,
+              ASSETS.
+            </p>
+
             <Label>Steps (JSON)</Label>
+            <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+              <p className="mb-1 font-medium text-foreground">What each field means:</p>
+              <ul className="list-disc space-y-1 pl-4">
+                <li><code>sequence</code> — step order, starting at 0 (0 runs first, then 1, and so on).</li>
+                <li>
+                  <code>approverRules</code> — who can approve this step: <code>{'{ type: "MANAGER" }'}</code>{' '}
+                  for the employee's own manager, or <code>{'{ type: "ROLE", role: "HR_ADMIN" }'}</code> for
+                  anyone with that role. List more than one rule to allow any of several approvers.
+                </li>
+                <li><code>requireAll</code> — <code>true</code> if every listed approver must approve; <code>false</code> if any one is enough.</li>
+                <li><code>slaHours</code> — optional: hours before this step is flagged overdue/escalated.</li>
+                <li>
+                  <code>condition</code> — optional: only run this step when a field on the request matches,
+                  e.g. <code>{'{ field: "daysCount", operator: "gt", value: 10 }'}</code> (only for leave
+                  requests over 10 days). Omit to always run the step.
+                </li>
+              </ul>
+            </div>
             <Textarea rows={10} value={stepsText} onChange={(e) => setStepsText(e.target.value)} />
             <Button size="sm" variant="outline" onClick={handleCreateDefinition}>
               Create Definition

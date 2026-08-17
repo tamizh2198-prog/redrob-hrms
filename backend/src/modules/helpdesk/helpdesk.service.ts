@@ -112,6 +112,7 @@ export class HelpdeskService {
     await this.notifications.send({
       recipientId: policy?.agentId ?? 'hr-admin',
       template: 'helpdesk.ticket-created',
+      body: `New ${ticket.category} ticket raised: "${ticket.subject}"`,
       data: { ticketId: ticket.id, category: ticket.category },
     });
 
@@ -215,6 +216,7 @@ export class HelpdeskService {
       await this.notifications.send({
         recipientId,
         template: 'helpdesk.message-added',
+        body: `New reply on ticket "${ticket.subject}": "${dto.body}"`,
         data: { ticketId: id },
       });
     }
@@ -272,6 +274,7 @@ export class HelpdeskService {
     await this.notifications.send({
       recipientId: dto.agentId,
       template: 'helpdesk.ticket-assigned',
+      body: `Ticket "${ticket.subject}" has been assigned to you.`,
       data: { ticketId: id },
     });
 
@@ -304,6 +307,7 @@ export class HelpdeskService {
     const data: Prisma.TicketUpdateInput = { status: dto.status };
     let notifyRecipientId: string | undefined;
     let notifyTemplate: string | undefined;
+    let notifyBody: string | undefined;
 
     switch (dto.status) {
       case TicketStatus.IN_PROGRESS: {
@@ -327,6 +331,7 @@ export class HelpdeskService {
         if (dto.resolutionNote) data.resolutionNote = dto.resolutionNote;
         notifyRecipientId = ticket.employeeId;
         notifyTemplate = 'helpdesk.ticket-resolved';
+        notifyBody = `Your ticket "${ticket.subject}" has been resolved.${dto.resolutionNote ? ` Comment: "${dto.resolutionNote}"` : ''}`;
         break;
       }
       case TicketStatus.CLOSED: {
@@ -361,6 +366,7 @@ export class HelpdeskService {
         data.reopenedAt = new Date();
         notifyRecipientId = ticket.assignedAgentId ?? 'hr-admin';
         notifyTemplate = 'helpdesk.ticket-reopened';
+        notifyBody = `Ticket "${ticket.subject}" was reopened by the employee.`;
         break;
       }
     }
@@ -381,6 +387,7 @@ export class HelpdeskService {
       await this.notifications.send({
         recipientId: notifyRecipientId,
         template: notifyTemplate,
+        body: notifyBody ?? `Ticket "${ticket.subject}" status changed to ${dto.status}.`,
         data: { ticketId: id },
       });
     }

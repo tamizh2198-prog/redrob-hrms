@@ -52,6 +52,7 @@ export class OptionalHolidayReminderService {
         await this.notifications.send({
           recipientId: employee.id,
           template: 'holiday.optional-selection-closing',
+          body: `The selection window for the optional holiday "${holiday.name}" closes in ${REMINDER_DAYS_BEFORE_CUTOFF} day(s). Make your selection now.`,
           data: { holidayId: holiday.id, holidayName: holiday.name },
         });
       }

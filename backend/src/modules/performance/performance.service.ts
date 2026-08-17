@@ -181,6 +181,7 @@ export class PerformanceService {
         this.notifications.send({
           recipientId: p.id,
           template: 'performance.cycle-opened',
+          body: `The "${cycle.name}" review cycle is now open. Please set your goals.`,
           data: { cycleId: cycle.id },
         }),
       ),
@@ -343,6 +344,7 @@ export class PerformanceService {
       await this.notifications.send({
         recipientId: employee.reportingManagerId,
         template: 'performance.self-assessment-submitted',
+        body: `${employee.firstName} ${employee.lastName} submitted their self-assessment and it's awaiting your review.`,
         data: { reviewId: updated.id },
       });
     }
@@ -443,6 +445,7 @@ export class PerformanceService {
         this.notifications.send({
           recipientId: r.employeeId,
           template: 'performance.review-finalized',
+          body: `Your review for the "${cycle.name}" cycle has been finalized.`,
           data: { reviewId: r.id },
         }),
       ),
@@ -589,6 +592,7 @@ export class PerformanceService {
     await this.notifications.send({
       recipientId: 'hr-admin',
       template: 'performance.monthly-evaluation-submitted',
+      body: `A monthly evaluation for employee ${dto.employeeId} (period ${period.toISOString().slice(0, 10)}, grade ${grade}) was submitted and is awaiting audit.`,
       data: { evaluationId: evaluation.id, employeeId: dto.employeeId },
     });
 
@@ -634,6 +638,9 @@ export class PerformanceService {
       template: dto.approve
         ? 'performance.monthly-evaluation-approved'
         : 'performance.monthly-evaluation-sent-back',
+      body: dto.approve
+        ? `The monthly evaluation you submitted for ${updated.period.toISOString().slice(0, 10)} was approved.`
+        : `The monthly evaluation you submitted for ${updated.period.toISOString().slice(0, 10)} was sent back for clarification.${dto.auditNotes ? ` Comment: "${dto.auditNotes}"` : ''}`,
       data: { evaluationId: updated.id },
     });
 

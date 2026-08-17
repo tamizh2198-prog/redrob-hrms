@@ -102,6 +102,7 @@ export class AnnouncementsService {
         this.notifications.send({
           recipientId: t.id,
           template: 'announcements.created',
+          body: `New announcement: "${announcement.title}"`,
           data: { announcementId: announcement.id },
         }),
       ),
@@ -321,6 +322,13 @@ export class AnnouncementsService {
     });
     if (!recipient) throw new NotFoundException('Recipient not found');
 
+    const sender = await this.prisma.employee.findUnique({
+      where: { id: actorId },
+    });
+    const senderFullName = sender
+      ? `${sender.firstName} ${sender.lastName}`
+      : 'A colleague';
+
     const recognition = await this.prisma.recognition.create({
       data: {
         senderId: actorId,
@@ -342,6 +350,10 @@ export class AnnouncementsService {
             recipientId === recipient.id
               ? 'recognition.received'
               : 'recognition.manager-notified',
+          body:
+            recipientId === recipient.id
+              ? `${senderFullName} recognized you: "${dto.message}"`
+              : `${recipient.firstName} ${recipient.lastName} received recognition from ${senderFullName}: "${dto.message}"`,
           data: { recognitionId: recognition.id },
         }),
       ),
