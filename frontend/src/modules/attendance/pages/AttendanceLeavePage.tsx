@@ -60,6 +60,7 @@ import {
   type LeaveApplication,
 } from '@/modules/leave/api'
 import { getDashboard, type Dashboard } from '@/modules/analytics/api'
+import { BulkBiometricUploadDialog } from '../components/BulkBiometricUploadDialog'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -851,7 +852,10 @@ export function AttendanceLeavePage() {
         {isHrAdmin && (
           <Panel>
             <PanelSection>
-              <h2 className="mb-3 font-medium">Biometric Attendance</h2>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-medium">Biometric Attendance</h2>
+                <BulkBiometricUploadDialog onImported={() => loadCalendar()} />
+              </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <div
                   className={`flex flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${

@@ -333,6 +333,127 @@ describe('AttendanceService', () => {
     });
   });
 
+  describe('bulkImportBiometric (Excel bulk-upload counterpart to importBiometric)', () => {
+    it('dry-run validates without writing any attendance record', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'EMP-1',
+      });
+
+      const result = await service.bulkImportBiometric(
+        [{ employeeCode: 'EMP-1', date: '2026-03-01' }],
+        true,
+      );
+
+      expect(result.dryRun).toBe(true);
+      expect(result.successCount).toBe(1);
+      expect(result.failureCount).toBe(0);
+      expect(prisma.attendanceRecord.upsert).not.toHaveBeenCalled();
+    });
+
+    it('commits and writes the attendance record when dryRun is false', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'EMP-1',
+      });
+      prisma.attendanceRecord.upsert.mockResolvedValue({});
+
+      const result = await service.bulkImportBiometric(
+        [
+          {
+            employeeCode: 'EMP-1',
+            date: '2026-03-01',
+            checkInTime: '2026-03-01T09:00:00',
+            checkOutTime: '2026-03-01T18:00:00',
+          },
+        ],
+        false,
+      );
+
+      expect(result.successCount).toBe(1);
+      expect(prisma.attendanceRecord.upsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a row missing Employee Code, without a database lookup', async () => {
+      const result = await service.bulkImportBiometric(
+        [{ employeeCode: '', date: '2026-03-01' }],
+        true,
+      );
+
+      expect(result.results[0]).toEqual({
+        row: 0,
+        success: false,
+        errors: ['Employee Code is required'],
+      });
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects a row with an invalid date', async () => {
+      const result = await service.bulkImportBiometric(
+        [{ employeeCode: 'EMP-1', date: 'not-a-date' }],
+        true,
+      );
+
+      expect(result.results[0].success).toBe(false);
+      expect(result.results[0].errors).toContain('Date is missing or invalid');
+    });
+
+    it('rejects a row where Check-Out Time is not after Check-In Time', async () => {
+      const result = await service.bulkImportBiometric(
+        [
+          {
+            employeeCode: 'EMP-1',
+            date: '2026-03-01',
+            checkInTime: '2026-03-01T18:00:00',
+            checkOutTime: '2026-03-01T09:00:00',
+          },
+        ],
+        true,
+      );
+
+      expect(result.results[0].success).toBe(false);
+      expect(result.results[0].errors).toContain(
+        'Check-Out Time must be after Check-In Time',
+      );
+    });
+
+    it('flags the second occurrence of a duplicate employee+date row within the same upload', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        employeeCode: 'EMP-1',
+      });
+
+      const result = await service.bulkImportBiometric(
+        [
+          { employeeCode: 'EMP-1', date: '2026-03-01' },
+          { employeeCode: 'EMP-1', date: '2026-03-01' },
+        ],
+        true,
+      );
+
+      expect(result.results[0].success).toBe(true);
+      expect(result.results[1].success).toBe(false);
+      expect(result.results[1].errors).toContain(
+        'Duplicate row for this employee and date already present earlier in this upload',
+      );
+    });
+
+    it('reports a per-row error (not a thrown exception) when the employee code does not resolve', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+
+      const result = await service.bulkImportBiometric(
+        [{ employeeCode: 'UNKNOWN-1', date: '2026-03-01' }],
+        false,
+      );
+
+      expect(result.failureCount).toBe(1);
+      expect(result.results[0].errors).toEqual([
+        'No employee found with code "UNKNOWN-1"',
+      ]);
+      expect(prisma.attendanceRecord.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('This task: getCalendar returns check-in/out, duration, and regularization info', () => {
     it('includes checkInTime/checkOutTime/workHours for a day with a record', async () => {
       const checkInTime = new Date('2026-01-05T09:00:00Z');

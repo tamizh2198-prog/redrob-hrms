@@ -1,4 +1,6 @@
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
 
 export type AttendanceStatus =
   | 'PRESENT'
@@ -125,4 +127,56 @@ export function lockMonth(year: number, month: number) {
     method: 'POST',
     body: { year, month },
   })
+}
+
+export interface BulkBiometricRowResult {
+  row: number
+  success: boolean
+  employeeId?: string
+  errors?: string[]
+}
+
+export interface BulkBiometricUploadResult {
+  totalRows: number
+  successCount: number
+  failureCount: number
+  dryRun: boolean
+  results: BulkBiometricRowResult[]
+}
+
+// Bypasses the shared api() helper (which always JSON-encodes the body) —
+// this sends a real file as multipart form data, same pattern as the Shift
+// module's bulkUploadWfoSchedule().
+export async function bulkUploadBiometric(file: File, dryRun: boolean) {
+  const token = localStorage.getItem('accessToken')
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_URL}/attendance/import/upload?dryRun=${dryRun}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }))
+    throw new ApiError(body.message ?? 'Bulk upload failed', res.status)
+  }
+  return res.json() as Promise<BulkBiometricUploadResult>
+}
+
+export async function downloadBiometricTemplate() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/attendance/import/template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download template', res.status)
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'biometric-attendance-template.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
