@@ -44,9 +44,16 @@ export class CalendarService {
     });
   }
 
+  // Company-wide default: Saturday/Sunday are week-off for every employee
+  // unless a RosterEntry explicitly overrides it (e.g. HR deliberately
+  // scheduling someone to work a weekend via assignRoster). An explicit
+  // entry always wins, in either direction; only the "nothing has ever been
+  // set for this date" case falls back to the calendar weekend check.
   async isWeekOff(employeeId: string, date: Date): Promise<boolean> {
     const entry = await this.getRosterEntry(employeeId, date);
-    return entry?.isWeekOff ?? false;
+    if (entry) return entry.isWeekOff;
+    const day = date.getUTCDay();
+    return day === 0 || day === 6;
   }
 
   async isWFH(employeeId: string, date: Date): Promise<boolean> {

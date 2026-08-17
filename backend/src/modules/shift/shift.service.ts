@@ -25,6 +25,13 @@ function startOfDay(date: Date): Date {
   return d;
 }
 
+// Company-wide default (see calendar.service.ts's isWeekOff): Saturday and
+// Sunday are week-off unless a caller explicitly says otherwise.
+function isWeekendDate(date: Date): boolean {
+  const day = date.getUTCDay();
+  return day === 0 || day === 6;
+}
+
 @Injectable()
 export class ShiftService {
   constructor(
@@ -84,14 +91,15 @@ export class ShiftService {
       d.setUTCDate(d.getUTCDate() + 1)
     ) {
       const date = new Date(d);
+      const isWeekOff = isWeekendDate(date);
       const workMode = officeWeekdays.includes(date.getUTCDay())
         ? WorkMode.OFFICE
         : WorkMode.WORK_FROM_HOME;
 
       await this.prisma.rosterEntry.upsert({
         where: { employeeId_date: { employeeId, date } },
-        update: { workMode },
-        create: { employeeId, date, workMode, isWeekOff: false },
+        update: { workMode, isWeekOff },
+        create: { employeeId, date, workMode, isWeekOff },
       });
       daysUpdated++;
     }
@@ -228,19 +236,23 @@ export class ShiftService {
 
           // Only touch workMode when explicitly given, so assigning a shift
           // never silently overwrites a WFO/WFH day HR already set via the
-          // per-employee hybrid schedule above.
+          // per-employee hybrid schedule above. isWeekOff defaults to the
+          // company-wide Saturday/Sunday rule when not explicitly given —
+          // HR can still override it in either direction (e.g. dto.isWeekOff:
+          // false to deliberately schedule someone to work a weekend).
+          const defaultIsWeekOff = isWeekendDate(date);
           await this.prisma.rosterEntry.upsert({
             where: { employeeId_date: { employeeId, date } },
             update: {
               shiftId: dto.shiftId,
-              isWeekOff: dto.isWeekOff ?? false,
+              isWeekOff: dto.isWeekOff ?? defaultIsWeekOff,
               ...(dto.workMode ? { workMode: dto.workMode } : {}),
             },
             create: {
               employeeId,
               date,
               shiftId: dto.shiftId,
-              isWeekOff: dto.isWeekOff ?? false,
+              isWeekOff: dto.isWeekOff ?? defaultIsWeekOff,
               workMode: dto.workMode ?? WorkMode.OFFICE,
             },
           });
