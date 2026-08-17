@@ -36,8 +36,6 @@ import {
   listRegularizations,
   decideRegularization,
   importBiometric,
-  importBiometricFromFile,
-  downloadBiometricImportTemplate,
   pendingOvertimeForMe,
   pendingSuperAdminOvertime,
   decideOvertimeClaim,
@@ -82,6 +80,15 @@ import { getDashboard, type Dashboard } from '@/modules/analytics/api'
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+const SAMPLE_BIOMETRIC_ROWS = [
+  {
+    employeeCode: 'EMP-2026-0001',
+    date: '2026-08-06',
+    checkInTime: '2026-08-06T09:00:00',
+    checkOutTime: '2026-08-06T18:00:00',
+  },
 ]
 
 function todayIso() {
@@ -156,7 +163,6 @@ export function AttendanceLeavePage() {
   const [newOvertimeComment, setNewOvertimeComment] = useState<Record<string, string>>({})
 
   const [importRaw, setImportRaw] = useState('')
-  const [importFile, setImportFile] = useState<File | null>(null)
   const [importFileName, setImportFileName] = useState<string | null>(null)
   const [importResult, setImportResult] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -322,42 +328,27 @@ export function AttendanceLeavePage() {
     }
   }
 
-  function loadImportFile(file: File) {
-    setImportFile(file)
-    setImportFileName(file.name)
-    setImportResult(null)
-    if (file.name.toLowerCase().endsWith('.xlsx')) {
-      setImportRaw('')
-      return
-    }
+  function loadFileIntoImportRaw(file: File) {
     const reader = new FileReader()
-    reader.onload = () => setImportRaw(String(reader.result ?? ''))
+    reader.onload = () => {
+      setImportRaw(String(reader.result ?? ''))
+      setImportFileName(file.name)
+    }
     reader.readAsText(file)
   }
 
   async function handleImport() {
     setAttError(null)
     try {
-      const res =
-        importFile && importFile.name.toLowerCase().endsWith('.xlsx')
-          ? await importBiometricFromFile(importFile)
-          : await importBiometric(JSON.parse(importRaw || '[]'))
+      const rows = JSON.parse(importRaw || '[]')
+      const res = await importBiometric(rows)
       setImportResult(
         `${res.matchedCount}/${res.totalRows} matched. Unmatched: ${
           res.unmatched.map((u) => u.employeeCode).join(', ') || 'none'
         }`,
       )
     } catch (err) {
-      setAttError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Import failed')
-    }
-  }
-
-  async function handleDownloadSample() {
-    setAttError(null)
-    try {
-      await downloadBiometricImportTemplate()
-    } catch (err) {
-      setAttError(err instanceof ApiError ? err.message : 'Failed to download sample')
+      setAttError(err instanceof Error ? err.message : 'Import failed')
     }
   }
 
@@ -495,6 +486,10 @@ export function AttendanceLeavePage() {
   function countFor(status: string) {
     return attendanceToday.find((a) => a.status === status)?.count ?? 0
   }
+
+  const sampleHref = `data:application/json;charset=utf-8,${encodeURIComponent(
+    JSON.stringify(SAMPLE_BIOMETRIC_ROWS, null, 2),
+  )}`
 
   return (
     <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-start">
@@ -1175,10 +1170,10 @@ export function AttendanceLeavePage() {
 
         {/* Biometric Attendance: kept at the very bottom — an infrequent
             HR/Admin tool, not part of the daily employee flow above. Still
-            calls the exact same importBiometric(rows)/lockMonth() APIs for a
-            JSON file — an .xlsx file instead goes straight to the multipart
-            importBiometricFromFile() upload, matching the sample workbook
-            Download Sample now produces. */}
+            calls the exact same importBiometric(rows)/lockMonth() APIs —
+            only the input affordance changed from a raw textarea to a
+            drop-zone that reads the chosen/dropped file's text into the
+            same importRaw state. */}
         {isHrAdmin && (
           <Panel>
             <PanelSection>
@@ -1198,43 +1193,42 @@ export function AttendanceLeavePage() {
                     e.preventDefault()
                     setDragOver(false)
                     const file = e.dataTransfer.files?.[0]
-                    if (file) loadImportFile(file)
+                    if (file) loadFileIntoImportRaw(file)
                   }}
                 >
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.json,application/json"
+                    accept=".json,application/json"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0]
-                      if (file) loadImportFile(file)
+                      if (file) loadFileIntoImportRaw(file)
                     }}
                   />
                   <Upload className="mb-1 size-5 text-muted-foreground" />
                   <div className="font-medium">Upload Biometric File</div>
                   <div className="text-xs text-muted-foreground">
-                    Drag &amp; drop your file here, or click to browse (Excel or JSON)
+                    Drag &amp; drop your file here, or click to browse (JSON)
                   </div>
                   {importFileName && (
                     <div className="mt-1 text-xs text-foreground">Selected: {importFileName}</div>
                   )}
                 </div>
                 <div className="flex flex-col gap-2 sm:w-40">
-                  <Button variant="outline" onClick={handleImport} disabled={!importFile}>
+                  <Button variant="outline" onClick={handleImport} disabled={!importRaw}>
                     Import
                   </Button>
                   <Button variant="outline" onClick={handleLock}>
                     Lock {month}/{year}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleDownloadSample}
-                    className="h-auto p-0 text-xs font-normal text-muted-foreground underline underline-offset-2"
+                  <a
+                    href={sampleHref}
+                    download="biometric-sample.json"
+                    className="text-center text-xs text-muted-foreground underline underline-offset-2"
                   >
                     Download Sample
-                  </Button>
+                  </a>
                 </div>
               </div>
               {importResult && <p className="mt-2 text-sm">{importResult}</p>}

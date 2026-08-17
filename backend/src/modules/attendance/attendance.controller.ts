@@ -1,16 +1,4 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-  StreamableFile,
-  UploadedFile,
-  UseInterceptors,
-} from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
 import { RequiresModule } from '../../shared/rbac/requires-module.decorator';
@@ -23,14 +11,6 @@ import { ImportBiometricDto } from './dto/import-biometric.dto';
 import { LockMonthDto } from './dto/lock-month.dto';
 import { CreateOvertimeClaimDto } from './dto/create-overtime-claim.dto';
 import { AddCommentDto } from '../../shared/request-comments/add-comment.dto';
-import {
-  buildBiometricImportTemplate,
-  parseBiometricImportWorkbook,
-} from './biometric-import-upload.util';
-
-// Defense-in-depth against an oversized upload, not a real-world file size —
-// a biometric export is at most a few thousand rows.
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 @Controller('attendance')
 @RequiresModule('ATTENDANCE')
@@ -176,40 +156,6 @@ export class AttendanceController {
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   importBiometric(@Body() dto: ImportBiometricDto) {
     return this.attendanceService.importBiometric(dto);
-  }
-
-  // Blank starter workbook for the Excel counterpart below — mirrors
-  // EmployeeController's bulk-import/template.
-  @Get('import/template')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  async getBiometricImportTemplate() {
-    const buffer = await buildBiometricImportTemplate();
-    return new StreamableFile(buffer, {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      disposition: 'attachment; filename="biometric-import-template.xlsx"',
-    });
-  }
-
-  // Excel counterpart to POST import above: same importBiometric() pipeline,
-  // just parsed from an uploaded .xlsx instead of a hand-pasted JSON array.
-  @Post('import/upload')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
-  )
-  async importBiometricUpload(
-    @UploadedFile() file: Express.Multer.File | undefined,
-  ) {
-    if (!file) throw new BadRequestException('No file uploaded');
-    const rows = await parseBiometricImportWorkbook(file.buffer);
-    if (rows.length === 0) {
-      throw new BadRequestException(
-        'No data rows found — check the sheet matches the template columns',
-      );
-    }
-    return this.attendanceService.importBiometric({
-      rows,
-    } as ImportBiometricDto);
   }
 
   @Post('lock')

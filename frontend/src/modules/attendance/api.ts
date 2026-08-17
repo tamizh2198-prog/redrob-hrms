@@ -1,6 +1,4 @@
-import { api, ApiError } from '@/lib/api'
-
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
+import { api } from '@/lib/api'
 
 export type AttendanceStatus =
   | 'PRESENT'
@@ -145,49 +143,6 @@ export function importBiometric(rows: Array<Record<string, string>>) {
     unmatchedCount: number
     unmatched: Array<{ employeeCode: string; date: string }>
   }>('/attendance/import', { method: 'POST', body: { rows } })
-}
-
-// Excel counterpart to importBiometric() above — bypasses the shared api()
-// helper (which always JSON-encodes the body) since this sends a real file
-// as multipart form data, same reasoning as employee/api.ts's
-// bulkImportEmployeesFromFile().
-export async function importBiometricFromFile(file: File) {
-  const token = localStorage.getItem('accessToken')
-  const form = new FormData()
-  form.append('file', file)
-  const res = await fetch(`${API_URL}/attendance/import/upload`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }))
-    throw new ApiError(body.message ?? 'Biometric import failed', res.status)
-  }
-  return res.json() as Promise<{
-    totalRows: number
-    matchedCount: number
-    unmatchedCount: number
-    unmatched: Array<{ employeeCode: string; date: string }>
-  }>
-}
-
-export async function downloadBiometricImportTemplate() {
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch(`${API_URL}/attendance/import/template`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!res.ok) throw new ApiError('Failed to download template', res.status)
-
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'biometric-import-template.xlsx'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
 }
 
 export function submitOvertimeClaim(data: { date: string; hoursClaimed: number; reason: string }) {
