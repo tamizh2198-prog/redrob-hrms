@@ -18,6 +18,7 @@ import { LoginDto } from './dto/login.dto';
 import { MfaCodeDto } from './dto/mfa-code.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ActivateAccountDto } from './dto/activate-account.dto';
+import { BootstrapSuperAdminDto } from './dto/bootstrap-super-admin.dto';
 import { Public } from './public.decorator';
 import { verifyPassword } from './password.util';
 import { MagicLinkService } from './magic-link.service';
@@ -259,6 +260,20 @@ export class AuthController {
   @Post('activate')
   activateAccount(@Body() dto: ActivateAccountDto) {
     return this.employeeService.activateAccount(dto);
+  }
+
+  // First-run setup only — see EmployeeService.bootstrapFirstSuperAdmin's
+  // comment for why this has to be public: guarded solely by "zero
+  // employees exist yet", and self-closing the instant it succeeds once.
+  // Deliberately does not log the new account in directly — logging in
+  // afterward through the normal /auth/login flow is what correctly routes
+  // a SUPER_ADMIN through MFA enrollment, rather than this endpoint
+  // inventing a second, unenrolled path to a session.
+  @Public()
+  @Post('bootstrap-super-admin')
+  async bootstrapSuperAdmin(@Body() dto: BootstrapSuperAdminDto) {
+    const employee = await this.employeeService.bootstrapFirstSuperAdmin(dto);
+    return { employee };
   }
 
   // Dev-only stand-in for the OIDC/SSO login flow (Section 10). Lets the

@@ -417,6 +417,43 @@ export class EmployeeService {
     };
   }
 
+  // First-run setup only: creates the very first Super Admin account when
+  // the company has zero employees (e.g. right after the pilot-launch data
+  // reset in SettingsService.applyPilotDataReset wipes every employee,
+  // including whoever ran it). Guarded solely by that employee.count() === 0
+  // check — there is no other way to get a session at that point, since
+  // every other creation path requires an existing authenticated actor.
+  // Self-closing: the moment this succeeds once, the count is no longer
+  // zero and every subsequent call is rejected.
+  async bootstrapFirstSuperAdmin(dto: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  }): Promise<SafeEmployee> {
+    const existingCount = await this.prisma.employee.count();
+    if (existingCount > 0) {
+      throw new ForbiddenException(
+        'Setup already completed — an employee account already exists.',
+      );
+    }
+
+    const companyId = await this.getDefaultCompanyId();
+    const passwordHash = await hashPassword(dto.password);
+    const employee = await this.createEmployeeWithGeneratedCode((employeeCode) => ({
+      company: { connect: { id: companyId } },
+      employeeCode,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      workEmail: dto.email,
+      passwordHash,
+      role: Role.SUPER_ADMIN,
+      status: EmployeeStatus.ACTIVE,
+    }));
+
+    return this.stripPasswordHash(employee);
+  }
+
   async create(dto: CreateEmployeeDto, actorId: string): Promise<SafeEmployee> {
     const companyId = dto.companyId ?? (await this.getDefaultCompanyId());
     const status = dto.status ?? EmployeeStatus.ACTIVE_PROBATION;
