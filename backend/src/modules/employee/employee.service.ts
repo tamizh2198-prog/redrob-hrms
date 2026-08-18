@@ -38,6 +38,16 @@ export const ACTIVE_STATUSES: EmployeeStatus[] = [
 
 const SENSITIVE_FIELDS = ['pan', 'aadhaar', 'bankAccountNumber'] as const;
 
+// Every workEmail write goes through this so lookups (login, the
+// invite/create uniqueness check) can rely on a consistent stored casing
+// instead of needing case-insensitive matching everywhere a comparison
+// happens. Found live: a user typed a different case at login than what
+// got saved when the email was set via the admin edit form, and got
+// "Invalid credentials" despite it being the "same" email to a person.
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 // deleteEmployee(): full audit of every Employee foreign-key relationship in
 // the schema, split into three handling strategies. Every employeeId-typed
 // column in this schema is NOT NULL (verified against schema.prisma), so
@@ -386,7 +396,7 @@ export class EmployeeService {
       dob: dto.dob ? new Date(dto.dob) : undefined,
       gender: dto.gender,
       personalEmail: dto.personalEmail,
-      workEmail: dto.workEmail,
+      workEmail: dto.workEmail ? normalizeEmail(dto.workEmail) : dto.workEmail,
       phone: dto.phone,
       department: dto.departmentId
         ? { connect: { id: dto.departmentId } }
@@ -445,7 +455,7 @@ export class EmployeeService {
       employeeCode,
       firstName: dto.firstName,
       lastName: dto.lastName,
-      workEmail: dto.email,
+      workEmail: normalizeEmail(dto.email),
       passwordHash,
       role: Role.SUPER_ADMIN,
       status: EmployeeStatus.ACTIVE,
@@ -493,8 +503,9 @@ export class EmployeeService {
     actorId: string,
     actorRole?: Role,
   ) {
-    const existingByEmail = await this.prisma.employee.findUnique({
-      where: { workEmail: dto.email },
+    const normalizedEmail = normalizeEmail(dto.email);
+    const existingByEmail = await this.prisma.employee.findFirst({
+      where: { workEmail: { equals: normalizedEmail, mode: 'insensitive' } },
     });
     if (existingByEmail) {
       throw new BadRequestException(
@@ -522,7 +533,7 @@ export class EmployeeService {
       employeeCode,
       firstName: dto.firstName,
       lastName: dto.lastName,
-      workEmail: dto.email,
+      workEmail: normalizedEmail,
       status: EmployeeStatus.INVITED,
       // role: EMPLOYEE (Prisma schema default) unless explicitly
       // requested and permitted above — never accepted unguarded.
@@ -1232,7 +1243,7 @@ export class EmployeeService {
         dob: dto.dob ? new Date(dto.dob) : undefined,
         gender: dto.gender,
         personalEmail: dto.personalEmail,
-        workEmail: dto.workEmail,
+        workEmail: dto.workEmail ? normalizeEmail(dto.workEmail) : dto.workEmail,
         phone: dto.phone,
         departmentId: dto.departmentId,
         designationId: dto.designationId,

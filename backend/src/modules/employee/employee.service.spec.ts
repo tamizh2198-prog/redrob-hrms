@@ -876,7 +876,7 @@ describe('EmployeeService', () => {
     });
 
     it('rejects inviting a duplicate email', async () => {
-      prisma.employee.findUnique.mockResolvedValueOnce({ id: 'existing-1' });
+      prisma.employee.findFirst.mockResolvedValueOnce({ id: 'existing-1' });
       await expect(
         service.inviteEmployee(
           {

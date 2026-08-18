@@ -81,8 +81,13 @@ export class AuthController {
   @Public()
   @Post('login')
   async login(@Body() dto: LoginDto) {
-    const employee = await this.prisma.employee.findUnique({
-      where: { workEmail: dto.email },
+    // Case-insensitive: workEmail is normalized to lowercase on every write
+    // (see employee.service.ts's normalizeEmail), but this also has to
+    // tolerate rows saved before that normalization existed — matching
+    // case-insensitively here means neither side has to be perfectly
+    // consistent for login to work.
+    const employee = await this.prisma.employee.findFirst({
+      where: { workEmail: { equals: dto.email.trim(), mode: 'insensitive' } },
     });
     if (!employee?.passwordHash) {
       throw new UnauthorizedException('Invalid email or password');

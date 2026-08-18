@@ -10,7 +10,7 @@ import { TrustedDeviceService } from './trusted-device.service';
 import { hashPassword } from './password.util';
 
 function createMockPrisma() {
-  return { employee: { findUnique: jest.fn(), update: jest.fn() } };
+  return { employee: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() } };
 }
 function createMockJwt() {
   return { signAsync: jest.fn().mockResolvedValue('signed.jwt.token') };
@@ -89,7 +89,7 @@ describe('AuthController (Auth Phase 1)', () => {
   describe('login (email + password)', () => {
     it('logs a non-MFA role (EMPLOYEE) straight in with access + refresh tokens', async () => {
       const passwordHash = await hashPassword('CorrectHorse123!');
-      prisma.employee.findUnique.mockResolvedValue({
+      prisma.employee.findFirst.mockResolvedValue({
         id: 'emp-1',
         firstName: 'Rahul',
         lastName: 'Verma',
@@ -116,7 +116,7 @@ describe('AuthController (Auth Phase 1)', () => {
 
     it('rejects an incorrect password with a generic message', async () => {
       const passwordHash = await hashPassword('CorrectHorse123!');
-      prisma.employee.findUnique.mockResolvedValue({
+      prisma.employee.findFirst.mockResolvedValue({
         id: 'admin-1',
         passwordHash,
       });
@@ -130,7 +130,7 @@ describe('AuthController (Auth Phase 1)', () => {
     });
 
     it('rejects an unknown email with the same generic message (no account enumeration)', async () => {
-      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.findFirst.mockResolvedValue(null);
 
       await expect(
         controller.login({ email: 'nobody@redrob.seed', password: 'anything' }),
@@ -138,7 +138,7 @@ describe('AuthController (Auth Phase 1)', () => {
     });
 
     it('rejects an employee that has no password set yet (not activated for password login)', async () => {
-      prisma.employee.findUnique.mockResolvedValue({
+      prisma.employee.findFirst.mockResolvedValue({
         id: 'emp-1',
         passwordHash: null,
       });
@@ -153,7 +153,7 @@ describe('AuthController (Auth Phase 1)', () => {
 
     it('this task: rejects login for a TERMINATED employee even with the correct password', async () => {
       const passwordHash = await hashPassword('CorrectHorse123!');
-      prisma.employee.findUnique.mockResolvedValue({
+      prisma.employee.findFirst.mockResolvedValue({
         id: 'emp-1',
         role: 'EMPLOYEE',
         status: 'TERMINATED',
@@ -171,7 +171,7 @@ describe('AuthController (Auth Phase 1)', () => {
     describe('Section 11: MFA is mandatory for HR_ADMIN/SUPER_ADMIN', () => {
       it('starts enrollment for a Super Admin with no MFA set up yet, without issuing a session', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
-        prisma.employee.findUnique.mockResolvedValue({
+        prisma.employee.findFirst.mockResolvedValue({
           id: 'admin-1',
           firstName: 'Aditi',
           lastName: 'Rao',
@@ -201,7 +201,7 @@ describe('AuthController (Auth Phase 1)', () => {
 
       it('this task: re-enrolls a Super Admin whose mfaEnabled is true but has no secret, instead of sending them to a verify screen they can never pass', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
-        prisma.employee.findUnique.mockResolvedValue({
+        prisma.employee.findFirst.mockResolvedValue({
           id: 'admin-1',
           firstName: 'Aditi',
           lastName: 'Rao',
@@ -228,7 +228,7 @@ describe('AuthController (Auth Phase 1)', () => {
 
       it('requires MFA verification for an HR Admin who already enrolled', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
-        prisma.employee.findUnique.mockResolvedValue({
+        prisma.employee.findFirst.mockResolvedValue({
           id: 'hr-1',
           role: 'HR_ADMIN',
           passwordHash,
@@ -252,7 +252,7 @@ describe('AuthController (Auth Phase 1)', () => {
     describe('a recognized device token skips MFA entirely', () => {
       it('logs a Super Admin straight in when the presented device token is trusted', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
-        prisma.employee.findUnique.mockResolvedValue({
+        prisma.employee.findFirst.mockResolvedValue({
           id: 'admin-1',
           firstName: 'Aditi',
           lastName: 'Rao',
@@ -283,7 +283,7 @@ describe('AuthController (Auth Phase 1)', () => {
 
       it('still requires MFA when no device token is presented', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
-        prisma.employee.findUnique.mockResolvedValue({
+        prisma.employee.findFirst.mockResolvedValue({
           id: 'hr-1',
           role: 'HR_ADMIN',
           passwordHash,
@@ -305,7 +305,7 @@ describe('AuthController (Auth Phase 1)', () => {
 
       it('still requires MFA when the device token is unrecognized/expired', async () => {
         const passwordHash = await hashPassword('CorrectHorse123!');
-        prisma.employee.findUnique.mockResolvedValue({
+        prisma.employee.findFirst.mockResolvedValue({
           id: 'hr-1',
           role: 'HR_ADMIN',
           passwordHash,
