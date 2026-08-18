@@ -508,7 +508,7 @@ export class EmployeeService {
     const { rawToken, expiresAt } = await this.createInvitationToken(
       employee.id,
     );
-    const emailSent = await this.sendInvitationEmail(
+    const { sent: emailSent, invitationUrl } = await this.sendInvitationEmail(
       employee.firstName,
       dto.email,
       rawToken,
@@ -526,6 +526,11 @@ export class EmployeeService {
       employee: this.stripPasswordHash(employee),
       invitation: { expiresAt },
       emailSent,
+      // Only returned when delivery failed/isn't configured — the caller
+      // (HR Admin/Super Admin) already has legitimate access to this
+      // employee's invite, so this is a safe copy-paste fallback rather
+      // than a dead end that just says "wait for email".
+      invitationUrl: emailSent ? undefined : invitationUrl,
     };
   }
 
@@ -555,7 +560,7 @@ export class EmployeeService {
 
     const { rawToken, expiresAt } =
       await this.createInvitationToken(employeeId);
-    const emailSent = await this.sendInvitationEmail(
+    const { sent: emailSent, invitationUrl } = await this.sendInvitationEmail(
       employee.firstName,
       employee.workEmail,
       rawToken,
@@ -569,7 +574,11 @@ export class EmployeeService {
       data: { invitedBy: actorId, resend: true },
     });
 
-    return { invitation: { expiresAt }, emailSent };
+    return {
+      invitation: { expiresAt },
+      emailSent,
+      invitationUrl: emailSent ? undefined : invitationUrl,
+    };
   }
 
   // This task: employee dismissal/deactivation. Never a hard delete —
@@ -813,7 +822,7 @@ export class EmployeeService {
     email: string,
     rawToken: string,
     isResend: boolean,
-  ): Promise<boolean> {
+  ): Promise<{ sent: boolean; invitationUrl: string }> {
     const baseUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
     const invitationUrl = `${baseUrl}/activate-account?token=${rawToken}`;
     const result = await this.email.send({
@@ -831,7 +840,11 @@ export class EmployeeService {
         'If you were not expecting this invitation, you can ignore this email.',
       ].join('\n'),
     });
-    return result.sent;
+    // Returned to the caller (an HR Admin/Super Admin who already has
+    // legitimate access to this employee's invite) so the UI can offer it
+    // as a copy-paste fallback whenever email delivery isn't configured or
+    // fails — see inviteEmployee()/resendInvitation() below.
+    return { sent: result.sent, invitationUrl };
   }
 
   // ---------------------------------------------------------------------

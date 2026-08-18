@@ -69,6 +69,8 @@ export function EmployeePage() {
   const [invitations, setInvitations] = useState<PendingInvitation[]>([])
   const [invitationError, setInvitationError] = useState<string | null>(null)
   const [invitationMessage, setInvitationMessage] = useState<string | null>(null)
+  const [resendInvitationUrl, setResendInvitationUrl] = useState<string | null>(null)
+  const [resendCopied, setResendCopied] = useState(false)
   const [exportingActive, setExportingActive] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -127,13 +129,15 @@ export function EmployeePage() {
   async function handleResend(employeeId: string) {
     setInvitationError(null)
     setInvitationMessage(null)
+    setResendInvitationUrl(null)
     try {
       const result = await resendInvitation(employeeId)
       setInvitationMessage(
         result.emailSent
           ? 'Reminder email sent successfully.'
-          : 'Employee reminder was created/processed, but the email could not be sent.',
+          : "Email delivery isn't configured — copy the activation link below and send it to them directly.",
       )
+      setResendInvitationUrl(result.invitationUrl ?? null)
       refreshInvitations()
     } catch (err) {
       setInvitationError(err instanceof ApiError ? err.message : 'Failed to resend invitation')
@@ -293,6 +297,28 @@ export function EmployeePage() {
           <h2 className="text-lg font-semibold">Pending Invitations</h2>
           {invitationError && <p className="text-sm text-destructive">{invitationError}</p>}
           {invitationMessage && <p className="text-sm text-primary">{invitationMessage}</p>}
+          {resendInvitationUrl && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-2">
+              <Input
+                readOnly
+                value={resendInvitationUrl}
+                className="text-xs"
+                onFocus={(e) => e.target.select()}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(resendInvitationUrl)
+                  setResendCopied(true)
+                  setTimeout(() => setResendCopied(false), 2000)
+                }}
+              >
+                {resendCopied ? 'Copied!' : 'Copy'}
+              </Button>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>

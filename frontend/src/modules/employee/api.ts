@@ -282,6 +282,9 @@ export interface InviteEmployeeResult {
   employee: Employee
   invitation: { expiresAt: string }
   emailSent: boolean
+  // Only present when emailSent is false — a copy-paste fallback link for
+  // when email delivery isn't configured or failed.
+  invitationUrl?: string
 }
 
 export interface PendingInvitation {
@@ -317,7 +320,7 @@ export function inviteEmployee(data: {
 }
 
 export function resendInvitation(employeeId: string) {
-  return api<{ invitation: { expiresAt: string }; emailSent: boolean }>(
+  return api<{ invitation: { expiresAt: string }; emailSent: boolean; invitationUrl?: string }>(
     `/employees/${employeeId}/resend-invitation`,
     { method: 'POST' },
   )

@@ -94,6 +94,11 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Fallback for when email delivery isn't configured/fails — copy this
+  // link and send it to the employee yourself (WhatsApp, Slack, etc.)
+  // instead of waiting on email.
+  const [invitationUrl, setInvitationUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -101,6 +106,8 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
     } else {
       setForm(EMPTY_FORM)
       setError(null)
+      setInvitationUrl(null)
+      setCopied(false)
     }
   }, [open])
 
@@ -134,8 +141,9 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
       setMessage(
         result.emailSent
           ? `Employee created successfully (ID: ${result.employee.employeeCode}). Invitation email sent.`
-          : `Employee created successfully (ID: ${result.employee.employeeCode}), but the invitation email could not be sent. Use "Remind" from the directory once email is configured.`,
+          : `Employee created successfully (ID: ${result.employee.employeeCode}). Email delivery isn't configured — copy the activation link below and send it to them directly.`,
       )
+      setInvitationUrl(result.invitationUrl ?? null)
       setForm(EMPTY_FORM)
       onCreated()
     } catch (err) {
@@ -357,6 +365,23 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         {message && <p className="text-sm text-primary">{message}</p>}
+        {invitationUrl && (
+          <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-2">
+            <Input readOnly value={invitationUrl} className="text-xs" onFocus={(e) => e.target.select()} />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                await navigator.clipboard.writeText(invitationUrl)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+              }}
+            >
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+          </div>
+        )}
 
         <DialogFooter>
           <Button disabled={!canSubmit} onClick={handleSubmit}>
