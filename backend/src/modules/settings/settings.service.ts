@@ -212,4 +212,85 @@ export class SettingsService {
     }
     return { createdAt: new Date().toISOString(), data };
   }
+
+  // Pilot-launch reset: "wipe every seed/demo employee and their activity,
+  // keep company-level config" (Employee.reportingManagerId self-relation
+  // aside, everything not in this allowlist either belongs to a specific
+  // employee or references one as an actor). Deliberately an explicit
+  // KEEP-list rather than trying to auto-detect "does this model reference
+  // Employee" — with 70+ models, an incomplete detection could silently
+  // wipe something that should have survived, or (worse) silently keep
+  // something that should have gone. An explicit list is auditable: every
+  // decision is visible here, not inferred.
+  //
+  // A few of these are genuine judgment calls the caller should confirm
+  // before applying, not obvious either way — flagged inline. Everything
+  // else not listed here follows from "it's a specific employee's own
+  // record, or logs an employee as an actor" (attendance, leave, tickets,
+  // performance, assets *assignments*, notifications, audit trail, etc).
+  private static readonly SURVIVING_MODELS = new Set<string>([
+    'Company',
+    'CompanySettings',
+    'Department',
+    'Location',
+    'Designation',
+    'Grade',
+    'LeaveType',
+    'Holiday',
+    'Shift',
+    'IntegrationConfig',
+    'Permission',
+    'RolePermission',
+    // Physical inventory catalog (e.g. "Laptop #4"), not an assignment to
+    // any specific employee — AssetAssignment/AssetRequest (which ARE
+    // employee-specific) are still wiped.
+    'Asset',
+    'TicketSlaPolicy',
+    'FaqEntry',
+    'OnboardingChecklistTemplate',
+    'ChecklistTaskTemplate',
+    'OfferTemplate',
+    'ReviewCycle',
+  ]);
+
+  // Judgment calls: kept out of SURVIVING_MODELS by default (the user only
+  // named leave types/holidays/shifts as "config to keep"), but arguably
+  // company-level config in the same spirit — flagged so the caller can
+  // decide rather than have this decided silently.
+  private static readonly BORDERLINE_MODELS = new Set<string>([
+    'WorkflowDefinition', // a configured approval chain, like a leave-type rule
+    'PolicyDocument', // an uploaded HR policy file — may be real content, not demo
+    'AuditLog', // historical action log — some teams want this retained regardless
+    'ModuleAccessGrant', // per-employee module grants; wiped with the employee either way
+  ]);
+
+  async previewPilotDataReset(): Promise<{
+    toDelete: Record<string, number>;
+    toKeep: Record<string, number>;
+    borderline: Record<string, number>;
+    totalToDelete: number;
+  }> {
+    const modelNames = Prisma.dmmf.datamodel.models.map((m) => m.name);
+    const toDelete: Record<string, number> = {};
+    const toKeep: Record<string, number> = {};
+    const borderline: Record<string, number> = {};
+
+    for (const modelName of modelNames) {
+      const accessor = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+      const delegate = (this.prisma as unknown as Record<string, { count?: () => Promise<number> }>)[accessor];
+      if (typeof delegate?.count !== 'function') continue;
+      const count = await delegate.count();
+
+      if (SettingsService.SURVIVING_MODELS.has(modelName)) {
+        toKeep[modelName] = count;
+      } else if (SettingsService.BORDERLINE_MODELS.has(modelName)) {
+        borderline[modelName] = count;
+      } else {
+        toDelete[modelName] = count;
+      }
+    }
+
+    const totalToDelete = Object.values(toDelete).reduce((a, b) => a + b, 0);
+    return { toDelete, toKeep, borderline, totalToDelete };
+  }
 }

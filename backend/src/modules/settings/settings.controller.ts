@@ -65,6 +65,17 @@ export class SettingsController {
   // on the server, so there's nothing here that survives a redeploy/restart
   // to accidentally leak. Super Admin only: the file contains passwordHash
   // and other sensitive fields intact, by design (see exportBackup()).
+  // Pilot-launch reset, step 1 of 2: read-only. Reports exactly what a
+  // reset would remove/keep, with no deletion — see
+  // SettingsService.previewPilotDataReset for the KEEP-list rationale and
+  // the models flagged as judgment calls. The actual delete endpoint is a
+  // deliberately separate, more heavily gated step, not built here.
+  @Get('pilot-data-reset/preview')
+  @Roles(Role.SUPER_ADMIN)
+  previewPilotDataReset() {
+    return this.settingsService.previewPilotDataReset();
+  }
+
   @Get('backup')
   @Roles(Role.SUPER_ADMIN)
   async downloadBackup() {
