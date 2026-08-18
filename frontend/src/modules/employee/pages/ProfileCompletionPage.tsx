@@ -53,6 +53,8 @@ export function ProfileCompletionPage() {
         setProfile(res)
         const e = res.employee
         setForm({
+          firstName: e.firstName,
+          lastName: e.lastName,
           dob: toDateInputValue(e.dob),
           gender: e.gender ?? undefined,
           phone: e.phone ?? '',
@@ -168,11 +170,11 @@ export function ProfileCompletionPage() {
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <Label>First name</Label>
-            <Input value={employee.firstName} disabled />
+            <Input value={form.firstName ?? ''} onChange={(e) => update('firstName', e.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
             <Label>Last name</Label>
-            <Input value={employee.lastName} disabled />
+            <Input value={form.lastName ?? ''} onChange={(e) => update('lastName', e.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
             <Label>Date of birth {isRequired('Date of Birth') && '*'}</Label>

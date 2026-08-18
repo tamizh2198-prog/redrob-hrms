@@ -387,6 +387,8 @@ export function deleteEmployee(id: string) {
 }
 
 export interface UpdateMyProfileInput {
+  firstName?: string
+  lastName?: string
   dob?: string
   gender?: Gender
   phone?: string

@@ -918,6 +918,8 @@ export class EmployeeService {
     const updated = await this.prisma.employee.update({
       where: { id: employeeId },
       data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
         dob: dto.dob !== undefined ? new Date(dto.dob) : undefined,
         gender: dto.gender,
         phone: dto.phone,

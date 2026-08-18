@@ -22,6 +22,14 @@ import { BloodGroup, Gender } from '@prisma/client';
 // duplicate editable surfaces" requirement.
 export class UpdateMyProfileDto {
   @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
   @IsDateString()
   dob?: string;
 

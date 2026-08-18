@@ -335,6 +335,13 @@ export function EmployeeDetailPage() {
           <ReadOnlyField label="Date of birth" value={toDateDisplay(employee.dob)} />
           <ReadOnlyField label="Gender" value={employee.gender ?? '—'} />
           <Field
+            label="Work email (login)"
+            value={form.workEmail}
+            editable={canEditSelfServiceFields}
+            type="email"
+            onChange={(v) => setForm((f) => ({ ...f, workEmail: v }))}
+          />
+          <Field
             label="Personal email"
             value={form.personalEmail}
             editable={canEditSelfServiceFields}
@@ -743,7 +750,7 @@ function Field({
   value?: string | null
   editable: boolean
   onChange: (value: string) => void
-  type?: 'text' | 'date'
+  type?: 'text' | 'date' | 'email'
 }) {
   // getEmployee() returns dob as a full ISO datetime string
   // ("1995-05-15T00:00:00.000Z") — a native date input only accepts the
