@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ApiError } from '@/lib/api'
+import { useAuth } from '@/shared/auth/AuthContext'
 import {
   getMyProfile,
   updateMyProfile,
@@ -38,6 +39,7 @@ function toDateInputValue(value: string | null): string {
 }
 
 export function ProfileCompletionPage() {
+  const { updateUserName } = useAuth()
   const [profile, setProfile] = useState<MyProfileResponse | null>(null)
   const [reference, setReference] = useState<ReferenceData | null>(null)
   const [form, setForm] = useState<UpdateMyProfileInput>({})
@@ -104,6 +106,11 @@ export function ProfileCompletionPage() {
       ) as UpdateMyProfileInput
       const result = await updateMyProfile(payload)
       setProfile(result)
+      // The header/dashboard/profile menu all read a cached name from
+      // AuthContext that's otherwise only ever set at login — without this,
+      // a name change here wouldn't show up anywhere else until logging
+      // out and back in.
+      updateUserName(`${result.employee.firstName} ${result.employee.lastName}`)
       if (continueOnComplete && result.isComplete) {
         // Full reload so the App-level Gate re-checks completion with
         // fresh data and stops blocking on the profile-completion screen.

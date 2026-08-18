@@ -42,6 +42,13 @@ interface AuthContextValue {
   verifyMfa: (mfaToken: string, code: string) => Promise<void>
   confirmMfaEnrollment: (mfaToken: string, code: string) => Promise<void>
   logout: () => Promise<void>
+  // The cached `user` here (and its localStorage mirror) is only ever set
+  // at login — it never re-syncs on its own. Without this, editing your
+  // own name via My Profile updates the database fine, but the header/
+  // dashboard/profile menu keep showing whatever name was cached at your
+  // last login until you log out and back in. Called by My Profile after
+  // a successful save.
+  updateUserName: (name: string) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -108,6 +115,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user)
   }
 
+  function updateUserName(name: string) {
+    setUser((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, name }
+      localStorage.setItem('authUser', JSON.stringify(next))
+      return next
+    })
+  }
+
   async function logout() {
     const refreshToken = localStorage.getItem('refreshToken')
     if (refreshToken) {
@@ -126,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loginWithPassword, verifyMfa, confirmMfaEnrollment, logout }}
+      value={{ user, loginWithPassword, verifyMfa, confirmMfaEnrollment, logout, updateUserName }}
     >
       {children}
     </AuthContext.Provider>
