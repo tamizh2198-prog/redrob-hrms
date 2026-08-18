@@ -188,4 +188,28 @@ export class SettingsService {
       },
     });
   }
+
+  // Pilot-launch basic backup: an application-level export (every row of
+  // every table, keyed by model name), not a native pg_dump — this avoids
+  // depending on a pg_dump binary matching the server's exact Postgres
+  // version, at the cost of only being restorable into this same schema
+  // (via a matching import, not `psql`). Iterates Prisma's own DMMF model
+  // list rather than a hardcoded array, so a newly added model is included
+  // automatically instead of silently missing from every future backup.
+  // Deliberately keeps passwordHash and every other field intact — the
+  // whole point of a backup is complete restorability, not display, so the
+  // normal "never leak passwordHash" rule doesn't apply here. The caller
+  // (Super Admin only, see SettingsController) is responsible for storing
+  // the downloaded file securely.
+  async exportBackup(): Promise<{ createdAt: string; data: Record<string, unknown[]> }> {
+    const modelNames = Prisma.dmmf.datamodel.models.map((m) => m.name);
+    const data: Record<string, unknown[]> = {};
+    for (const modelName of modelNames) {
+      const accessor = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+      const delegate = (this.prisma as unknown as Record<string, { findMany?: () => Promise<unknown[]> }>)[accessor];
+      if (typeof delegate?.findMany !== 'function') continue;
+      data[modelName] = await delegate.findMany();
+    }
+    return { createdAt: new Date().toISOString(), data };
+  }
 }

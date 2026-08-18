@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, StreamableFile } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../shared/rbac/roles.decorator';
 import { SettingsService } from './settings.service';
@@ -58,5 +58,22 @@ export class SettingsController {
     @Body() dto: UpdateIntegrationDto,
   ) {
     return this.settingsService.updateIntegration(type, dto);
+  }
+
+  // Basic pilot-launch backup: streams a full JSON export of every table
+  // straight to the caller's browser as a download — no persistent storage
+  // on the server, so there's nothing here that survives a redeploy/restart
+  // to accidentally leak. Super Admin only: the file contains passwordHash
+  // and other sensitive fields intact, by design (see exportBackup()).
+  @Get('backup')
+  @Roles(Role.SUPER_ADMIN)
+  async downloadBackup() {
+    const backup = await this.settingsService.exportBackup();
+    const buffer = Buffer.from(JSON.stringify(backup), 'utf-8');
+    const timestamp = backup.createdAt.replace(/[:.]/g, '-');
+    return new StreamableFile(buffer, {
+      type: 'application/json',
+      disposition: `attachment; filename="redrob-hrms-backup-${timestamp}.json"`,
+    });
   }
 }

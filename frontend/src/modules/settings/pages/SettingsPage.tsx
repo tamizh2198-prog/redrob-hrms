@@ -22,6 +22,7 @@ import {
   updateOrgUnit,
   listIntegrations,
   updateIntegration,
+  downloadBackup,
   type CompanySettings,
   type OrgStructure,
   type OrgUnit,
@@ -69,6 +70,7 @@ export function SettingsPage() {
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [backupDownloading, setBackupDownloading] = useState(false)
 
   useEffect(() => {
     if (!canViewCompanySettings) return
@@ -171,6 +173,20 @@ export function SettingsPage() {
       refreshIntegrations()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : `Failed to update ${type}`)
+    }
+  }
+
+  async function handleDownloadBackup() {
+    setError(null)
+    setMessage(null)
+    setBackupDownloading(true)
+    try {
+      await downloadBackup()
+      setMessage('Backup downloaded. Store this file somewhere secure — it contains sensitive employee data.')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to download backup')
+    } finally {
+      setBackupDownloading(false)
     }
   }
 
@@ -365,6 +381,21 @@ export function SettingsPage() {
           {integrations.length === 0 && <p className="text-muted-foreground">Loading…</p>}
         </ul>
       </div>
+
+      {isSuperAdmin && (
+        <div className="rounded-md border p-4 text-sm">
+          <h2 className="mb-2 font-medium">Data Backup</h2>
+          <p className="mb-3 text-muted-foreground">
+            Downloads a complete export of every table as a JSON file, straight to your browser —
+            nothing is stored on the server. The file contains sensitive data (including password
+            hashes), so keep it somewhere secure once downloaded. A weekly reminder notification
+            nudges Super Admins to keep this current.
+          </p>
+          <Button size="sm" variant="outline" disabled={backupDownloading} onClick={handleDownloadBackup}>
+            {backupDownloading ? 'Downloading…' : 'Download Backup Now'}
+          </Button>
+        </div>
+      )}
         </>
       )}
     </div>

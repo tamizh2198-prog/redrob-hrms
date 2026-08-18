@@ -1,4 +1,6 @@
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
 
 export interface CompanySettings {
   id: string
@@ -88,4 +90,29 @@ export function updateIntegration(
     method: 'PATCH',
     body: data,
   })
+}
+
+// Bypasses the shared api() helper (JSON-only) — downloads the backup file
+// straight to the browser, same pattern as the Attendance module's
+// downloadBiometricTemplate().
+export async function downloadBackup() {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`${API_URL}/settings/backup`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new ApiError('Failed to download backup', res.status)
+
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const filenameMatch = disposition.match(/filename="([^"]+)"/)
+  const filename = filenameMatch?.[1] ?? 'redrob-hrms-backup.json'
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }

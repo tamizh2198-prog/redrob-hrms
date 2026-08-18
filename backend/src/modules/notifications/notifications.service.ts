@@ -60,6 +60,7 @@ const EVENT_CATEGORIES = [
   'ASSISTANT',
   'DOCUMENT',
   'WORKFLOW',
+  'SETTINGS',
 ];
 
 // Event category is derived from the template's module prefix (e.g.
