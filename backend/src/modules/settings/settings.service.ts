@@ -293,4 +293,112 @@ export class SettingsService {
     const totalToDelete = Object.values(toDelete).reduce((a, b) => a + b, 0);
     return { toDelete, toKeep, borderline, totalToDelete };
   }
+
+  // Deepest children first, Employee last — FKs in this schema are not
+  // ON DELETE CASCADE (see deleteEmployee()'s own careful ordered cleanup),
+  // so a plain deleteMany() on a table still referenced elsewhere fails
+  // with a constraint violation. That failure is the safety net: the whole
+  // apply() below runs in one transaction, so a wrong position here rolls
+  // back everything rather than leaving a half-wiped database — confirmed
+  // safe to iterate on. BORDERLINE_MODELS are folded in here as confirmed
+  // by the caller (AuditLog, WorkflowDefinition, PolicyDocument,
+  // ModuleAccessGrant) — SURVIVING_MODELS is the only real keep-list now.
+  private static readonly DELETE_ORDER: string[] = [
+    'AuditLog',
+    'NotificationLog',
+    'Notification',
+    'NotificationPreference',
+    'SuperAdminRequestComment',
+    'WorkflowApprovalDecision',
+    'ApprovalRequest',
+    'WorkflowDefinition',
+    'PolicyDocument',
+    'Recognition',
+    'AnnouncementAck',
+    'Announcement',
+    'TicketMessage',
+    'Ticket',
+    'AssistantMessage',
+    'AssistantConversation',
+    'SavedReport',
+    'ModuleAccessGrant',
+    'FinalSettlement',
+    'ExitInterview',
+    'ClearanceItem',
+    'LwdAdjustment',
+    'Resignation',
+    'AssetRequest',
+    'AssetAssignment',
+    'MonthlyEvaluation',
+    'ReviewCorrection',
+    'Review',
+    'Goal',
+    'PreboardingSubmission',
+    'ChecklistTask',
+    'OnboardingChecklist',
+    'Offer',
+    'InterviewRound',
+    'Candidate',
+    'JobRequisition',
+    'LeaveApprovalStep',
+    'LeaveApplication',
+    'LeaveBalance',
+    'CompOffRequest',
+    'RegularizationRequest',
+    'OvertimeClaim',
+    'AttendanceRecord',
+    'OptionalHolidaySelection',
+    'WfoWfhChangeRequest',
+    'ShiftSwapRequest',
+    'EmployeeHybridSchedule',
+    'RosterEntry',
+    'ProfileChangeRequest',
+    'EmployeeHistory',
+    'EmployeeDocument',
+    'TrustedDevice',
+    'RefreshToken',
+    'EmployeeInvitation',
+    'Employee',
+  ];
+
+  // The exact phrase apply() requires — a plain boolean flag is too easy to
+  // pass accidentally (a stray `true` in a copy-pasted body); typing this
+  // out is a deliberate, hard-to-misfire action, same spirit as GitHub's
+  // "type the repo name to delete it".
+  static readonly RESET_CONFIRMATION_PHRASE = 'DELETE ALL SEED DATA';
+
+  // Actually performs the reset previewPilotDataReset() describes. Requires
+  // the exact confirmation phrase (see above) — anything else throws
+  // without touching the database. Nullifies Employee.reportingManagerId
+  // first (breaks the self-referential FK before the bulk delete), then
+  // runs every model in DELETE_ORDER inside one transaction: either the
+  // whole reset lands, or a constraint error rolls back everything and the
+  // database is left exactly as it was.
+  async applyPilotDataReset(confirmationPhrase: string): Promise<{ deleted: Record<string, number>; totalDeleted: number }> {
+    if (confirmationPhrase !== SettingsService.RESET_CONFIRMATION_PHRASE) {
+      throw new BadRequestException(
+        `Confirmation phrase did not match. Expected exactly "${SettingsService.RESET_CONFIRMATION_PHRASE}".`,
+      );
+    }
+
+    const deleted: Record<string, number> = {};
+    const operations = [
+      this.prisma.employee.updateMany({ data: { reportingManagerId: null } }),
+      ...SettingsService.DELETE_ORDER.map((modelName) => {
+        const accessor = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+        const delegate = (this.prisma as unknown as Record<string, { deleteMany: () => Prisma.PrismaPromise<{ count: number }> }>)[accessor];
+        return delegate.deleteMany();
+      }),
+    ];
+
+    const results = await this.prisma.$transaction(operations);
+    // results[0] is the reportingManagerId nullify; results[1..] line up
+    // 1:1 with DELETE_ORDER.
+    SettingsService.DELETE_ORDER.forEach((modelName, index) => {
+      deleted[modelName] = (results[index + 1] as { count: number }).count;
+    });
+
+    const totalDeleted = Object.values(deleted).reduce((a, b) => a + b, 0);
+    return { deleted, totalDeleted };
+  }
 }

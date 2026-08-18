@@ -6,6 +6,7 @@ import { UpdateCompanySettingsDto } from './dto/update-company-settings.dto';
 import { CreateOrgUnitDto } from './dto/create-org-unit.dto';
 import { UpdateOrgUnitDto } from './dto/update-org-unit.dto';
 import { UpdateIntegrationDto } from './dto/update-integration.dto';
+import { ConfirmPilotDataResetDto } from './dto/confirm-pilot-data-reset.dto';
 
 @Controller('settings')
 export class SettingsController {
@@ -74,6 +75,16 @@ export class SettingsController {
   @Roles(Role.SUPER_ADMIN)
   previewPilotDataReset() {
     return this.settingsService.previewPilotDataReset();
+  }
+
+  // Step 2 of 2 — the actual deletion. Requires the exact confirmation
+  // phrase in the body (see SettingsService.RESET_CONFIRMATION_PHRASE);
+  // anything else is rejected before touching the database. Irreversible —
+  // download a backup (GET /settings/backup) first.
+  @Post('pilot-data-reset/apply')
+  @Roles(Role.SUPER_ADMIN)
+  applyPilotDataReset(@Body() dto: ConfirmPilotDataResetDto) {
+    return this.settingsService.applyPilotDataReset(dto.confirmationPhrase);
   }
 
   @Get('backup')
