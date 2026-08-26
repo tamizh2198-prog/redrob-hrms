@@ -320,6 +320,7 @@ model Employee {
   notificationPreferences NotificationPreference[]
   notificationLogs        NotificationLog[]
   invitations             EmployeeInvitation[]
+  passwordResetTokens     PasswordResetToken[]
   moduleAccessGrants      ModuleAccessGrant[]
 
   createdAt DateTime @default(now())
@@ -335,6 +336,25 @@ model Employee {
 // valid for repeated use until it expires. Only tokenHash is stored; the
 // raw token goes out in the email link and is never persisted.
 model EmployeeInvitation {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([employeeId])
+}
+
+// Admin-assisted password reset: there is no self-service "forgot
+// password" flow (would need real email delivery to be safe — showing the
+// reset link back to whoever asks, without proving they own that inbox,
+// would let anyone reset anyone's password). Instead an HR Admin/Super
+// Admin triggers this for a specific employee (same trust model as
+// inviting one) and gets a copyable link to send them directly. Same
+// hash-only-storage shape as EmployeeInvitation, for the same reason.
+model PasswordResetToken {
   id         String    @id @default(uuid())
   employeeId String
   employee   Employee  @relation(fields: [employeeId], references: [id])

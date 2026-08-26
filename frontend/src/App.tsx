@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/shared/theme/ThemeContext'
 import { AppShell } from '@/shared/layout/AppShell'
 import { LoginPage } from '@/shared/auth/LoginPage'
 import { ActivateAccountPage } from '@/shared/auth/ActivateAccountPage'
+import { ResetPasswordPage } from '@/shared/auth/ResetPasswordPage'
 import { AppRoutes } from '@/app-routes'
 import { CareersApplyPage, OfferResponsePage } from '@/modules/ats'
 import { PreboardingPortalPage } from '@/modules/onboarding'
@@ -59,6 +60,7 @@ function App() {
             {/* Auth Phase 2: employee has no account/JWT yet at this point,
                 so activation must also stay outside the Gate. */}
             <Route path="/activate-account" element={<ActivateAccountPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="*" element={<Gate />} />
           </Routes>
         </BrowserRouter>

@@ -19,6 +19,7 @@ import { ListInboxQueryDto } from './dto/list-inbox-query.dto';
 // the allowlist is matched against the literal template prefix instead.
 const CRITICAL_TEMPLATE_PREFIXES = [
   'auth.password-reset',
+  'auth.mfa-reset',
   'auth.permission-changed',
 ];
 
@@ -35,6 +36,7 @@ const ALL_CHANNELS: NotificationChannel[] = [
 // employee has customized anything. Hardcoded rather than derived from a
 // template catalog table, since none exists in this build.
 const EVENT_CATEGORIES = [
+  'AUTH',
   'EMPLOYEE',
   'PROFILE-CHANGE',
   'PROFILE-COMPLETION',

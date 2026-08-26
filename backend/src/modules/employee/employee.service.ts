@@ -18,6 +18,7 @@ import { InviteEmployeeDto } from './dto/invite-employee.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import type { ActivateAccountDto } from '../../shared/auth/dto/activate-account.dto';
+import type { ConsumePasswordResetDto } from '../../shared/auth/dto/consume-password-reset.dto';
 import { RequesterContext, SELF_SERVICE_FIELDS } from './employee.types';
 import {
   generateInvitationToken,
@@ -28,6 +29,7 @@ import { getReportingHierarchyIds } from '../../shared/employee/reporting-hierar
 import { buildActiveEmployeesWorkbook } from './employee-export.util';
 
 const INVITATION_TTL_HOURS = 72;
+const PASSWORD_RESET_TTL_HOURS = 24;
 
 type SafeEmployee = Omit<Employee, 'passwordHash'>;
 
@@ -66,6 +68,7 @@ export function normalizeEmail(email: string): string {
 // OnboardingChecklist) before this loop runs, for the same reason.
 const EMPLOYEE_OWNED_MODELS = [
   'employeeInvitation',
+  'passwordResetToken',
   'refreshToken',
   'employeeDocument',
   'employeeHistory',
@@ -893,6 +896,188 @@ export class EmployeeService {
     // as a copy-paste fallback whenever email delivery isn't configured or
     // fails — see inviteEmployee()/resendInvitation() below.
     return { sent: result.sent, invitationUrl };
+  }
+
+  // ---------------------------------------------------------------------
+  // Admin-assisted password reset + MFA reset. There is no self-service
+  // "forgot password" — without real email delivery configured, showing a
+  // reset link back to whoever merely claims an email address would let
+  // anyone reset anyone's password. Instead an HR Admin/Super Admin
+  // triggers this for a specific employee (same trust model as inviting
+  // one) and gets a copyable link to send them directly, same shape as the
+  // invitation flow above.
+  // ---------------------------------------------------------------------
+
+  // Mirrors inviteEmployee's isPrivilegedRoleRequested gate: an HR Admin
+  // can reset password/MFA for ordinary staff, but only a Super Admin can
+  // do it for another HR Admin or Super Admin — otherwise an HR Admin
+  // could take over a Super Admin account by resetting its password and
+  // MFA in sequence.
+  private async assertCanResetCredentials(
+    targetId: string,
+    actorRole?: Role,
+  ): Promise<Employee> {
+    const target = await this.prisma.employee.findUnique({
+      where: { id: targetId },
+    });
+    if (!target) throw new NotFoundException('Employee not found');
+
+    const targetIsPrivileged =
+      target.role === Role.SUPER_ADMIN || target.role === Role.HR_ADMIN;
+    if (targetIsPrivileged && actorRole !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only a Super Admin can reset credentials for an HR Admin or Super Admin',
+      );
+    }
+    return target;
+  }
+
+  async resetPassword(
+    targetId: string,
+    actorId: string,
+    actorRole: Role | undefined,
+  ): Promise<{
+    expiresAt: Date;
+    emailSent: boolean;
+    resetUrl?: string;
+  }> {
+    const target = await this.assertCanResetCredentials(targetId, actorRole);
+    if (!target.workEmail) {
+      throw new BadRequestException(
+        'This employee has no work email on file to reset a password for',
+      );
+    }
+
+    // Previous unused reset links are invalidated the instant a new one is
+    // issued, same reasoning as resendInvitation() below — a stale link
+    // left lying around (e.g. in an old chat message) shouldn't stay live
+    // once a fresher one exists.
+    await this.prisma.passwordResetToken.deleteMany({
+      where: { employeeId: targetId, usedAt: null },
+    });
+
+    const rawToken = generateInvitationToken();
+    const tokenHash = hashInvitationToken(rawToken);
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_HOURS * 60 * 60 * 1000);
+    await this.prisma.passwordResetToken.create({
+      data: { employeeId: targetId, tokenHash, expiresAt },
+    });
+
+    const baseUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+    const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
+    const result = await this.email.send({
+      to: target.workEmail,
+      subject: 'Reset your Redrob HRMS password',
+      text: [
+        `Hi ${target.firstName},`,
+        '',
+        'A password reset was requested for your Redrob HRMS account.',
+        `Reset your password: ${resetUrl}`,
+        `This link expires in ${PASSWORD_RESET_TTL_HOURS} hours.`,
+        '',
+        'If you did not expect this, contact your HR Admin.',
+      ].join('\n'),
+    });
+
+    await this.notifications.send({
+      recipientId: targetId,
+      template: 'auth.password-reset',
+      body: 'A password reset was requested for your account by an HR Admin/Super Admin.',
+      data: { resetBy: actorId },
+    });
+
+    return {
+      expiresAt,
+      emailSent: result.sent,
+      resetUrl: result.sent ? undefined : resetUrl,
+    };
+  }
+
+  // Direct action, no token/link — clearing mfaSecret/mfaEnabled doesn't by
+  // itself grant access to anything (the account's password is untouched),
+  // so unlike resetPassword above there's no "prove you're the account
+  // owner" step needed: login's own existing logic already re-enrolls MFA
+  // from scratch the next time this employee signs in (see
+  // auth.controller.ts's login()).
+  async resetMfa(targetId: string, actorRole: Role | undefined): Promise<{ success: true }> {
+    await this.assertCanResetCredentials(targetId, actorRole);
+    await this.prisma.employee.update({
+      where: { id: targetId },
+      data: { mfaSecret: null, mfaEnabled: false },
+    });
+    await this.notifications.send({
+      recipientId: targetId,
+      template: 'auth.mfa-reset',
+      body: 'Your MFA was reset by an HR Admin/Super Admin. You will be asked to set it up again next time you sign in.',
+    });
+    return { success: true };
+  }
+
+  // Read-only check used by the public reset-password page to render the
+  // employee's name before they submit a new password — mirrors
+  // validateInvitationToken above.
+  async validatePasswordResetToken(rawToken: string) {
+    const reset = await this.findValidPasswordResetOrThrow(rawToken);
+    return {
+      firstName: reset.employee.firstName,
+      lastName: reset.employee.lastName,
+      employeeCode: reset.employee.employeeCode,
+      expiresAt: reset.expiresAt,
+    };
+  }
+
+  async consumePasswordReset(
+    dto: ConsumePasswordResetDto,
+  ): Promise<{ success: true }> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const reset = await this.findValidPasswordResetOrThrow(dto.token);
+    const passwordHash = await hashPassword(dto.password);
+
+    await this.prisma.$transaction([
+      this.prisma.employee.update({
+        where: { id: reset.employeeId },
+        data: { passwordHash },
+      }),
+      this.prisma.passwordResetToken.update({
+        where: { id: reset.id },
+        data: { usedAt: new Date() },
+      }),
+      // Kills every existing session for this account — a password reset
+      // is exactly the moment a stale/compromised session (e.g. on a lost
+      // device) should stop working, not keep riding on the old token.
+      this.prisma.refreshToken.updateMany({
+        where: { employeeId: reset.employeeId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+
+    return { success: true };
+  }
+
+  private async findValidPasswordResetOrThrow(rawToken: string) {
+    const tokenHash = hashInvitationToken(rawToken);
+    const reset = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { employee: true },
+    });
+    if (!reset) {
+      throw new NotFoundException('Invalid or expired password reset link');
+    }
+    if (reset.employee.status === EmployeeStatus.TERMINATED) {
+      throw new BadRequestException('This password reset link is no longer valid');
+    }
+    if (reset.usedAt) {
+      throw new BadRequestException(
+        'This password reset link has already been used',
+      );
+    }
+    if (reset.expiresAt < new Date()) {
+      throw new BadRequestException('This password reset link has expired');
+    }
+    return reset;
   }
 
   // ---------------------------------------------------------------------

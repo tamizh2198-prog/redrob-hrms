@@ -358,6 +358,7 @@ export class SettingsService {
     'TrustedDevice',
     'RefreshToken',
     'EmployeeInvitation',
+    'PasswordResetToken',
     'Employee',
   ];
 

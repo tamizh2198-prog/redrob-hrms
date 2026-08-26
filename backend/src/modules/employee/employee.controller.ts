@@ -177,6 +177,29 @@ export class EmployeeController {
     return this.employeeService.resendInvitation(id, user.userId);
   }
 
+  // Base @Roles gate here is deliberately broader than the actual
+  // authorization — EmployeeService.assertCanResetCredentials enforces
+  // that only a Super Admin can reset an HR Admin's/Super Admin's own
+  // credentials, so an HR Admin reaching this route for a peer/superior
+  // still gets rejected, just by the service rather than the guard.
+  @Post(':id/reset-password')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  resetPassword(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.employeeService.resetPassword(id, user.userId, user.role as Role);
+  }
+
+  @Post(':id/reset-mfa')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  resetMfa(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.employeeService.resetMfa(id, user.role as Role);
+  }
+
   // Auth Phase 3: employeeId always comes from the JWT via CurrentUser —
   // never from a param or body — so these two can only ever act on the
   // caller's own record. No @Roles: any authenticated employee (including

@@ -330,6 +330,20 @@ export function listPendingInvitations() {
   return api<PendingInvitation[]>('/employees/invitations')
 }
 
+// Admin-assisted credential recovery — there's no self-service "forgot
+// password" (see ResetPasswordPage), so an HR Admin/Super Admin triggers
+// these for a locked-out person instead.
+export function resetPassword(employeeId: string) {
+  return api<{ expiresAt: string; emailSent: boolean; resetUrl?: string }>(
+    `/employees/${employeeId}/reset-password`,
+    { method: 'POST' },
+  )
+}
+
+export function resetMfa(employeeId: string) {
+  return api<{ success: true }>(`/employees/${employeeId}/reset-mfa`, { method: 'POST' })
+}
+
 export interface ActivationIdentity {
   firstName: string
   lastName: string
@@ -348,6 +362,25 @@ export function activateAccount(data: {
   confirmPassword: string
 }) {
   return api<{ success: true }>('/auth/activate', { method: 'POST', body: data })
+}
+
+export interface PasswordResetIdentity {
+  firstName: string
+  lastName: string
+  employeeCode: string
+  expiresAt: string
+}
+
+export function validatePasswordResetToken(token: string) {
+  return api<PasswordResetIdentity>(`/auth/reset-password/${token}`)
+}
+
+export function consumePasswordReset(data: {
+  token: string
+  password: string
+  confirmPassword: string
+}) {
+  return api<{ success: true }>('/auth/reset-password', { method: 'POST', body: data })
 }
 
 // Auth Phase 3: profile completion

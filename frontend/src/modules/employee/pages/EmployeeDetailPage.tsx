@@ -28,6 +28,8 @@ import {
   getProfileCompletion,
   revealSensitiveFields,
   updateEmployee,
+  resetPassword,
+  resetMfa,
   type BloodGroup,
   type Employee,
   type OrgChartResponse,
@@ -108,6 +110,10 @@ export function EmployeeDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [form, setForm] = useState<Partial<Employee>>({})
+  const [resetPasswordUrl, setResetPasswordUrl] = useState<string | null>(null)
+  const [resetPasswordCopied, setResetPasswordCopied] = useState(false)
+  const [resettingPassword, setResettingPassword] = useState(false)
+  const [resettingMfa, setResettingMfa] = useState(false)
 
   const now = new Date()
   const [attYear, setAttYear] = useState(now.getFullYear())
@@ -219,6 +225,42 @@ export function EmployeeDetailPage() {
     }
   }
 
+  async function handleResetPassword() {
+    if (!id) return
+    setError(null)
+    setMessage(null)
+    setResetPasswordUrl(null)
+    setResettingPassword(true)
+    try {
+      const result = await resetPassword(id)
+      setMessage(
+        result.emailSent
+          ? 'Password reset email sent.'
+          : "Email delivery isn't configured — copy the reset link below and send it to them directly.",
+      )
+      setResetPasswordUrl(result.resetUrl ?? null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to reset password')
+    } finally {
+      setResettingPassword(false)
+    }
+  }
+
+  async function handleResetMfa() {
+    if (!id) return
+    setError(null)
+    setMessage(null)
+    setResettingMfa(true)
+    try {
+      await resetMfa(id)
+      setMessage('MFA has been reset. They will be asked to set it up again next time they sign in.')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to reset MFA')
+    } finally {
+      setResettingMfa(false)
+    }
+  }
+
   // Only HR Admin/Super Admin reach this now (see canEditSelfServiceFields
   // below) — an employee viewing their own record manages personal/payroll
   // fields from My Profile instead, so there's no longer a second
@@ -299,25 +341,54 @@ export function EmployeeDetailPage() {
           </Badge>
           <span className="text-sm text-muted-foreground">{employee.employeeCode}</span>
         </div>
-        {isSuperAdmin && !isSelf && (
+        {(isHrAdmin || isSuperAdmin) && !isSelf && (
           <div className="flex gap-2">
-            {employee.status !== 'TERMINATED' && (
+            {isHrAdmin && employee.status !== 'TERMINATED' && (
+              <>
+                <Button size="sm" variant="outline" disabled={resettingPassword} onClick={handleResetPassword}>
+                  {resettingPassword ? 'Resetting…' : 'Reset Password'}
+                </Button>
+                <Button size="sm" variant="outline" disabled={resettingMfa} onClick={handleResetMfa}>
+                  {resettingMfa ? 'Resetting…' : 'Reset MFA'}
+                </Button>
+              </>
+            )}
+            {isSuperAdmin && employee.status !== 'TERMINATED' && (
               <DismissEmployeeDialog
                 employeeId={employee.id}
                 employeeName={`${employee.firstName} ${employee.lastName}`}
                 onDismissed={handleDismissed}
               />
             )}
-            <DeleteEmployeeDialog
-              employeeId={employee.id}
-              employeeName={`${employee.firstName} ${employee.lastName}`}
-              onDeleted={handleDeleted}
-            />
+            {isSuperAdmin && (
+              <DeleteEmployeeDialog
+                employeeId={employee.id}
+                employeeName={`${employee.firstName} ${employee.lastName}`}
+                onDeleted={handleDeleted}
+              />
+            )}
           </div>
         )}
       </div>
 
       {message && <p className="text-sm text-primary">{message}</p>}
+      {resetPasswordUrl && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-2">
+          <Input readOnly value={resetPasswordUrl} className="text-xs" onFocus={(e) => e.target.select()} />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              await navigator.clipboard.writeText(resetPasswordUrl)
+              setResetPasswordCopied(true)
+              setTimeout(() => setResetPasswordCopied(false), 2000)
+            }}
+          >
+            {resetPasswordCopied ? 'Copied!' : 'Copy'}
+          </Button>
+        </div>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <section className="flex flex-col gap-3 rounded-md border p-4">

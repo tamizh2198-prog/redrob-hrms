@@ -19,6 +19,7 @@ import { hashPassword } from '../../shared/auth/password.util';
 // simpler than tracking the exact subset per model.
 const EMPLOYEE_OWNED_MODEL_NAMES = [
   'refreshToken',
+  'passwordResetToken',
   'employeeDocument',
   'rosterEntry',
   'employeeHybridSchedule',

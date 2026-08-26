@@ -19,6 +19,7 @@ import { MfaCodeDto } from './dto/mfa-code.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ActivateAccountDto } from './dto/activate-account.dto';
 import { BootstrapSuperAdminDto } from './dto/bootstrap-super-admin.dto';
+import { ConsumePasswordResetDto } from './dto/consume-password-reset.dto';
 import { Public } from './public.decorator';
 import { verifyPassword } from './password.util';
 import { MagicLinkService } from './magic-link.service';
@@ -265,6 +266,22 @@ export class AuthController {
   @Post('activate')
   activateAccount(@Body() dto: ActivateAccountDto) {
     return this.employeeService.activateAccount(dto);
+  }
+
+  // Same shape as activate/:token + activate above, for the admin-assisted
+  // password reset flow (EmployeeService.resetPassword issues the link) —
+  // the reset token itself is the authorization mechanism, so this stays
+  // public the same way account activation does.
+  @Public()
+  @Get('reset-password/:token')
+  validatePasswordResetToken(@Param('token') token: string) {
+    return this.employeeService.validatePasswordResetToken(token);
+  }
+
+  @Public()
+  @Post('reset-password')
+  consumePasswordReset(@Body() dto: ConsumePasswordResetDto) {
+    return this.employeeService.consumePasswordReset(dto);
   }
 
   // First-run setup only — see EmployeeService.bootstrapFirstSuperAdmin's
