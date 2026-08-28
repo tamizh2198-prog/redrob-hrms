@@ -4,16 +4,12 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api/v1'
 
 export interface EmployeeDashboard {
   role: 'EMPLOYEE'
-  leaveBalances: Array<{ leaveType: string; available: number }>
-  pendingLeaveApplications: number
   myOpenTickets: number
 }
 
 export interface ManagerDashboard {
   role: 'MANAGER'
   teamSize: number
-  attendanceToday: Array<{ status: string; count: number }>
-  pendingApprovalsCount: number
   teamGoalProgressPercent: number | null
   teamMembers: Array<{
     id: string
@@ -33,10 +29,6 @@ export interface HrAdminDashboard {
   attritionLast90Days: number
   hiringFunnel: Array<{ stage: string; count: number }>
   openRequisitions: number
-  leaveLiabilityDays: number
-  // Phase 6C
-  attendanceToday: Array<{ status: string; count: number }>
-  attendancePercentToday: number | null
 }
 
 export type Dashboard = EmployeeDashboard | ManagerDashboard | HrAdminDashboard

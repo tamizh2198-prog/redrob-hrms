@@ -37,16 +37,6 @@ function label(value: string) {
 function EmployeeDashboardView({ d }: { d: Dashboard & { role: 'EMPLOYEE' } }) {
   return (
     <div className="flex flex-col gap-1">
-      <p className="font-medium">My Leave Balances</p>
-      <ul className="mb-2 flex flex-col gap-1">
-        {d.leaveBalances.map((b) => (
-          <li key={b.leaveType}>
-            {b.leaveType}: {b.available} days
-          </li>
-        ))}
-        {d.leaveBalances.length === 0 && <p className="text-muted-foreground">No leave types configured.</p>}
-      </ul>
-      <p>Pending leave applications: {d.pendingLeaveApplications}</p>
       <p>My open tickets: {d.myOpenTickets}</p>
     </div>
   )
@@ -56,17 +46,7 @@ function ManagerDashboardView({ d }: { d: Dashboard & { role: 'MANAGER' } }) {
   return (
     <div className="flex flex-col gap-1">
       <p>Team size: {d.teamSize}</p>
-      <p>Pending approvals: {d.pendingApprovalsCount}</p>
       <p>Team goal progress: {d.teamGoalProgressPercent ?? '—'}%</p>
-      <p className="mt-2 font-medium">Attendance Today</p>
-      <ul className="flex flex-col gap-1">
-        {d.attendanceToday.map((a) => (
-          <li key={a.status}>
-            {label(a.status)}: {a.count}
-          </li>
-        ))}
-        {d.attendanceToday.length === 0 && <p className="text-muted-foreground">No attendance records yet today.</p>}
-      </ul>
     </div>
   )
 }
@@ -80,13 +60,6 @@ function HrAdminDashboardView({ d }: { d: Dashboard & { role: 'HR_ADMIN' | 'SUPE
       <p className="mt-2 font-medium">Hiring Funnel</p>
       <p>{d.hiringFunnel.map((h) => `${label(h.stage)}: ${h.count}`).join(', ') || '—'}</p>
       <p>Open requisitions: {d.openRequisitions}</p>
-      <p>Leave liability: {d.leaveLiabilityDays} days</p>
-      <p className="mt-2 font-medium">Attendance Today</p>
-      <p>
-        {d.attendanceToday.map((a) => `${label(a.status)}: ${a.count}`).join(', ') || '—'}
-        {' · '}
-        Attendance %: {d.attendancePercentToday ?? '—'}
-      </p>
     </div>
   )
 }
@@ -253,9 +226,8 @@ export function AnalyticsPage() {
                   setEntityKey(v)
                   setGroupBy('')
                   // Status options are entity-specific (EmployeeStatus vs
-                  // AttendanceStatus vs LeaveApplicationStatus vs
-                  // CandidateStage vs AssetStatus) — a value valid for the
-                  // previous entity may not exist for the new one.
+                  // CandidateStage vs AssetStatus, etc.) — a value valid for
+                  // the previous entity may not exist for the new one.
                   setStatus('')
                   setResult(null)
                 }}
