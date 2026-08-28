@@ -647,6 +647,35 @@ describe('PerformanceService', () => {
         service.listMonthlyEvaluations('emp-1', 'emp-2', Role.EMPLOYEE),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it("rejects an HR Admin who isn't this employee's manager — only Super Admin gets the company-wide bypass", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+
+      await expect(
+        service.listMonthlyEvaluations('emp-1', 'hr-1', Role.HR_ADMIN),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lets a Super Admin view any employee\'s evaluations', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        { id: 'eval-1', employeeId: 'emp-1', kpiScore: 900, grade: 'EE' },
+      ]);
+
+      const result = await service.listMonthlyEvaluations(
+        'emp-1',
+        'sa-1',
+        Role.SUPER_ADMIN,
+      );
+
+      expect(result[0].kpiScore).toBe(900);
+    });
   });
 
   describe('Quarterly KPI reward (P&B "3a. Member KPI Linked Rewards")', () => {

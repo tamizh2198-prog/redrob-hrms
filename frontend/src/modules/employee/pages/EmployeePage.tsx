@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -52,10 +52,17 @@ export function EmployeePage() {
   // over a single row).
   const isSelfView = user?.role === 'EMPLOYEE'
 
+  // Lets the Dashboard deep-link here with e.g. /employee?status=TERMINATED
+  // pre-selected — one-way only (URL -> initial filter), not kept in sync
+  // on further changes.
+  const [searchParams] = useSearchParams()
+
   const [employees, setEmployees] = useState<Employee[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [status, setStatus] = useState<EmployeeStatus | undefined>(undefined)
+  const [status, setStatus] = useState<EmployeeStatus | undefined>(
+    (searchParams.get('status') as EmployeeStatus | null) ?? undefined,
+  )
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loading, setLoading] = useState(false)

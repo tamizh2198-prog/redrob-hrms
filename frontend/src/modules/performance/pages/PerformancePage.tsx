@@ -13,7 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
-import { getReferenceData, type ManagerOption } from '@/modules/employee/api'
+import { getReferenceData, getOrgChart, type ManagerOption } from '@/modules/employee/api'
 import {
   openReviewCycle,
   listReviewCycles,
@@ -59,9 +59,11 @@ function addMonthsToDateString(dateStr: string, months: number): string {
 export function PerformancePage() {
   const { user } = useAuth()
   const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isManager = user?.role === 'MANAGER'
 
   const [people, setPeople] = useState<ManagerOption[]>([])
+  const [directReportIds, setDirectReportIds] = useState<Set<string> | null>(null)
   const [cycles, setCycles] = useState<ReviewCycle[]>([])
   const [selectedCycleId, setSelectedCycleId] = useState('')
 
@@ -105,6 +107,24 @@ export function PerformancePage() {
     refreshCycles()
     refreshMyEvaluations()
   }, [])
+
+  // Scoring (both monthly KPI evaluations and manager assessments) is
+  // restricted server-side to the employee's actual reportingManagerId —
+  // a Manager picking someone who isn't really their report just gets a
+  // 403 on submit. Narrowing this picker to their real direct reports
+  // avoids that confusing round-trip; HR Admin/Super Admin still get the
+  // full company list since they're only ever browsing/auditing here, not
+  // submitting.
+  useEffect(() => {
+    if (user?.role !== 'MANAGER') return
+    getOrgChart(user.id)
+      .then((chart) => setDirectReportIds(new Set(chart.directReports.map((r) => r.id))))
+      .catch(() => setDirectReportIds(new Set()))
+  }, [user?.role, user?.id])
+
+  const pickerOptions = directReportIds
+    ? people.filter((p) => directReportIds.has(p.id))
+    : people
 
   useEffect(() => {
     if (!user || !selectedCycleId) return
@@ -427,7 +447,7 @@ export function PerformancePage() {
           <QuarterlyKpiRewardsPanel rewards={myRewards} />
         </div>
 
-        {(isManager || isHrAdmin) && (
+        {(isManager || isSuperAdmin) && (
           <div className="rounded-md border p-4">
             <h2 className="mb-2 font-medium">Monthly KPI Evaluation — Report</h2>
             <div className="flex flex-col gap-2">
@@ -443,7 +463,7 @@ export function PerformancePage() {
                   <SelectValue placeholder="Select employee">{(v: string) => personName(v)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {people.map((p) => (
+                  {pickerOptions.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.firstName} {p.lastName}
                     </SelectItem>
@@ -471,7 +491,7 @@ export function PerformancePage() {
                         Score: {e.kpiScore} ({e.kpiPercent}%) — {e.justification}
                       </p>
                     )}
-                    {isHrAdmin && e.auditStatus === 'PENDING_AUDIT' && (
+                    {isSuperAdmin && e.auditStatus === 'PENDING_AUDIT' && (
                       <div className="mt-2 flex flex-wrap items-end gap-2">
                         <Button size="sm" variant="outline" onClick={() => handleAuditApprove(e.id)}>
                           Approve

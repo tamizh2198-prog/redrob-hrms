@@ -153,7 +153,7 @@ export class PerformanceController {
   }
 
   @Post('evaluations/:id/audit')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   auditMonthlyEvaluation(
     @Param('id') id: string,
     @Body() dto: AuditMonthlyEvaluationDto,

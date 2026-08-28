@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, UserPlus, type LucideIcon } from 'lucide-react'
+import { Users, UserPlus, ArrowRight, CornerDownRight, type LucideIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { WelcomeBanner } from '../components/WelcomeBanner'
@@ -108,7 +108,9 @@ function MyTeamCard() {
               {team.map((m) => (
                 <TableRow key={m.id}>
                   <TableCell>
-                    {m.firstName} {m.lastName}
+                    <Link to={`/employee/${m.id}`} className="underline-offset-4 hover:underline">
+                      {m.firstName} {m.lastName}
+                    </Link>
                   </TableCell>
                   <TableCell>{m.employeeCode}</TableCell>
                   <TableCell>{m.designation ?? '—'}</TableCell>
@@ -149,43 +151,54 @@ function MyReportingAndDepartmentCard({ employeeId }: { employeeId: string }) {
     getMyDepartmentColleagues().then(setColleagues).catch(() => setColleagues([]))
   }, [employeeId])
 
-  const hasReportingChain =
-    orgChart && (orgChart.managers.length > 0 || orgChart.directReports.length > 0)
-
-  if (!hasReportingChain && colleagues.length === 0) return null
+  if (!orgChart && colleagues.length === 0) return null
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      {hasReportingChain && orgChart && (
+      {orgChart && (
         <Card>
           <CardHeader>
             <CardTitle>My Reporting Chain</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            {orgChart.managers.length > 0 && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">Reports up to</p>
-                <ul className="flex flex-col gap-1">
+          <CardContent className="flex flex-col gap-4 text-sm">
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Reports up to</p>
+              {orgChart.managers.length > 0 ? (
+                // Non-clickable on purpose — a plain employee viewing their
+                // own manager's (or skip-level's) record 403s server-side,
+                // so this is flow-only, not a navigation shortcut.
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline">You</Badge>
                   {orgChart.managers.map((m) => (
-                    <li key={m.id}>
-                      {m.firstName} {m.lastName} ({m.employeeCode})
-                    </li>
+                    <span key={m.id} className="flex items-center gap-1.5">
+                      <ArrowRight className="size-3.5 text-muted-foreground" />
+                      <Badge variant="outline">
+                        {m.firstName} {m.lastName}
+                      </Badge>
+                    </span>
                   ))}
-                </ul>
-              </div>
-            )}
-            {orgChart.directReports.length > 0 && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">Direct reports</p>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">No manager on file.</p>
+              )}
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Direct reports</p>
+              {orgChart.directReports.length > 0 ? (
                 <ul className="flex flex-col gap-1">
                   {orgChart.directReports.map((r) => (
-                    <li key={r.id}>
-                      {r.firstName} {r.lastName} ({r.employeeCode})
+                    <li key={r.id} className="flex items-center gap-1.5">
+                      <CornerDownRight className="size-3.5 shrink-0 text-muted-foreground" />
+                      <Link to={`/employee/${r.id}`} className="underline-offset-4 hover:underline">
+                        {r.firstName} {r.lastName} ({r.employeeCode})
+                      </Link>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              ) : (
+                <p className="text-muted-foreground">No direct reports.</p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -264,7 +277,9 @@ function HighPriorityAnnouncements() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium">{a.title}</span>
+                  <Link to="/announcements" className="font-medium underline-offset-4 hover:underline">
+                    {a.title}
+                  </Link>
                   <Badge variant="destructive">High Priority</Badge>
                 </div>
                 <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{a.body}</p>
@@ -394,8 +409,8 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Employees" value={totalEmployees} icon={Users} color="text-indigo-500" />
-        <KpiCard label="Onboarding" value={pendingInvitations.length} icon={UserPlus} color="text-teal-500" />
+        <KpiCard label="Employees" value={totalEmployees} icon={Users} color="text-indigo-500" to="/employee" />
+        <KpiCard label="Onboarding" value={pendingInvitations.length} icon={UserPlus} color="text-teal-500" to="/onboarding" />
       </div>
 
       <UpcomingHolidays />
@@ -412,8 +427,8 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-6 text-sm">
-            <SummaryStat label="Pending Invitations" value={pendingInvitations.length} />
-            <SummaryStat label="Incomplete Profiles" value={incompleteProfiles} />
+            <SummaryStat label="Pending Invitations" value={pendingInvitations.length} to="/onboarding" />
+            <SummaryStat label="Incomplete Profiles" value={incompleteProfiles} to="/employee" />
           </div>
         </CardContent>
       </Card>
@@ -430,10 +445,10 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-6 text-sm">
-            <SummaryStat label="Total" value={totalEmployees} />
-            <SummaryStat label="Active" value={activeEmployees} />
-            <SummaryStat label="Invited" value={invitedEmployees} />
-            <SummaryStat label="Terminated" value={terminatedEmployees} />
+            <SummaryStat label="Total" value={totalEmployees} to="/employee" />
+            <SummaryStat label="Active" value={activeEmployees} to="/employee?status=ACTIVE" />
+            <SummaryStat label="Invited" value={invitedEmployees} to="/employee?status=INVITED" />
+            <SummaryStat label="Terminated" value={terminatedEmployees} to="/employee?status=TERMINATED" />
           </div>
         </CardContent>
       </Card>
@@ -467,14 +482,16 @@ function KpiCard({
   value,
   icon: Icon,
   color,
+  to,
 }: {
   label: string
   value: number | string
   icon: LucideIcon
   color: string
+  to?: string
 }) {
-  return (
-    <Card size="sm">
+  const content = (
+    <Card size="sm" className={to ? 'transition-colors hover:bg-muted/50' : undefined}>
       <CardContent className="flex items-center gap-3">
         <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted ${color}`}>
           <Icon className="size-5" />
@@ -486,13 +503,23 @@ function KpiCard({
       </CardContent>
     </Card>
   )
+  return to ? <Link to={to}>{content}</Link> : content
 }
 
-function SummaryStat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-md bg-muted px-3 py-2">
+function SummaryStat({
+  label,
+  value,
+  to,
+}: {
+  label: string
+  value: number | string
+  to?: string
+}) {
+  const content = (
+    <div className={`rounded-md bg-muted px-3 py-2 ${to ? 'transition-colors hover:bg-muted/70' : ''}`}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
     </div>
   )
+  return to ? <Link to={to}>{content}</Link> : content
 }

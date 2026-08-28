@@ -658,12 +658,17 @@ export class PerformanceService {
     return updated;
   }
 
+  // Product decision: unlike goals/reviews (isPrivileged — HR_ADMIN or
+  // SUPER_ADMIN), monthly KPI evaluations can be browsed/audited across the
+  // whole company by SUPER_ADMIN only. HR_ADMIN keeps exactly the same
+  // access as everyone else here — self, or an employee who actually
+  // reports to them.
   private async assertCanViewEvaluations(
     employeeId: string,
     actorId: string,
     actorRole?: Role,
   ) {
-    if (employeeId === actorId || isPrivileged(actorRole)) return;
+    if (employeeId === actorId || actorRole === Role.SUPER_ADMIN) return;
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
     });
