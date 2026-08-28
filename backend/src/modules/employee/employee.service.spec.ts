@@ -382,6 +382,51 @@ describe('EmployeeService', () => {
     });
   });
 
+  describe('mandatory-fields check on update() only runs on an actual status transition', () => {
+    it('saves an unrelated edit on an already-active employee even though older mandatory fields are missing', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.ACTIVE,
+        // Pre-existing gaps from before these fields were mandatory —
+        // pan/bankAccountNumber/emergencyContact* all missing.
+        firstName: 'Jane',
+        lastName: 'Doe',
+        dob: new Date('1990-01-01'),
+        gender: Gender.FEMALE,
+        departmentId: 'dept-1',
+        designationId: 'desig-1',
+        reportingManagerId: 'mgr-1',
+        dateOfJoining: new Date('2024-01-01'),
+      });
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1', ctcLpa: 15 });
+
+      await expect(
+        service.update(
+          'emp-1',
+          { ctcLpa: 15 },
+          { userId: 'hr-1', role: Role.HR_ADMIN },
+        ),
+      ).resolves.toBeDefined();
+      expect(prisma.employee.update).toHaveBeenCalled();
+    });
+
+    it('still rejects explicitly activating an employee who is missing mandatory fields', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.INVITED,
+      });
+
+      await expect(
+        service.update(
+          'emp-1',
+          { status: EmployeeStatus.ACTIVE },
+          { userId: 'sa-1', role: Role.SUPER_ADMIN },
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('sensitive-field masking', () => {
     const employee = {
       id: 'emp-1',

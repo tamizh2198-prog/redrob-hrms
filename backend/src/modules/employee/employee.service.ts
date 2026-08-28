@@ -1453,8 +1453,15 @@ export class EmployeeService {
       await this.assertNoCircularManager(id, dto.reportingManagerId);
     }
 
-    const nextStatus = dto.status ?? employee.status;
-    this.assertMandatoryFieldsForActive({ ...employee, ...dto }, nextStatus);
+    // Only re-validate when this update is actually transitioning the
+    // employee's status (e.g. INVITED -> ACTIVE) — not on every subsequent
+    // edit of someone who's already active. Otherwise a genuinely unrelated
+    // change (e.g. just updating their department) would be permanently
+    // blocked by an older record's pre-existing gaps (PAN/bank details/
+    // emergency contact filled in gradually, not all at once).
+    if (dto.status !== undefined && dto.status !== employee.status) {
+      this.assertMandatoryFieldsForActive({ ...employee, ...dto }, dto.status);
+    }
 
     const historyData = this.diffForHistory(employee, dto, requester.userId);
 
