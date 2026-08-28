@@ -139,8 +139,8 @@ export function WorkflowPage() {
         <div className="rounded-md border p-4 text-sm">
           <h2 className="mb-2 font-medium">Workflow Definitions</h2>
           <p className="mb-3 text-muted-foreground">
-            A definition is an extra approval chain your company can attach to a module (e.g. LEAVE,
-            ASSETS) on top of that module's normal single approver — useful for rules like "over a
+            A definition is an extra approval chain your company can attach to a module (e.g. OFFBOARDING,
+            PERFORMANCE) on top of that module's normal single approver — useful for rules like "over a
             certain amount, a second person must also sign off." Each definition has one or more
             ordered <strong>steps</strong>; a request moves to the next step only after the current one
             is satisfied.
@@ -160,10 +160,10 @@ export function WorkflowPage() {
             <p className="text-xs text-muted-foreground">A short label for your own reference — not shown to employees.</p>
 
             <Label>Module</Label>
-            <Input value={moduleName} onChange={(e) => setModuleName(e.target.value)} placeholder="LEAVE" />
+            <Input value={moduleName} onChange={(e) => setModuleName(e.target.value)} placeholder="OFFBOARDING" />
             <p className="text-xs text-muted-foreground">
-              Which module this chain applies to — must match a module name exactly, e.g. LEAVE, ATTENDANCE,
-              ASSETS.
+              Which module this chain applies to — must match a module name exactly, e.g. OFFBOARDING,
+              PERFORMANCE.
             </p>
 
             <Label>Steps (JSON)</Label>

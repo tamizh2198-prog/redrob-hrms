@@ -91,7 +91,6 @@ model Company {
   grades       Grade[]
   locations    Location[]
   shifts       Shift[]
-  leaveTypes   LeaveType[]
 
   jobRequisitions     JobRequisition[]
   onboardingTemplates OnboardingChecklistTemplate[]
@@ -271,14 +270,7 @@ model Employee {
   hybridSchedules            EmployeeHybridSchedule[]
   shiftSwapRequestsRequested ShiftSwapRequest[]         @relation("SwapRequester")
   shiftSwapRequestsReceived  ShiftSwapRequest[]         @relation("SwapCounterpart")
-  attendanceRecords          AttendanceRecord[]
-  regularizationRequests     RegularizationRequest[]
-  regularizationsDecided     RegularizationRequest[]    @relation("RegularizationDecidedBy")
-  overtimeClaims             OvertimeClaim[]
   wfoWfhRequests             WfoWfhChangeRequest[]
-  leaveBalances              LeaveBalance[]
-  leaveApplications          LeaveApplication[]
-  compOffRequests            CompOffRequest[]
   optionalHolidaySelections  OptionalHolidaySelection[]
   superAdminRequestComments  SuperAdminRequestComment[]
 
@@ -519,8 +511,14 @@ model ShiftSwapRequest {
   createdAt     DateTime        @default(now())
 }
 
+// Two-stage approval, except for a Super Admin's own request (applied
+// immediately, no approval needed): the assigned manager decides first — a
+// reject there is terminal. An approval moves to PENDING_FINAL_APPROVAL,
+// where either a Super Admin or an HR Admin (whichever acts first) gives
+// the final decision and that's what actually applies the roster swap.
 enum WfoWfhRequestStatus {
-  PENDING
+  PENDING_MANAGER
+  PENDING_FINAL_APPROVAL
   APPROVED
   REJECTED
 }
@@ -539,10 +537,20 @@ model WfoWfhChangeRequest {
   compensatoryDate     DateTime
   compensatoryWorkMode WorkMode
   reason               String
-  status               WfoWfhRequestStatus @default(PENDING)
-  // Loose string, not a Prisma relation — same shape as
-  // RegularizationRequest.approverId/ShiftSwapRequest.approverId above.
+  status               WfoWfhRequestStatus @default(PENDING_MANAGER)
+  // Loose string, not a Prisma relation — same shape as ShiftSwapRequest.approverId above.
   approverId           String?
+  // Audit trail for the manager stage specifically, since approverId stays
+  // put as "who was assigned" while status moves on to PENDING_FINAL_APPROVAL —
+  // these capture who actually clicked approve and when (mirrors the same
+  // pattern OvertimeClaim used for its own two-stage approval).
+  managerApproverId    String?
+  managerDecidedAt     DateTime?
+  // Final-stage decider — any Super Admin or HR Admin, not a pre-assigned
+  // single approver, so it can only be known after the fact. decidedAt
+  // doubles as "final decision timestamp" (and the terminal-reject timestamp
+  // when the manager stage itself rejects, since there's no stage 2 then).
+  finalApproverId      String?
   decidedAt            DateTime?
   createdAt            DateTime            @default(now())
 
@@ -584,231 +592,14 @@ model OptionalHolidaySelection {
 // Attendance Management (Section 7.2)
 // ---------------------------------------------------------------------------
 
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  HALF_DAY
-  LATE
-  EARLY_EXIT
-  ON_LEAVE
-  HOLIDAY
-  WEEK_OFF
-  WFH
-}
-
-enum AttendanceSource {
-  BIOMETRIC
-  WEB
-  MOBILE
-}
-
-enum RegularizationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-model AttendanceRecord {
-  id            String            @id @default(uuid())
-  employeeId    String
-  employee      Employee          @relation(fields: [employeeId], references: [id])
-  date          DateTime
-  checkInTime   DateTime?
-  checkOutTime  DateTime?
-  source        AttendanceSource?
-  status        AttendanceStatus  @default(ABSENT)
-  workHours     Float?
-  overtimeHours Float?
-  isLocked      Boolean           @default(false)
-
-  @@unique([employeeId, date])
-  @@index([employeeId])
-}
-
-model RegularizationRequest {
-  id              String               @id @default(uuid())
-  employeeId      String
-  employee        Employee             @relation(fields: [employeeId], references: [id])
-  date            DateTime
-  requestedStatus AttendanceStatus
-  // "HH:mm" wall-clock strings, same convention as Shift.startTime/endTime —
-  // combined with `date` at approval time via the existing
-  // combineDateAndTime() helper. Optional: some requestedStatus values
-  // (e.g. WFH) don't need an exact time.
-  requestedCheckInTime  String?
-  requestedCheckOutTime String?
-  reason          String
-  evidenceRef     String?
-  approverId      String?
-  status          RegularizationStatus @default(PENDING)
-  // The actor who actually clicked Approve/Reject — distinct from approverId
-  // (the assigned approver at submission time), since an HR Admin/Super Admin
-  // escalation-target decide (see AttendanceService.decideRegularization's
-  // isPrivileged branch) never updates approverId, so without this field
-  // there'd be no record of who really made the call.
-  decidedById     String?
-  decidedBy       Employee?            @relation("RegularizationDecidedBy", fields: [decidedById], references: [id])
-  decidedAt       DateTime?
-  createdAt       DateTime             @default(now())
-
-  @@index([employeeId])
-  @@index([decidedById])
-}
-
-// Single-stage approval: the assigned manager (approverId) decides, and
-// that decision is final — Super Admin is notified with the complete claim
-// details either way, but isn't a second approval gate. PENDING_SUPER_ADMIN
-// is kept only so any claim that reached it before this change can still be
-// resolved; new claims never enter that state.
-enum OvertimeClaimStatus {
-  PENDING_MANAGER
-  PENDING_SUPER_ADMIN
-  APPROVED
-  REJECTED
-}
-
-// Employee-initiated claim for overtime worked on a given date. Purely a
-// recorded claim — approving/rejecting only flips its own status, no
-// AttendanceRecord/LeaveBalance side effect (no auto pay/leave conversion).
-model OvertimeClaim {
-  id                String              @id @default(uuid())
-  employeeId        String
-  employee          Employee            @relation(fields: [employeeId], references: [id])
-  date              DateTime
-  hoursClaimed      Float
-  reason            String
-  status            OvertimeClaimStatus @default(PENDING_MANAGER)
-  approverId        String?
-  // Audit trail for the manager stage specifically, since approverId stays
-  // put as "who was assigned" while status moves on to PENDING_SUPER_ADMIN —
-  // these capture who actually clicked approve and when.
-  managerApproverId String?
-  managerDecidedAt  DateTime?
-  decidedAt         DateTime?
-  createdAt         DateTime            @default(now())
-
-  @@index([employeeId])
-  @@index([approverId])
-}
-
-// ---------------------------------------------------------------------------
-// Leave Management (Section 7.3)
-// ---------------------------------------------------------------------------
-
-enum LeaveAccrualFrequency {
-  MONTHLY
-  QUARTERLY
-  ANNUAL
-}
-
-enum LeaveApplicationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
+// Attendance, Regularization, Overtime, and Leave (including Comp-Off) were
+// fully removed as in-app features — none of them are needed going forward.
+// ApprovalDecision survives below only because Workflow's ApprovalRequest/
+// WorkflowApprovalDecision (a separate, unrelated feature) also reuses it.
 enum ApprovalDecision {
   PENDING
   APPROVED
   REJECTED
-}
-
-model LeaveType {
-  id                        String                @id @default(uuid())
-  companyId                 String
-  company                   Company               @relation(fields: [companyId], references: [id])
-  name                      String
-  // Short reference code (e.g. "EL", "SL", "CL") shown alongside the name,
-  // consistent with the code convention on Department/Designation/Grade.
-  code                      String?
-  accrualFrequency          LeaveAccrualFrequency @default(MONTHLY)
-  accrualRate               Float                 @default(0)
-  maxCarryForward           Float                 @default(0)
-  isEncashable              Boolean               @default(false)
-  requiresDocumentAfterDays Int?
-  allowsNegativeBalance     Boolean               @default(false)
-  // Marks the lazily-created per-company "Comp Off" leave type. Comp-off
-  // credit is an event-driven +1 (see LeaveService.creditCompOffDay), not a
-  // recurring cadence, so it doesn't belong in accrualFrequency's enum —
-  // this flag just tells runMonthlyAccrual() to skip these rows outright.
-  isCompOff                 Boolean               @default(false)
-
-  balances     LeaveBalance[]
-  applications LeaveApplication[]
-
-  @@unique([companyId, name])
-}
-
-enum CompOffRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-// Employee-initiated claim for a compensatory day off after working a
-// holiday/week-off. Approving credits 1 day to the employee's "Comp Off"
-// LeaveBalance (see LeaveService.creditCompOffDay) — spendable afterward
-// through the normal leave-application flow.
-model CompOffRequest {
-  id         String               @id @default(uuid())
-  employeeId String
-  employee   Employee             @relation(fields: [employeeId], references: [id])
-  workedDate DateTime
-  reason     String
-  status     CompOffRequestStatus @default(PENDING)
-  approverId String?
-  decidedAt  DateTime?
-  createdAt  DateTime             @default(now())
-
-  @@index([employeeId])
-  @@index([approverId])
-}
-
-model LeaveBalance {
-  id             String    @id @default(uuid())
-  employeeId     String
-  employee       Employee  @relation(fields: [employeeId], references: [id])
-  leaveTypeId    String
-  leaveType      LeaveType @relation(fields: [leaveTypeId], references: [id])
-  year           Int
-  openingBalance Float     @default(0)
-  accrued        Float     @default(0)
-  used           Float     @default(0)
-  carriedForward Float     @default(0)
-
-  @@unique([employeeId, leaveTypeId, year])
-}
-
-model LeaveApplication {
-  id                String                 @id @default(uuid())
-  employeeId        String
-  employee          Employee               @relation(fields: [employeeId], references: [id])
-  leaveTypeId       String
-  leaveType         LeaveType              @relation(fields: [leaveTypeId], references: [id])
-  startDate         DateTime
-  endDate           DateTime
-  daysCount         Float
-  reason            String?
-  status            LeaveApplicationStatus @default(PENDING)
-  currentApproverId String?
-
-  approvalSteps LeaveApprovalStep[]
-
-  createdAt DateTime @default(now())
-
-  @@index([employeeId])
-}
-
-model LeaveApprovalStep {
-  id            String           @id @default(uuid())
-  applicationId String
-  application   LeaveApplication @relation(fields: [applicationId], references: [id])
-  approverId    String
-  sequence      Int
-  decision      ApprovalDecision @default(PENDING)
-  decidedAt     DateTime?
-  comment       String?
 }
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             ('roles' in item && item.roles ? (item.roles as readonly string[]).includes(user?.role ?? '') : true),
           ).map((item) => {
             const Icon = item.icon
+            // Assets and Recruitment (ATS) link out to our separately-built
+            // platforms instead of an in-app route — plain external link,
+            // no NavLink active-state styling since it never "is active".
+            if ('externalHref' in item && item.externalHref) {
+              return (
+                <li key={item.path}>
+                  <a
+                    href={item.externalHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+                  >
+                    <Icon className={`size-4 shrink-0 ${item.color}`} />
+                    {item.label}
+                  </a>
+                </li>
+              )
+            }
             return (
               <li key={item.path}>
                 <NavLink

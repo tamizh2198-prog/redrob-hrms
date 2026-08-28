@@ -19,8 +19,8 @@ export interface ReportEntityDef {
   groupableFields: string[];
   // Valid values for the shared "Status" filter dropdown when this entity
   // is selected — each entity maps "status" to a different underlying enum
-  // (EmployeeStatus, AttendanceStatus, LeaveApplicationStatus,
-  // CandidateStage, AssetStatus), so the frontend can't use one fixed list.
+  // (EmployeeStatus, CandidateStage, AssetStatus), so the frontend can't use
+  // one fixed list.
   statusOptions: string[];
   fetch(prisma: PrismaService, filters: ReportFilters): Promise<ReportRow[]>;
 }
@@ -80,113 +80,6 @@ export const REPORT_ENTITIES: Record<string, ReportEntityDef> = {
       return rows.map(({ location, ...rest }) => ({
         ...rest,
         location: location?.name ?? null,
-      }));
-    },
-  },
-
-  Attendance: {
-    key: 'Attendance',
-    label: 'Attendance',
-    fields: [
-      'employeeCode',
-      'employeeName',
-      'date',
-      'status',
-      'checkInTime',
-      'checkOutTime',
-      'workHours',
-    ],
-    groupableFields: ['status'],
-    statusOptions: [
-      'PRESENT',
-      'ABSENT',
-      'HALF_DAY',
-      'LATE',
-      'EARLY_EXIT',
-      'ON_LEAVE',
-      'HOLIDAY',
-      'WEEK_OFF',
-      'WFH',
-    ],
-    fetch: async (prisma, f) => {
-      const rows = await prisma.attendanceRecord.findMany({
-        where: {
-          ...((f.departmentId || f.locationId) && {
-            employee: {
-              ...(f.departmentId && { departmentId: f.departmentId }),
-              ...(f.locationId && { locationId: f.locationId }),
-            },
-          }),
-          ...(f.status && { status: f.status as never }),
-          ...((f.dateFrom || f.dateTo) && {
-            date: { gte: f.dateFrom, lte: f.dateTo },
-          }),
-        },
-        select: {
-          id: true,
-          date: true,
-          status: true,
-          checkInTime: true,
-          checkOutTime: true,
-          workHours: true,
-          employee: { select: { employeeCode: true, firstName: true, lastName: true } },
-        },
-      });
-      // A raw employeeId UUID isn't useful to read in a report — resolve it
-      // to the same employeeCode/name a human would look someone up by.
-      return rows.map(({ employee, ...rest }) => ({
-        ...rest,
-        employeeCode: employee.employeeCode,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
-      }));
-    },
-  },
-
-  // Date-range filters on start date (an application starting within the
-  // window) rather than full-range overlap — the simpler, still-correct
-  // reading for "leave taken in this period" reports.
-  Leave: {
-    key: 'Leave',
-    label: 'Leave',
-    fields: [
-      'employeeCode',
-      'employeeName',
-      'leaveTypeId',
-      'startDate',
-      'endDate',
-      'daysCount',
-      'status',
-    ],
-    groupableFields: ['status', 'leaveTypeId'],
-    statusOptions: ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
-    fetch: async (prisma, f) => {
-      const rows = await prisma.leaveApplication.findMany({
-        where: {
-          ...((f.departmentId || f.locationId) && {
-            employee: {
-              ...(f.departmentId && { departmentId: f.departmentId }),
-              ...(f.locationId && { locationId: f.locationId }),
-            },
-          }),
-          ...(f.status && { status: f.status as never }),
-          ...((f.dateFrom || f.dateTo) && {
-            startDate: { gte: f.dateFrom, lte: f.dateTo },
-          }),
-        },
-        select: {
-          id: true,
-          leaveTypeId: true,
-          startDate: true,
-          endDate: true,
-          daysCount: true,
-          status: true,
-          employee: { select: { employeeCode: true, firstName: true, lastName: true } },
-        },
-      });
-      return rows.map(({ employee, ...rest }) => ({
-        ...rest,
-        employeeCode: employee.employeeCode,
-        employeeName: `${employee.firstName} ${employee.lastName}`,
       }));
     },
   },

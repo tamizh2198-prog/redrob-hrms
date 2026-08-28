@@ -39,9 +39,9 @@ export class WfoWfhRequestService {
   ) {}
 
   // Same "manager, else any HR Admin/Super Admin, else fail explicitly"
-  // fallback LeaveService.applyLeave() uses — Regularization's silent
+  // fallback pattern used elsewhere in this codebase — no silent
   // no-approver gap (nobody notified, approverId left null when the
-  // employee has no manager) isn't repeated here.
+  // employee has no manager).
   private async findHrAdminId(excludeId?: string): Promise<string | null> {
     const hrAdmin = await this.prisma.employee.findFirst({
       where: {
@@ -50,6 +50,17 @@ export class WfoWfhRequestService {
       },
     });
     return hrAdmin?.id ?? null;
+  }
+
+  private async listPrivilegedIds(excludeId?: string): Promise<string[]> {
+    const admins = await this.prisma.employee.findMany({
+      where: {
+        role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] },
+        ...(excludeId && { id: { not: excludeId } }),
+      },
+      select: { id: true },
+    });
+    return admins.map((a) => a.id);
   }
 
   private stripPasswordHash<T extends { employee?: Record<string, unknown> | null }>(
@@ -61,7 +72,51 @@ export class WfoWfhRequestService {
     return { ...request, employee: safeEmployee };
   }
 
-  async submit(employeeId: string, dto: CreateWfoWfhRequestDto) {
+  private rosterSwapOps(request: {
+    employeeId: string;
+    originalDate: Date;
+    requestedWorkMode: WorkMode;
+    compensatoryDate: Date;
+    compensatoryWorkMode: WorkMode;
+  }) {
+    return [
+      this.prisma.rosterEntry.upsert({
+        where: {
+          employeeId_date: {
+            employeeId: request.employeeId,
+            date: request.originalDate,
+          },
+        },
+        update: { workMode: request.requestedWorkMode },
+        create: {
+          employeeId: request.employeeId,
+          date: request.originalDate,
+          workMode: request.requestedWorkMode,
+        },
+      }),
+      this.prisma.rosterEntry.upsert({
+        where: {
+          employeeId_date: {
+            employeeId: request.employeeId,
+            date: request.compensatoryDate,
+          },
+        },
+        update: { workMode: request.compensatoryWorkMode, isWeekOff: false },
+        create: {
+          employeeId: request.employeeId,
+          date: request.compensatoryDate,
+          workMode: request.compensatoryWorkMode,
+          isWeekOff: false,
+        },
+      }),
+    ];
+  }
+
+  async submit(
+    employeeId: string,
+    dto: CreateWfoWfhRequestDto,
+    actorRole?: Role,
+  ) {
     const originalDate = startOfDay(new Date(dto.originalDate));
     const compensatoryDate = startOfDay(new Date(dto.compensatoryDate));
     if (originalDate.getTime() === compensatoryDate.getTime()) {
@@ -86,6 +141,35 @@ export class WfoWfhRequestService {
     }
     const compensatoryWorkMode = oppositeWorkMode(dto.requestedWorkMode);
 
+    // A Super Admin's own request needs nobody's approval — apply it
+    // immediately rather than routing it through a workflow they'd just
+    // have to approve themselves.
+    if (actorRole === Role.SUPER_ADMIN) {
+      const [request] = await this.prisma.$transaction([
+        this.prisma.wfoWfhChangeRequest.create({
+          data: {
+            employeeId,
+            originalDate,
+            requestedWorkMode: dto.requestedWorkMode,
+            compensatoryDate,
+            compensatoryWorkMode,
+            reason: dto.reason,
+            status: 'APPROVED',
+            finalApproverId: employeeId,
+            decidedAt: new Date(),
+          },
+        }),
+        ...this.rosterSwapOps({
+          employeeId,
+          originalDate,
+          requestedWorkMode: dto.requestedWorkMode,
+          compensatoryDate,
+          compensatoryWorkMode,
+        }),
+      ]);
+      return request;
+    }
+
     let approverId = employee.reportingManagerId;
     if (!approverId) {
       approverId = await this.findHrAdminId(employeeId);
@@ -108,12 +192,32 @@ export class WfoWfhRequestService {
       },
     });
 
+    const dateLabel = originalDate.toISOString().slice(0, 10);
+
     await this.notifications.send({
       recipientId: approverId,
       template: 'wfo-wfh-request.submitted',
-      body: `${employee.firstName} ${employee.lastName} requested to switch to ${dto.requestedWorkMode} on ${originalDate.toISOString().slice(0, 10)} and is awaiting your approval.`,
+      body: `${employee.firstName} ${employee.lastName} requested to switch to ${dto.requestedWorkMode} on ${dateLabel} and is awaiting your approval.`,
       data: { requestId: request.id },
     });
+
+    // Super Admin and HR Admin see the request from the moment it's raised
+    // (visibility), even though it isn't theirs to act on until the manager
+    // has approved it (actionability) — this is the "two step approval,
+    // triggers to manager AND super admin AND HR admin" requirement.
+    const privilegedIds = (await this.listPrivilegedIds()).filter(
+      (id) => id !== approverId,
+    );
+    await Promise.all(
+      privilegedIds.map((id) =>
+        this.notifications.send({
+          recipientId: id,
+          template: 'wfo-wfh-request.submitted-fyi',
+          body: `${employee.firstName} ${employee.lastName} requested to switch to ${dto.requestedWorkMode} on ${dateLabel}. It is awaiting manager approval first — you'll be able to act on it once that happens.`,
+          data: { requestId: request.id },
+        }),
+      ),
+    );
 
     return request;
   }
@@ -128,83 +232,107 @@ export class WfoWfhRequestService {
       where: { id: requestId },
     });
     if (!request) throw new NotFoundException('WFO/WFH request not found');
-    if (request.status !== 'PENDING') {
-      throw new BadRequestException('This request was already decided');
-    }
 
+    if (request.status === 'PENDING_MANAGER') {
+      return this.decideManagerStage(request, actorId, dto, actorRole);
+    }
+    if (request.status === 'PENDING_FINAL_APPROVAL') {
+      return this.decideFinalStage(request, actorId, dto, actorRole);
+    }
+    throw new BadRequestException('This request was already decided');
+  }
+
+  private async decideManagerStage(
+    request: {
+      id: string;
+      employeeId: string;
+      approverId: string | null;
+      requestedWorkMode: WorkMode;
+      originalDate: Date;
+    },
+    actorId: string,
+    dto: WfoWfhDecisionDto,
+    actorRole?: Role,
+  ) {
     const isAssignedApprover = request.approverId === actorId;
     if (!isAssignedApprover && !isPrivileged(actorRole)) {
       throw new ForbiddenException(
-        'Only the assigned approver or an HR Admin/Super Admin can decide this request',
+        'Only the assigned manager or an HR Admin/Super Admin can decide this request',
       );
     }
 
-    if (actorRole !== Role.SUPER_ADMIN) {
-      const [originalRecord, compensatoryRecord] = await Promise.all([
-        this.prisma.attendanceRecord.findUnique({
-          where: {
-            employeeId_date: {
-              employeeId: request.employeeId,
-              date: request.originalDate,
-            },
-          },
+    if (!dto.approve) {
+      await this.prisma.wfoWfhChangeRequest.update({
+        where: { id: request.id },
+        data: { status: 'REJECTED', managerApproverId: actorId, managerDecidedAt: new Date(), decidedAt: new Date() },
+      });
+      await this.notifications.send({
+        recipientId: request.employeeId,
+        template: 'wfo-wfh-request.rejected',
+        body: `Your request to switch to ${request.requestedWorkMode} on ${request.originalDate.toISOString().slice(0, 10)} was rejected.${dto.comment ? ` Comment: "${dto.comment}"` : ''}`,
+        data: { comment: dto.comment },
+      });
+      return { status: 'REJECTED' };
+    }
+
+    await this.prisma.wfoWfhChangeRequest.update({
+      where: { id: request.id },
+      data: {
+        status: 'PENDING_FINAL_APPROVAL',
+        managerApproverId: actorId,
+        managerDecidedAt: new Date(),
+      },
+    });
+
+    // Final sign-off audience only — the requesting employee is notified
+    // solely at the final outcome, not at this manager-to-final handoff.
+    const privilegedIds = await this.listPrivilegedIds();
+    const dateLabel = request.originalDate.toISOString().slice(0, 10);
+    await Promise.all(
+      privilegedIds.map((id) =>
+        this.notifications.send({
+          recipientId: id,
+          template: 'wfo-wfh-request.manager-approved',
+          body: `The manager approved switching to ${request.requestedWorkMode} on ${dateLabel} for this employee. It now awaits your final sign-off (Super Admin or HR Admin).`,
+          data: { requestId: request.id },
         }),
-        this.prisma.attendanceRecord.findUnique({
-          where: {
-            employeeId_date: {
-              employeeId: request.employeeId,
-              date: request.compensatoryDate,
-            },
-          },
-        }),
-      ]);
-      if (originalRecord?.isLocked || compensatoryRecord?.isLocked) {
-        throw new ForbiddenException(
-          'Roster changes after the attendance lock date require Super Admin override',
-        );
-      }
+      ),
+    );
+
+    return { status: 'PENDING_FINAL_APPROVAL' };
+  }
+
+  private async decideFinalStage(
+    request: {
+      id: string;
+      employeeId: string;
+      requestedWorkMode: WorkMode;
+      originalDate: Date;
+      compensatoryDate: Date;
+      compensatoryWorkMode: WorkMode;
+    },
+    actorId: string,
+    dto: WfoWfhDecisionDto,
+    actorRole?: Role,
+  ) {
+    if (!isPrivileged(actorRole)) {
+      throw new ForbiddenException(
+        'Only a Super Admin or HR Admin can give final approval on this request',
+      );
     }
 
     if (dto.approve) {
       await this.prisma.$transaction([
-        this.prisma.rosterEntry.upsert({
-          where: {
-            employeeId_date: {
-              employeeId: request.employeeId,
-              date: request.originalDate,
-            },
-          },
-          update: { workMode: request.requestedWorkMode },
-          create: {
-            employeeId: request.employeeId,
-            date: request.originalDate,
-            workMode: request.requestedWorkMode,
-          },
-        }),
-        this.prisma.rosterEntry.upsert({
-          where: {
-            employeeId_date: {
-              employeeId: request.employeeId,
-              date: request.compensatoryDate,
-            },
-          },
-          update: { workMode: request.compensatoryWorkMode, isWeekOff: false },
-          create: {
-            employeeId: request.employeeId,
-            date: request.compensatoryDate,
-            workMode: request.compensatoryWorkMode,
-            isWeekOff: false,
-          },
-        }),
+        ...this.rosterSwapOps(request),
         this.prisma.wfoWfhChangeRequest.update({
-          where: { id: requestId },
-          data: { status: 'APPROVED', decidedAt: new Date() },
+          where: { id: request.id },
+          data: { status: 'APPROVED', finalApproverId: actorId, decidedAt: new Date() },
         }),
       ]);
     } else {
       await this.prisma.wfoWfhChangeRequest.update({
-        where: { id: requestId },
-        data: { status: 'REJECTED', decidedAt: new Date() },
+        where: { id: request.id },
+        data: { status: 'REJECTED', finalApproverId: actorId, decidedAt: new Date() },
       });
     }
 
@@ -229,14 +357,34 @@ export class WfoWfhRequestService {
 
   async listPendingForApprover(approverId: string) {
     const requests = await this.prisma.wfoWfhChangeRequest.findMany({
-      where: { approverId, status: 'PENDING' },
+      where: { approverId, status: 'PENDING_MANAGER' },
       include: { employee: true },
       orderBy: { createdAt: 'desc' },
     });
     return requests.map((r) => this.stripPasswordHash(r));
   }
 
-  async listAll(status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
+  // Manager-stage requests aren't actionable by Super Admin/HR Admin yet,
+  // but they were promised visibility into them at submission time.
+  async listPendingManagerStageForVisibility() {
+    const requests = await this.prisma.wfoWfhChangeRequest.findMany({
+      where: { status: 'PENDING_MANAGER' },
+      include: { employee: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return requests.map((r) => this.stripPasswordHash(r));
+  }
+
+  async listPendingFinalApproval() {
+    const requests = await this.prisma.wfoWfhChangeRequest.findMany({
+      where: { status: 'PENDING_FINAL_APPROVAL' },
+      include: { employee: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return requests.map((r) => this.stripPasswordHash(r));
+  }
+
+  async listAll(status?: 'PENDING_MANAGER' | 'PENDING_FINAL_APPROVAL' | 'APPROVED' | 'REJECTED') {
     const requests = await this.prisma.wfoWfhChangeRequest.findMany({
       where: { status },
       include: { employee: true },

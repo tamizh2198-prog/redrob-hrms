@@ -6,8 +6,6 @@ function createMockPrisma() {
   return {
     company: { findMany: jest.fn() },
     employee: { findMany: jest.fn() },
-    attendanceRecord: { count: jest.fn() },
-    leaveApplication: { count: jest.fn() },
     ticket: { groupBy: jest.fn() },
   };
 }
@@ -28,31 +26,7 @@ describe('AssistantAnomalyDigestService (Section 7.14)', () => {
       prisma as unknown as PrismaService,
       notifications as unknown as NotificationService,
     );
-    prisma.attendanceRecord.count.mockResolvedValue(0);
-    prisma.leaveApplication.count.mockResolvedValue(0);
     prisma.ticket.groupBy.mockResolvedValue([]);
-  });
-
-  it('flags an absenteeism spike >= 40% week-over-week', async () => {
-    prisma.attendanceRecord.count
-      .mockResolvedValueOnce(14)
-      .mockResolvedValueOnce(10);
-    const anomalies = await service.computeAnomalies('co-1');
-    expect(anomalies.some((a) => a.includes('Absenteeism spike'))).toBe(true);
-  });
-
-  it('does not flag a small absenteeism fluctuation below the threshold', async () => {
-    prisma.attendanceRecord.count
-      .mockResolvedValueOnce(11)
-      .mockResolvedValueOnce(10);
-    const anomalies = await service.computeAnomalies('co-1');
-    expect(anomalies.some((a) => a.includes('Absenteeism spike'))).toBe(false);
-  });
-
-  it('flags pending leave approvals aging past the threshold', async () => {
-    prisma.leaveApplication.count.mockResolvedValue(3);
-    const anomalies = await service.computeAnomalies('co-1');
-    expect(anomalies.some((a) => a.includes('pending more than'))).toBe(true);
   });
 
   it('flags a helpdesk ticket-category spike >= 40%', async () => {
@@ -65,11 +39,11 @@ describe('AssistantAnomalyDigestService (Section 7.14)', () => {
 
   it('sends the digest only to HR_ADMIN/SUPER_ADMIN employees of companies with anomalies', async () => {
     prisma.company.findMany.mockResolvedValue([{ id: 'co-1' }, { id: 'co-2' }]);
-    prisma.attendanceRecord.count
-      .mockResolvedValueOnce(14)
-      .mockResolvedValueOnce(10) // co-1: spike
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0); // co-2: no data, no anomaly
+    prisma.ticket.groupBy
+      .mockResolvedValueOnce([{ category: 'IT_SUPPORT', _count: 14 }])
+      .mockResolvedValueOnce([{ category: 'IT_SUPPORT', _count: 10 }]) // co-1: spike
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]); // co-2: no data, no anomaly
     prisma.employee.findMany.mockResolvedValue([{ id: 'hr-1' }]);
 
     await service.sendWeeklyAnomalyDigest();

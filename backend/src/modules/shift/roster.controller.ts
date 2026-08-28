@@ -34,8 +34,8 @@ export class RosterController {
 
   @Post('assign')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  assign(@Body() dto: AssignRosterDto, @CurrentUser() user: { role: string }) {
-    return this.shiftService.assignRoster(dto, user.role as Role);
+  assign(@Body() dto: AssignRosterDto) {
+    return this.shiftService.assignRoster(dto);
   }
 
   // Registered before the ':employeeId' route below so the literal path

@@ -28,7 +28,6 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
   let companyId: string;
   let departmentId: string;
   let designationId: string;
-  let leaveTypeId: string;
 
   let hrAdminId: string;
   let managerId: string;
@@ -87,18 +86,6 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
     });
     designationId = designation.id;
 
-    const leaveType = await prisma.leaveType.create({
-      data: {
-        companyId,
-        name: `PAO Earned Leave ${Date.now()}`,
-        code: 'EL',
-        accrualFrequency: 'MONTHLY',
-        accrualRate: 1,
-        isEncashable: true,
-      },
-    });
-    leaveTypeId = leaveType.id;
-
     const hrAdmin = await prisma.employee.create({
       data: {
         ...baseFields,
@@ -143,19 +130,6 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
     });
     employeeId = employee.id;
 
-    // 12 days of encashable Earned Leave on file — this is what the F&F
-    // computation must pull automatically, with zero re-entry. Seeded for
-    // the same year as ADJUSTED_LWD, since computeSettlement reads the
-    // balance for the (post-negotiation) last working day's year.
-    await prisma.leaveBalance.create({
-      data: {
-        employeeId,
-        leaveTypeId,
-        year: ADJUSTED_LWD.getUTCFullYear(),
-        openingBalance: 12,
-      },
-    });
-
     hrAdminToken = await login(hrAdmin.employeeCode);
     managerToken = await login(manager.employeeCode);
     employeeToken = await login(employee.employeeCode);
@@ -180,8 +154,6 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
     await prisma.monthlyEvaluation.deleteMany({ where: { employeeId } });
     await prisma.goal.deleteMany({ where: { employeeId } });
     await prisma.reviewCycle.deleteMany({ where: { companyId } });
-    await prisma.leaveBalance.deleteMany({ where: { employeeId } });
-    await prisma.leaveType.delete({ where: { id: leaveTypeId } });
     // markSettlementPaid writes an EmployeeHistory audit row when it
     // archives the employee — it still references them by FK.
     await prisma.employeeHistory.deleteMany({
@@ -788,18 +760,15 @@ describe('Performance + Assets + Offboarding (e2e)', () => {
           .set('Authorization', `Bearer ${hrAdminToken}`)
           .expect(200);
 
-        // 12 days seeded as opening balance on the encashable leave type —
-        // pulled automatically from the Leave module.
-        expect(res.body.leaveEncashment).toBe(12 * perDayPayRate);
+        // Leave module was removed — settlement no longer includes a leave
+        // encashment line, so it stays at 0.
+        expect(res.body.leaveEncashment).toBe(0);
         // The laptop (cost 85000) was returned above, so nothing outstanding
         // — asset recovery pulled automatically from the Asset module.
         expect(res.body.assetRecovery).toBe(0);
         expect(res.body.noticeRecovery).toBe(shortfallDays * perDayPayRate);
         expect(res.body.netPayable).toBe(
-          pendingSalary +
-            12 * perDayPayRate -
-            shortfallDays * perDayPayRate -
-            0,
+          pendingSalary - shortfallDays * perDayPayRate - 0,
         );
         expect(res.body.status).toBe('PENDING_APPROVAL');
       });

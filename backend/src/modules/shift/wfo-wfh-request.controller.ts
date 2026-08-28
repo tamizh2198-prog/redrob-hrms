@@ -16,9 +16,13 @@ export class WfoWfhRequestController {
   @Post()
   submit(
     @Body() dto: CreateWfoWfhRequestDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; role: string },
   ) {
-    return this.wfoWfhRequestService.submit(user.userId, dto);
+    return this.wfoWfhRequestService.submit(
+      user.userId,
+      dto,
+      user.role as Role,
+    );
   }
 
   @Get('mine')
@@ -29,6 +33,18 @@ export class WfoWfhRequestController {
   @Get('pending-for-me')
   listPendingForApprover(@CurrentUser() user: { userId: string }) {
     return this.wfoWfhRequestService.listPendingForApprover(user.userId);
+  }
+
+  @Get('pending-manager-stage')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listPendingManagerStageForVisibility() {
+    return this.wfoWfhRequestService.listPendingManagerStageForVisibility();
+  }
+
+  @Get('pending-final-approval')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listPendingFinalApproval() {
+    return this.wfoWfhRequestService.listPendingFinalApproval();
   }
 
   @Post(':id/decision')
@@ -47,7 +63,10 @@ export class WfoWfhRequestController {
 
   @Get()
   @Roles(Role.SUPER_ADMIN)
-  listAll(@Query('status') status?: 'PENDING' | 'APPROVED' | 'REJECTED') {
+  listAll(
+    @Query('status')
+    status?: 'PENDING_MANAGER' | 'PENDING_FINAL_APPROVAL' | 'APPROVED' | 'REJECTED',
+  ) {
     return this.wfoWfhRequestService.listAll(status);
   }
 

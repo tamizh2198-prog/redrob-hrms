@@ -98,18 +98,7 @@ async function main() {
   await prisma.reviewCycle.deleteMany({ where: { id: { in: manifest.reviewCycleIds } } });
   await prisma.monthlyEvaluation.deleteMany({ where: { employeeId: { in: employeeIds } } });
 
-  // --- Leave ---
-  await prisma.leaveApprovalStep.deleteMany({
-    where: {
-      OR: [{ application: { employeeId: { in: employeeIds } } }, { approverId: { in: employeeIds } }],
-    },
-  });
-  await prisma.leaveApplication.deleteMany({ where: { employeeId: { in: employeeIds } } });
-  await prisma.leaveBalance.deleteMany({ where: { employeeId: { in: employeeIds } } });
-
-  // --- Attendance / shift & roster ---
-  await prisma.attendanceRecord.deleteMany({ where: { employeeId: { in: employeeIds } } });
-  await prisma.regularizationRequest.deleteMany({ where: { employeeId: { in: employeeIds } } });
+  // --- Shift & roster ---
   await prisma.rosterEntry.deleteMany({ where: { employeeId: { in: employeeIds } } });
   await prisma.employeeHybridSchedule.deleteMany({ where: { employeeId: { in: employeeIds } } });
   await prisma.shiftSwapRequest.deleteMany({

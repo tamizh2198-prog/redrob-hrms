@@ -24,13 +24,7 @@ const EMPLOYEE_OWNED_MODEL_NAMES = [
   'rosterEntry',
   'employeeHybridSchedule',
   'optionalHolidaySelection',
-  'attendanceRecord',
-  'regularizationRequest',
-  'overtimeClaim',
   'wfoWfhChangeRequest',
-  'leaveBalance',
-  'leaveApplication',
-  'compOffRequest',
   'onboardingChecklist',
   'preboardingSubmission',
   'assetAssignment',
@@ -83,8 +77,8 @@ function createMockPrisma() {
         count: jest.fn(),
         findUnique: jest.fn(),
         // Defaults to [] (not undefined) since deleteEmployee()'s grandchild
-        // cleanup for LeaveApplication/AssistantConversation immediately
-        // calls .length on the result — an unconfigured test shouldn't crash.
+        // cleanup for AssistantConversation immediately calls .length on the
+        // result — an unconfigured test shouldn't crash.
         findMany: jest.fn().mockResolvedValue([]),
       },
     ]),
@@ -127,15 +121,14 @@ function createMockPrisma() {
       deleteMany: jest.fn(),
     },
     ...dynamicModels,
-    // deleteEmployee()'s grandchild cleanup — these four models only ever
+    // deleteEmployee()'s grandchild cleanup — these three models only ever
     // need deleteMany (they're always the leaf being cleared, never
     // queried first) — the parent-side findUnique/findMany already come
     // from dynamicModels above (onboardingChecklist, resignation,
-    // leaveApplication, assistantConversation).
+    // assistantConversation).
     checklistTask: { deleteMany: jest.fn() },
     clearanceItem: { deleteMany: jest.fn() },
     lwdAdjustment: { deleteMany: jest.fn() },
-    leaveApprovalStep: { deleteMany: jest.fn() },
     assistantMessage: { deleteMany: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -150,7 +143,7 @@ function createMockPrisma() {
 
   // Named properties stay dot-accessible as inferred; the intersection adds
   // index access for the dynamically-named EMPLOYEE_OWNED_MODEL_NAMES
-  // entries spread in above (e.g. prisma.attendanceRecord.deleteMany).
+  // entries spread in above (e.g. prisma.employeeDocument.deleteMany).
   return prisma as typeof prisma &
     Record<
       string,
@@ -1585,7 +1578,7 @@ describe('EmployeeService', () => {
       expect(prisma.employeeInvitation.deleteMany).toHaveBeenCalledWith({
         where: { employeeId: 'emp-1' },
       });
-      expect(prisma.attendanceRecord.deleteMany).toHaveBeenCalledWith({
+      expect(prisma.employeeDocument.deleteMany).toHaveBeenCalledWith({
         where: { employeeId: 'emp-1' },
       });
       expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
@@ -1603,14 +1596,13 @@ describe('EmployeeService', () => {
     // without clearing these first violates a foreign-key constraint one
     // level down (caught via live browser testing against Test 2, not unit
     // tests alone, since the mock wouldn't have surfaced a real FK error).
-    it('clears grandchild rows (ClearanceItem/LwdAdjustment via Resignation, ChecklistTask via OnboardingChecklist, LeaveApprovalStep via LeaveApplication, AssistantMessage via AssistantConversation) before deleting their parents', async () => {
+    it('clears grandchild rows (ClearanceItem/LwdAdjustment via Resignation, ChecklistTask via OnboardingChecklist, AssistantMessage via AssistantConversation) before deleting their parents', async () => {
       prisma.employee.findUnique.mockResolvedValue({
         id: 'emp-1',
         employeeCode: 'EMP-2026-0010',
       });
       prisma.resignation.findUnique.mockResolvedValue({ id: 'resignation-1' });
       prisma.onboardingChecklist.findUnique.mockResolvedValue({ id: 'checklist-1' });
-      prisma.leaveApplication.findMany.mockResolvedValue([{ id: 'leave-1' }, { id: 'leave-2' }]);
       prisma.assistantConversation.findMany.mockResolvedValue([{ id: 'conv-1' }]);
 
       await service.deleteEmployee('emp-1');
@@ -1624,16 +1616,13 @@ describe('EmployeeService', () => {
       expect(prisma.checklistTask.deleteMany).toHaveBeenCalledWith({
         where: { checklistId: 'checklist-1' },
       });
-      expect(prisma.leaveApprovalStep.deleteMany).toHaveBeenCalledWith({
-        where: { applicationId: { in: ['leave-1', 'leave-2'] } },
-      });
       expect(prisma.assistantMessage.deleteMany).toHaveBeenCalledWith({
         where: { conversationId: { in: ['conv-1'] } },
       });
       expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
     });
 
-    it('skips grandchild cleanup calls when there is nothing to clean up (no Resignation/Checklist/leave applications/conversations)', async () => {
+    it('skips grandchild cleanup calls when there is nothing to clean up (no Resignation/Checklist/conversations)', async () => {
       prisma.employee.findUnique.mockResolvedValue({
         id: 'emp-1',
         employeeCode: 'EMP-2026-0010',
@@ -1645,7 +1634,6 @@ describe('EmployeeService', () => {
       expect(prisma.clearanceItem.deleteMany).not.toHaveBeenCalled();
       expect(prisma.lwdAdjustment.deleteMany).not.toHaveBeenCalled();
       expect(prisma.checklistTask.deleteMany).not.toHaveBeenCalled();
-      expect(prisma.leaveApprovalStep.deleteMany).not.toHaveBeenCalled();
       expect(prisma.assistantMessage.deleteMany).not.toHaveBeenCalled();
       expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
     });

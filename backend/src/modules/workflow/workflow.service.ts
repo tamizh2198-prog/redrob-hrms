@@ -7,8 +7,6 @@ import {
 import { ApprovalDecision, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
-import { LeaveService } from '../leave/leave.service';
-import { AttendanceService } from '../attendance/attendance.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateWorkflowDefinitionDto } from './dto/create-workflow-definition.dto';
 import { CreateApprovalRequestDto } from './dto/create-approval-request.dto';
@@ -16,7 +14,7 @@ import { DecideApprovalDto } from './dto/decide-approval.dto';
 import type { ApproverRule, WorkflowStepDef } from './workflow-types';
 
 export interface UnifiedApprovalItem {
-  source: string; // 'WORKFLOW' | 'LEAVE' | 'ATTENDANCE' | 'ASSETS' | 'ATS_REQUISITION' | 'ATS_OFFER'
+  source: string; // 'WORKFLOW' | 'ASSETS' | 'ATS_REQUISITION' | 'ATS_OFFER'
   id: string;
   summary: string;
   requestedAt: Date;
@@ -55,8 +53,6 @@ export class WorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
-    private readonly leaveService: LeaveService,
-    private readonly attendanceService: AttendanceService,
     private readonly assetsService: AssetsService,
   ) {}
 
@@ -410,9 +406,9 @@ export class WorkflowService {
   }
 
   // Section 7.15 Acceptance Criteria: "A unified 'my approvals' inbox
-  // correctly aggregates pending items across Leave, Attendance, Assets,
-  // Offers and Requisitions." This reads through each module's EXISTING
-  // list method / equivalent scoping — it never re-implements their
+  // correctly aggregates pending items across Assets, Offers and
+  // Requisitions." This reads through each module's EXISTING list
+  // method / equivalent scoping — it never re-implements their
   // approval business logic.
   async listMyApprovals(
     actorId: string,
@@ -442,30 +438,6 @@ export class WorkflowService {
           requestedAt: request.createdAt,
         });
       }
-    }
-
-    const leaveApprovals =
-      await this.leaveService.listPendingApprovals(actorId);
-    for (const a of leaveApprovals) {
-      items.push({
-        source: 'LEAVE',
-        id: a.id,
-        summary: `Leave: ${a.employee.firstName} ${a.employee.lastName} (${a.leaveType.name})`,
-        requestedAt: a.createdAt,
-      });
-    }
-
-    const regularizations = await this.attendanceService.listRegularizations({
-      approverId: actorId,
-      status: 'PENDING',
-    });
-    for (const r of regularizations) {
-      items.push({
-        source: 'ATTENDANCE',
-        id: r.id,
-        summary: `Attendance regularization: ${r.employee.firstName} ${r.employee.lastName}`,
-        requestedAt: r.date,
-      });
     }
 
     // Asset request approval is HR Admin/Super Admin only (see

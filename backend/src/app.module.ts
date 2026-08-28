@@ -14,8 +14,6 @@ import { CalendarModule } from './shared/calendar/calendar.module';
 import { EmailModule } from './shared/email/email.module';
 
 import { EmployeeModule } from './modules/employee/employee.module';
-import { AttendanceModule } from './modules/attendance/attendance.module';
-import { LeaveModule } from './modules/leave/leave.module';
 import { ShiftModule } from './modules/shift/shift.module';
 import { HolidayModule } from './modules/holiday/holiday.module';
 import { AtsModule } from './modules/ats/ats.module';
@@ -51,8 +49,6 @@ import { ModuleAccessModule } from './modules/module-access/module-access.module
 
     // Feature modules (Section 7)
     EmployeeModule,
-    AttendanceModule,
-    LeaveModule,
     ShiftModule,
     HolidayModule,
     AtsModule,

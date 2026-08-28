@@ -3,7 +3,6 @@ import { Role } from '@prisma/client';
 import { CLEARANCE_ITEMS, OffboardingService } from './offboarding.service';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
-import { LeaveService } from '../leave/leave.service';
 import { AssetsService } from '../assets/assets.service';
 
 function createMockPrisma() {
@@ -37,10 +36,6 @@ function createMockNotifications() {
   return { send: jest.fn().mockResolvedValue(undefined) };
 }
 
-function createMockLeaveService() {
-  return { getBalances: jest.fn() };
-}
-
 function createMockAssetsService() {
   return {
     hasUnreturnedAssets: jest.fn(),
@@ -51,19 +46,16 @@ function createMockAssetsService() {
 describe('OffboardingService', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
   let notifications: ReturnType<typeof createMockNotifications>;
-  let leaveService: ReturnType<typeof createMockLeaveService>;
   let assetsService: ReturnType<typeof createMockAssetsService>;
   let service: OffboardingService;
 
   beforeEach(() => {
     prisma = createMockPrisma();
     notifications = createMockNotifications();
-    leaveService = createMockLeaveService();
     assetsService = createMockAssetsService();
     service = new OffboardingService(
       prisma as unknown as PrismaService,
       notifications as unknown as NotificationService,
-      leaveService as unknown as LeaveService,
       assetsService as unknown as AssetsService,
     );
   });
@@ -282,8 +274,8 @@ describe('OffboardingService', () => {
     });
   });
 
-  describe('Acceptance Criteria: F&F correctly nets leave encashment, notice shortfall, and unreturned-asset recovery with no manual re-entry', () => {
-    it('pulls leave balance and asset cost automatically and nets them against notice shortfall', async () => {
+  describe('Acceptance Criteria: F&F correctly nets notice shortfall and unreturned-asset recovery with no manual re-entry', () => {
+    it('pulls asset cost automatically and nets it against notice shortfall (no leave encashment — Leave module removed)', async () => {
       // Notice period was 30 days but the employee actually left 10 days
       // early — a 10-day shortfall.
       const submittedDate = new Date('2027-01-01T00:00:00.000Z');
@@ -295,10 +287,6 @@ describe('OffboardingService', () => {
         noticePeriodDays: 30,
         lastWorkingDay,
       });
-      leaveService.getBalances.mockResolvedValue([
-        { leaveType: { isEncashable: true }, available: 8 },
-        { leaveType: { isEncashable: false }, available: 5 }, // not encashable — excluded
-      ]);
       assetsService.getRecoverableAssetCost.mockResolvedValue(15000);
       prisma.finalSettlement.upsert.mockImplementation(({ create }) =>
         Promise.resolve(create),
@@ -309,14 +297,14 @@ describe('OffboardingService', () => {
         pendingSalary: 50000,
       });
 
-      // leaveEncashment = 8 days * 2000 = 16000 (only the encashable type counted)
+      // leaveEncashment = 0 (Leave module removed)
       // noticeRecovery = 10 shortfall days * 2000 = 20000
       // assetRecovery = 15000 (pulled straight from AssetsService, untouched)
-      // netPayable = 50000 + 16000 - 20000 - 15000 = 31000
-      expect(result.leaveEncashment).toBe(16000);
+      // netPayable = 50000 + 0 - 20000 - 15000 = 15000
+      expect(result.leaveEncashment).toBe(0);
       expect(result.noticeRecovery).toBe(20000);
       expect(result.assetRecovery).toBe(15000);
-      expect(result.netPayable).toBe(31000);
+      expect(result.netPayable).toBe(15000);
     });
 
     it('applies zero notice recovery when the employee served the full notice period', async () => {
@@ -329,7 +317,6 @@ describe('OffboardingService', () => {
         noticePeriodDays: 30,
         lastWorkingDay,
       });
-      leaveService.getBalances.mockResolvedValue([]);
       assetsService.getRecoverableAssetCost.mockResolvedValue(0);
       prisma.finalSettlement.upsert.mockImplementation(({ create }) =>
         Promise.resolve(create),

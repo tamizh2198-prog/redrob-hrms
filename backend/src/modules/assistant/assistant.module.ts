@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { LeaveModule } from '../leave/leave.module';
 import { HolidayModule } from '../holiday/holiday.module';
 import { HelpdeskModule } from '../helpdesk/helpdesk.module';
 import { AssistantController } from './assistant.controller';
@@ -8,7 +7,7 @@ import { AssistantLlmGateway } from './assistant-llm.gateway';
 import { AssistantAnomalyDigestService } from './assistant-anomaly-digest.service';
 
 @Module({
-  imports: [LeaveModule, HolidayModule, HelpdeskModule],
+  imports: [HolidayModule, HelpdeskModule],
   controllers: [AssistantController],
   providers: [
     AssistantService,

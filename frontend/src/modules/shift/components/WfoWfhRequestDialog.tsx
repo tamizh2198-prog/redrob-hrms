@@ -22,10 +22,9 @@ import {
 import { ApiError } from '@/lib/api'
 import { submitWfoWfhRequest } from '../api'
 
-// Mirrors RegularizeDialog's structure — a per-page Dialog trigger, not a
-// full form page. Unlike Regularize (fixed date/status from the calling
-// row), both dates here are user-picked, since this is the first
-// employee-initiated action in the Shift module.
+// A per-page Dialog trigger, not a full form page — both dates here are
+// user-picked, since this is an employee-initiated action in the Shift
+// module.
 export function WfoWfhRequestDialog({
   onSubmitted,
   trigger,

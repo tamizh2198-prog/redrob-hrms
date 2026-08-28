@@ -1,8 +1,8 @@
 // Generates a realistic ~220-employee demo dataset across Employee,
-// Attendance, Leave, Recruitment, Assets, Helpdesk, Announcements (plus the
-// minimum Performance/Resignation rows those modules' own dashboards read)
-// so the app's dashboards and AI assistant have meaningful, non-empty data
-// to work with in a demo/review environment.
+// Recruitment, Assets, Helpdesk, Announcements (plus the minimum
+// Performance/Resignation rows those modules' own dashboards read) so the
+// app's dashboards and AI assistant have meaningful, non-empty data to work
+// with in a demo/review environment.
 //
 // Deliberately NOT wired into `npm run prisma:seed` / package.json's
 // `prisma.seed` hook — that command runs on every deploy restart (see
@@ -29,10 +29,6 @@ import {
   Gender,
   EmploymentType,
   EmployeeStatus,
-  AttendanceStatus,
-  AttendanceSource,
-  LeaveApplicationStatus,
-  ApprovalDecision,
   RequisitionStatus,
   CandidateStage,
   OfferStatus,
@@ -109,23 +105,7 @@ function addDays(date: Date, days: number): Date {
 function daysBetweenInclusive(start: Date, end: Date): number {
   return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
 }
-function isWeekend(date: Date): boolean {
-  const day = date.getUTCDay();
-  return day === 0 || day === 6;
-}
-function startOfWeekMonday(date: Date): Date {
-  const d = startOfDay(date);
-  const day = d.getUTCDay();
-  const diff = (day + 6) % 7;
-  return addDays(d, -diff);
-}
-function dateKey(d: Date): string {
-  return startOfDay(d).toISOString();
-}
-
 const TODAY = startOfDay(new Date());
-const ATTENDANCE_RANGE_DAYS = 90; // ~3 months of history, inclusive of today
-const ATTENDANCE_START = addDays(TODAY, -(ATTENDANCE_RANGE_DAYS - 1));
 
 // ---------------------------------------------------------------------------
 // Name pools
@@ -284,17 +264,15 @@ async function main() {
   ];
 
   // Same fixed-date national holidays seed.ts already uses for BLR — mirrored
-  // onto the two new locations so the holiday calendar / attendance HOLIDAY
-  // status work everywhere, not just Bengaluru.
+  // onto the two new locations so the holiday calendar works everywhere, not
+  // just Bengaluru.
   const INDIA_HOLIDAYS_2026 = [
     { date: '2026-01-26', name: 'Republic Day' },
     { date: '2026-08-15', name: 'Independence Day' },
     { date: '2026-10-02', name: 'Gandhi Jayanti' },
     { date: '2026-12-25', name: 'Christmas' },
   ];
-  const holidaysByLocation = new Map<string, Date[]>();
   for (const loc of [locationBlr, locationMum, locationPun]) {
-    const dates: Date[] = [];
     for (const h of INDIA_HOLIDAYS_2026) {
       const holiday = await prisma.holiday.upsert({
         where: { locationId_date: { locationId: loc.id, date: new Date(h.date) } },
@@ -310,9 +288,7 @@ async function main() {
       // Only track newly-relevant ones for the two new locations in the
       // manifest — BLR's holidays predate this script and aren't ours to wipe.
       if (loc.id !== locationBlr.id) manifest.holidayIds.push(holiday.id);
-      dates.push(startOfDay(new Date(h.date)));
     }
-    holidaysByLocation.set(loc.id, dates);
   }
 
   const gradeL1 = await prisma.grade.upsert({
@@ -452,11 +428,6 @@ async function main() {
       designationByCode.set(icDesig.code, designation);
       if (icDesig.code !== 'SWE') manifest.designationIds.push(designation.id);
     }
-  }
-
-  const leaveTypes = await prisma.leaveType.findMany({ where: { companyId: company.id } });
-  if (leaveTypes.length === 0) {
-    throw new Error('No LeaveType rows found — run `npm run prisma:seed` first.');
   }
 
   // -------------------------------------------------------------------------
@@ -610,279 +581,7 @@ async function main() {
     manifest.resignationIds.push(resignation.id);
   }
 
-  // -------------------------------------------------------------------------
-  // Leave: balances, applications, approval steps
-  // -------------------------------------------------------------------------
-
-  console.log('Creating leave balances and applications...');
-
-  const balanceRows = allEmployees
-    .filter((e) => e.status !== EmployeeStatus.TERMINATED)
-    .flatMap((emp) =>
-      leaveTypes.map((lt) => {
-        const monthsSinceJoin = Math.max(
-          0,
-          Math.min(12, Math.round(daysBetweenInclusive(emp.dateOfJoining, TODAY) / 30)),
-        );
-        const accrued = Math.round(monthsSinceJoin * lt.accrualRate * 10) / 10;
-        const used = Math.round(Math.min(accrued, accrued * Math.random() * 0.7) * 10) / 10;
-        return {
-          employeeId: emp.id,
-          leaveTypeId: lt.id,
-          year: 2026,
-          openingBalance: randomFloat(0, 3, 1),
-          accrued,
-          used,
-          carriedForward: 0,
-        };
-      }),
-    );
-  await createManyChunked((chunk) => prisma.leaveBalance.createMany({ data: chunk }), balanceRows);
-
-  const thisWeekStart = startOfWeekMonday(TODAY);
-  const thisWeekEnd = addDays(thisWeekStart, 6);
-
-  function managerOf(emp: DemoEmployee): string {
-    const deptManagers = managersByDept.get(emp.departmentCode)!;
-    return emp.role === Role.MANAGER
-      ? Math.random() < 0.5
-        ? superAdmin!.id
-        : hrAdmin!.id
-      : pick(deptManagers).id;
-  }
-
-  const onLeaveDatesByEmployee = new Map<string, Set<string>>();
-  function markOnLeave(employeeId: string, start: Date, end: Date) {
-    let set = onLeaveDatesByEmployee.get(employeeId);
-    if (!set) {
-      set = new Set();
-      onLeaveDatesByEmployee.set(employeeId, set);
-    }
-    const days = daysBetweenInclusive(start, end);
-    for (let i = 0; i < days; i++) set.add(dateKey(addDays(start, i)));
-  }
-
   const activeEmployees = allEmployees.filter((e) => e.status !== EmployeeStatus.TERMINATED);
-  const approvalStepRows: {
-    applicationId: string;
-    approverId: string;
-    sequence: number;
-    decision: ApprovalDecision;
-    decidedAt: Date | null;
-  }[] = [];
-
-  for (const emp of activeEmployees) {
-    const appCount = weightedPick([[0, 15], [1, 30], [2, 30], [3, 18], [4, 7]]);
-    for (let i = 0; i < appCount; i++) {
-      const leaveType = pick(leaveTypes);
-      const status = weightedPick<LeaveApplicationStatus>([
-        [LeaveApplicationStatus.APPROVED, 55],
-        [LeaveApplicationStatus.PENDING, 20],
-        [LeaveApplicationStatus.REJECTED, 15],
-        [LeaveApplicationStatus.CANCELLED, 10],
-      ]);
-      // Pending ones skew recent, but some deliberately older than 3 days so
-      // the weekly anomaly digest's "pending leave older than 3 days" signal
-      // has something to find.
-      const daysOffset =
-        status === LeaveApplicationStatus.PENDING
-          ? Math.random() < 0.4
-            ? randomInt(-10, -4)
-            : randomInt(-2, 10)
-          : randomInt(-120, 20);
-      const start = startOfDay(addDays(TODAY, daysOffset));
-      const span = randomInt(1, 4);
-      const end = addDays(start, span - 1);
-      const createdAt = status === LeaveApplicationStatus.PENDING
-        ? addDays(start, -randomInt(1, 5))
-        : addDays(start, -randomInt(3, 10));
-
-      const application = await prisma.leaveApplication.create({
-        data: {
-          employeeId: emp.id,
-          leaveTypeId: leaveType.id,
-          startDate: start,
-          endDate: end,
-          daysCount: span,
-          reason: pick([
-            'Personal work', 'Family function', 'Not feeling well', 'Travel',
-            'Medical appointment', 'Festival', 'Rest and recovery',
-          ]),
-          status,
-          currentApproverId: status === LeaveApplicationStatus.PENDING ? managerOf(emp) : null,
-          createdAt,
-        },
-      });
-
-      if (status === LeaveApplicationStatus.APPROVED) {
-        markOnLeave(emp.id, start, end);
-        approvalStepRows.push({
-          applicationId: application.id,
-          approverId: managerOf(emp),
-          sequence: 1,
-          decision: ApprovalDecision.APPROVED,
-          decidedAt: addDays(createdAt, 1),
-        });
-      } else if (status === LeaveApplicationStatus.REJECTED) {
-        approvalStepRows.push({
-          applicationId: application.id,
-          approverId: managerOf(emp),
-          sequence: 1,
-          decision: ApprovalDecision.REJECTED,
-          decidedAt: addDays(createdAt, 1),
-        });
-      } else if (status === LeaveApplicationStatus.PENDING) {
-        // This task: a PENDING application with no approval step at all is
-        // undecidable — decideLeave() throws "No pending approval step
-        // found" for any actor/role, since there's no PENDING step to match.
-        approvalStepRows.push({
-          applicationId: application.id,
-          approverId: managerOf(emp),
-          sequence: 1,
-          decision: ApprovalDecision.PENDING,
-          decidedAt: null,
-        });
-      }
-    }
-  }
-
-  // Force a handful of "on leave this week" cases across a couple of
-  // managers' teams, so the manager-only `team_leave_this_week` assistant
-  // tool has something to report regardless of what the random pass rolled.
-  const firstTwoDepts = DEPARTMENTS.slice(0, 2);
-  for (const dept of firstTwoDepts) {
-    const ics = allEmployees.filter(
-      (e) => e.departmentCode === dept.code && e.role === Role.EMPLOYEE && e.status !== EmployeeStatus.TERMINATED,
-    );
-    for (const emp of shuffle(ics).slice(0, 2)) {
-      const start = addDays(thisWeekStart, randomInt(0, 2));
-      const end = addDays(start, randomInt(0, 2));
-      const createdAt = addDays(start, -randomInt(3, 7));
-      const application = await prisma.leaveApplication.create({
-        data: {
-          employeeId: emp.id,
-          leaveTypeId: pick(leaveTypes).id,
-          startDate: start,
-          endDate: end,
-          daysCount: daysBetweenInclusive(start, end),
-          reason: 'Personal work',
-          status: LeaveApplicationStatus.APPROVED,
-          createdAt,
-        },
-      });
-      markOnLeave(emp.id, start, end);
-      approvalStepRows.push({
-        applicationId: application.id,
-        approverId: managerOf(emp),
-        sequence: 1,
-        decision: ApprovalDecision.APPROVED,
-        decidedAt: addDays(createdAt, 1),
-      });
-    }
-  }
-  await createManyChunked((chunk) => prisma.leaveApprovalStep.createMany({ data: chunk }), approvalStepRows);
-  console.log(`  ${balanceRows.length} leave balances, ${approvalStepRows.length} decided applications.`);
-
-  // -------------------------------------------------------------------------
-  // Attendance — the big one. ~90 days per active employee.
-  // -------------------------------------------------------------------------
-
-  console.log('Creating attendance history (this takes a moment)...');
-
-  const SOURCES: AttendanceSource[] = [AttendanceSource.BIOMETRIC, AttendanceSource.WEB, AttendanceSource.MOBILE];
-  function timeOn(date: Date, hour: number, minute: number): Date {
-    const d = new Date(date);
-    d.setUTCHours(hour, minute, 0, 0);
-    return d;
-  }
-
-  const attendanceRows: {
-    employeeId: string;
-    date: Date;
-    checkInTime: Date | null;
-    checkOutTime: Date | null;
-    source: AttendanceSource | null;
-    status: AttendanceStatus;
-    workHours: number | null;
-    overtimeHours: number | null;
-  }[] = [];
-
-  for (const emp of activeEmployees) {
-    const holidaySet = new Set((holidaysByLocation.get(emp.locationId) ?? []).map(dateKey));
-    const onLeaveSet = onLeaveDatesByEmployee.get(emp.id) ?? new Set<string>();
-    const rangeStart = emp.dateOfJoining > ATTENDANCE_START ? emp.dateOfJoining : ATTENDANCE_START;
-    const totalDays = daysBetweenInclusive(rangeStart, TODAY);
-
-    for (let i = 0; i < totalDays; i++) {
-      const date = addDays(rangeStart, i);
-      const key = dateKey(date);
-
-      if (isWeekend(date)) {
-        attendanceRows.push({
-          employeeId: emp.id, date, checkInTime: null, checkOutTime: null,
-          source: null, status: AttendanceStatus.WEEK_OFF, workHours: null, overtimeHours: null,
-        });
-        continue;
-      }
-      if (holidaySet.has(key)) {
-        attendanceRows.push({
-          employeeId: emp.id, date, checkInTime: null, checkOutTime: null,
-          source: null, status: AttendanceStatus.HOLIDAY, workHours: null, overtimeHours: null,
-        });
-        continue;
-      }
-      if (onLeaveSet.has(key)) {
-        attendanceRows.push({
-          employeeId: emp.id, date, checkInTime: null, checkOutTime: null,
-          source: null, status: AttendanceStatus.ON_LEAVE, workHours: null, overtimeHours: null,
-        });
-        continue;
-      }
-
-      const status = weightedPick<AttendanceStatus>([
-        [AttendanceStatus.PRESENT, 63],
-        [AttendanceStatus.WFH, 15],
-        [AttendanceStatus.LATE, 9],
-        [AttendanceStatus.HALF_DAY, 4],
-        [AttendanceStatus.EARLY_EXIT, 3],
-        [AttendanceStatus.ABSENT, 6],
-      ]);
-
-      if (status === AttendanceStatus.ABSENT) {
-        attendanceRows.push({
-          employeeId: emp.id, date, checkInTime: null, checkOutTime: null,
-          source: null, status, workHours: null, overtimeHours: null,
-        });
-        continue;
-      }
-
-      let checkInHour = 9, checkInMin = randomInt(0, 45);
-      let checkOutHour = 18, checkOutMin = randomInt(0, 45);
-      if (status === AttendanceStatus.LATE) { checkInHour = 10; checkInMin = randomInt(15, 55); }
-      if (status === AttendanceStatus.EARLY_EXIT) { checkOutHour = 15; checkOutMin = randomInt(0, 30); }
-      if (status === AttendanceStatus.HALF_DAY) { checkOutHour = 13; checkOutMin = randomInt(0, 30); }
-
-      const checkInTime = timeOn(date, checkInHour, checkInMin);
-      const checkOutTime = timeOn(date, checkOutHour, checkOutMin);
-      const workHours = Math.round(((checkOutTime.getTime() - checkInTime.getTime()) / 3600000) * 10) / 10;
-
-      attendanceRows.push({
-        employeeId: emp.id,
-        date,
-        checkInTime,
-        checkOutTime,
-        source: status === AttendanceStatus.WFH ? AttendanceSource.WEB : pick(SOURCES),
-        status,
-        workHours,
-        overtimeHours: workHours > 9 ? Math.round((workHours - 9) * 10) / 10 : 0,
-      });
-    }
-  }
-  await createManyChunked(
-    (chunk) => prisma.attendanceRecord.createMany({ data: chunk, skipDuplicates: true }),
-    attendanceRows,
-  );
-  console.log(`  ${attendanceRows.length} attendance records created.`);
 
   // -------------------------------------------------------------------------
   // Performance — minimum needed for Manager dashboard goal-progress% and
@@ -1264,8 +963,6 @@ async function main() {
   console.log('');
   console.log('Demo data seed complete.');
   console.log(`  Employees:        ${manifest.employeeIds.length} (codes ${EMPLOYEE_CODE_PREFIX}0001..${EMPLOYEE_CODE_PREFIX}${String(seq - 1).padStart(4, '0')}, emails @${EMAIL_DOMAIN})`);
-  console.log(`  Attendance rows:  ${attendanceRows.length}`);
-  console.log(`  Leave balances:   ${balanceRows.length}`);
   console.log(`  Job requisitions: ${manifest.jobRequisitionIds.length}, candidates: ${manifest.candidateIds.length}`);
   console.log(`  Assets:           ${manifest.assetIds.length}`);
   console.log(`  Tickets:          ${manifest.ticketIds.length}`);

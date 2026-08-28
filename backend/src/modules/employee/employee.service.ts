@@ -76,13 +76,7 @@ const EMPLOYEE_OWNED_MODELS = [
   'rosterEntry',
   'employeeHybridSchedule',
   'optionalHolidaySelection',
-  'attendanceRecord',
-  'regularizationRequest',
-  'overtimeClaim',
   'wfoWfhChangeRequest',
-  'leaveBalance',
-  'leaveApplication',
-  'compOffRequest',
   'onboardingChecklist',
   'preboardingSubmission',
   'assetAssignment',
@@ -102,9 +96,8 @@ const EMPLOYEE_OWNED_MODELS = [
 // but the column allows NULL, so the reference is safely cleared instead of
 // blocking the delete or destroying the referencing row. The self-relation
 // (other employees who report to this one) is handled the same way.
-// ShiftSwapRequest/RegularizationRequest.approverId have no Prisma
-// `@relation` (loose string columns, not FK-enforced) but are still cleared
-// for data hygiene.
+// ShiftSwapRequest.approverId has no Prisma `@relation` (a loose string
+// column, not FK-enforced) but is still cleared for data hygiene.
 const NULLABLE_EMPLOYEE_REFERENCES: ReadonlyArray<{
   model: keyof PrismaService;
   field: string;
@@ -114,12 +107,7 @@ const NULLABLE_EMPLOYEE_REFERENCES: ReadonlyArray<{
   { model: 'ticketSlaPolicy', field: 'agentId' },
   { model: 'ticket', field: 'assignedAgentId' },
   { model: 'shiftSwapRequest', field: 'approverId' },
-  { model: 'regularizationRequest', field: 'approverId' },
-  { model: 'regularizationRequest', field: 'decidedById' },
-  { model: 'overtimeClaim', field: 'approverId' },
-  { model: 'overtimeClaim', field: 'managerApproverId' },
   { model: 'wfoWfhChangeRequest', field: 'approverId' },
-  { model: 'compOffRequest', field: 'approverId' },
 ];
 
 // 3. Required (NOT NULL) references to genuine business records with
@@ -633,8 +621,8 @@ export class EmployeeService {
   }
 
   // This task: employee dismissal/deactivation. Never a hard delete —
-  // Employee is historical HR data (attendance/leave/performance rows all
-  // reference it by id). Reuses the existing TERMINATED status rather than
+  // Employee is historical HR data (performance rows all reference it by
+  // id). Reuses the existing TERMINATED status rather than
   // introducing a new one, and reuses the same "delete unused invitations"
   // step resendInvitation already relies on to invalidate any pending
   // invite, so a terminated employee's old invitation link stops working
@@ -725,18 +713,9 @@ export class EmployeeService {
         await tx.clearanceItem.deleteMany({ where: { resignationId: resignation.id } });
         await tx.lwdAdjustment.deleteMany({ where: { resignationId: resignation.id } });
       }
-      // LeaveApplication and AssistantConversation are one-to-many (not
-      // unique per employee like the two above), so every matching parent
-      // row's id needs collecting before their own children can be cleared.
-      const leaveApplications = await tx.leaveApplication.findMany({
-        where: { employeeId: id },
-        select: { id: true },
-      });
-      if (leaveApplications.length > 0) {
-        await tx.leaveApprovalStep.deleteMany({
-          where: { applicationId: { in: leaveApplications.map((a) => a.id) } },
-        });
-      }
+      // AssistantConversation is one-to-many (not unique per employee like
+      // the two above), so every matching parent row's id needs collecting
+      // before its own children can be cleared.
       const conversations = await tx.assistantConversation.findMany({
         where: { employeeId: id },
         select: { id: true },

@@ -253,7 +253,7 @@ describe('PerformanceService', () => {
     });
   });
 
-  describe('Acceptance Criteria: closed-cycle ratings are immutable outside the correction workflow', () => {
+  describe('Acceptance Criteria: a submitted rating is immutable outside the correction workflow', () => {
     it('rejects submitting a self-assessment against a closed cycle', async () => {
       prisma.reviewCycle.findUnique.mockResolvedValue({
         id: 'cycle-1',
@@ -268,10 +268,11 @@ describe('PerformanceService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects a correction on a review whose cycle is still open', async () => {
+    it('rejects a correction when no manager assessment has been submitted yet', async () => {
       prisma.review.findUnique.mockResolvedValue({
         id: 'review-1',
-        finalRating: 4,
+        finalRating: null,
+        managerAssessmentJson: null,
         cycle: { status: 'OPEN' },
       });
 
@@ -284,10 +285,43 @@ describe('PerformanceService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('allows a correction as soon as a manager assessment exists, even while the cycle is still open', async () => {
+      prisma.review.findUnique.mockResolvedValue({
+        id: 'review-1',
+        finalRating: 4,
+        managerAssessmentJson: {},
+        cycle: { status: 'OPEN' },
+      });
+      prisma.reviewCorrection.create.mockResolvedValue({});
+      prisma.review.update.mockResolvedValue({
+        id: 'review-1',
+        finalRating: 5,
+      });
+
+      await service.correctRating(
+        'review-1',
+        {
+          newRating: 5,
+          reason: 'Manager under-scored due to data entry error',
+        },
+        'hr-1',
+      );
+
+      expect(prisma.review.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            finalRating: 5,
+            version: { increment: 1 },
+          }),
+        }),
+      );
+    });
+
     it('records a documented correction and bumps the version once the cycle is closed', async () => {
       prisma.review.findUnique.mockResolvedValue({
         id: 'review-1',
         finalRating: 4,
+        managerAssessmentJson: {},
         cycle: { status: 'CLOSED' },
       });
       prisma.reviewCorrection.create.mockResolvedValue({});
@@ -322,6 +356,34 @@ describe('PerformanceService', () => {
           }),
         }),
       );
+    });
+
+    it('rejects re-submitting a manager assessment once one already exists, even mid-cycle', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.reviewCycle.findUnique.mockResolvedValue({
+        id: 'cycle-1',
+        status: 'OPEN',
+      });
+      prisma.review.findUnique.mockResolvedValue({
+        id: 'review-1',
+        status: 'IN_PROGRESS',
+        managerAssessmentJson: { rating: 3 },
+      });
+
+      await expect(
+        service.submitManagerAssessment(
+          {
+            cycleId: 'cycle-1',
+            employeeId: 'emp-1',
+            assessment: { rating: 5 },
+            rating: 5,
+          },
+          'mgr-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.review.update).not.toHaveBeenCalled();
     });
   });
 

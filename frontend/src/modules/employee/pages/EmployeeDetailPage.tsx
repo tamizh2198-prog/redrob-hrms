@@ -11,14 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import {
@@ -47,15 +39,6 @@ import {
   type ModuleAccessGrant,
   type GrantableModule,
 } from '@/modules/module-access/api'
-import { getCalendar, ATTENDANCE_STATUS_COLOR, type CalendarDay } from '@/modules/attendance/api'
-import {
-  getBalances,
-  getApplicationsForEmployee,
-  decideLeave,
-  isHalfDayApplication,
-  type LeaveBalanceEntry,
-  type LeaveApplication,
-} from '@/modules/leave/api'
 
 const BLOOD_GROUPS: BloodGroup[] = [
   'A_POSITIVE',
@@ -70,17 +53,6 @@ const BLOOD_GROUPS: BloodGroup[] = [
 
 function toDateDisplay(value: string | null): string {
   return value ? value.slice(0, 10) : '—'
-}
-
-// This task: Half Day and Unpaid leave types (e.g. "Half Day Sick Leave",
-// "Unpaid Sick Leave") are still fully tracked (applications, accrual,
-// payroll) — this only hides their balance cards from this display; the
-// underlying LeaveType rows/balances are untouched. Substring match (not
-// exact name) since these prefixes/qualifiers combine with any base leave
-// type name, not just "Half Day Leave"/"Unpaid Leave" literally.
-function isHiddenBalanceLeaveType(name: string) {
-  const normalized = name.trim().toLowerCase()
-  return normalized.includes('half day') || normalized.includes('unpaid')
 }
 
 // This task (Part 7/8): this is the ADMIN view of an employee record,
@@ -115,16 +87,6 @@ export function EmployeeDetailPage() {
   const [resettingPassword, setResettingPassword] = useState(false)
   const [resettingMfa, setResettingMfa] = useState(false)
 
-  const now = new Date()
-  const [attYear, setAttYear] = useState(now.getFullYear())
-  const [attMonth, setAttMonth] = useState(now.getMonth() + 1)
-  const [attDays, setAttDays] = useState<CalendarDay[]>([])
-
-  const [leaveBalances, setLeaveBalances] = useState<LeaveBalanceEntry[]>([])
-  const [leaveApplications, setLeaveApplications] = useState<LeaveApplication[]>([])
-  const [leaveError, setLeaveError] = useState<string | null>(null)
-  const [decidingId, setDecidingId] = useState<string | null>(null)
-
   const [moduleGrants, setModuleGrants] = useState<ModuleAccessGrant[]>([])
   const [moduleActionError, setModuleActionError] = useState<string | null>(null)
   const [pendingModule, setPendingModule] = useState<GrantableModule | null>(null)
@@ -149,31 +111,11 @@ export function EmployeeDetailPage() {
     getProfileCompletion(id).then(setCompletion).catch(() => setCompletion(null))
   }
 
-  function refreshLeave() {
-    if (!id) return
-    setLeaveError(null)
-    getBalances(id).then(setLeaveBalances).catch(() => setLeaveBalances([]))
-    getApplicationsForEmployee(id)
-      .then(setLeaveApplications)
-      .catch((err) => {
-        setLeaveApplications([])
-        if (!(err instanceof ApiError && err.status === 403)) {
-          setLeaveError(err instanceof Error ? err.message : 'Failed to load leave history')
-        }
-      })
-  }
-
   useEffect(() => {
     refresh()
-    refreshLeave()
     getReferenceData().then(setReference).catch(() => setReference(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
-
-  useEffect(() => {
-    if (!id) return
-    getCalendar(id, attYear, attMonth).then(setAttDays).catch(() => setAttDays([]))
-  }, [id, attYear, attMonth])
 
   function refreshModuleGrants() {
     if (!id || !isSuperAdmin) return
@@ -200,19 +142,6 @@ export function EmployeeDetailPage() {
       setModuleActionError(err instanceof ApiError ? err.message : 'Failed to update module access')
     } finally {
       setPendingModule(null)
-    }
-  }
-
-  async function handleLeaveDecision(applicationId: string, approve: boolean) {
-    setDecidingId(applicationId)
-    setLeaveError(null)
-    try {
-      await decideLeave(applicationId, approve)
-      refreshLeave()
-    } catch (err) {
-      setLeaveError(err instanceof ApiError ? err.message : 'Failed to record decision')
-    } finally {
-      setDecidingId(null)
     }
   }
 
@@ -643,132 +572,6 @@ export function EmployeeDetailPage() {
           </div>
         </section>
       )}
-
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Attendance</h2>
-        <div className="flex items-center gap-2">
-          <Label>Month</Label>
-          <Input
-            type="number"
-            className="w-20"
-            value={attMonth}
-            onChange={(e) => setAttMonth(Number(e.target.value))}
-          />
-          <Label>Year</Label>
-          <Input
-            type="number"
-            className="w-24"
-            value={attYear}
-            onChange={(e) => setAttYear(Number(e.target.value))}
-          />
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {attDays.map((d) => (
-            <div
-              key={d.date}
-              className={`rounded-md p-2 text-center text-xs ${ATTENDANCE_STATUS_COLOR[d.status]}`}
-              title={d.status === 'HOLIDAY' && d.holidayName ? `${d.status} — ${d.holidayName}` : d.status}
-            >
-              <div>{d.date.slice(-2)}</div>
-              <div className="truncate">{d.status}</div>
-            </div>
-          ))}
-          {attDays.length === 0 && (
-            <p className="col-span-7 text-muted-foreground">No attendance records for this month.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Leave</h2>
-        {leaveError && <p className="text-sm text-destructive">{leaveError}</p>}
-
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-muted-foreground">Leave Balance / Quota</h3>
-          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-            {leaveBalances
-              .filter((b) => !isHiddenBalanceLeaveType(b.leaveType.name))
-              .map((b) => (
-                <div key={b.leaveType.id} className="rounded-md bg-muted px-3 py-2">
-                  <div className="font-medium">{b.leaveType.name}</div>
-                  <div className="text-muted-foreground">
-                    Opening: {b.balance.openingBalance} · Accrued: {b.balance.accrued}
-                  </div>
-                  <div className="text-muted-foreground">
-                    Used: {b.balance.used} · Carried: {b.balance.carriedForward}
-                  </div>
-                  <div className="font-medium">Available: {b.available}</div>
-                </div>
-              ))}
-            {leaveBalances.filter((b) => !isHiddenBalanceLeaveType(b.leaveType.name)).length === 0 && (
-              <p className="col-span-full text-muted-foreground">No leave types configured yet.</p>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-muted-foreground">Leave History / Applications</h3>
-          <Table className="text-sm">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>From</TableHead>
-                <TableHead>To</TableHead>
-                <TableHead>Days</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Applied</TableHead>
-                {isSuperAdmin && <TableHead>Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leaveApplications.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell>{a.leaveType?.name ?? '—'}</TableCell>
-                  <TableCell>{a.startDate.slice(0, 10)}</TableCell>
-                  <TableCell>{a.endDate.slice(0, 10)}</TableCell>
-                  <TableCell>{isHalfDayApplication(a) ? 'Half Day' : a.daysCount}</TableCell>
-                  <TableCell>{a.reason ?? '—'}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{a.status}</Badge>
-                  </TableCell>
-                  <TableCell>{a.createdAt.slice(0, 10)}</TableCell>
-                  {isSuperAdmin && (
-                    <TableCell className="flex gap-2">
-                      {a.status === 'PENDING' && (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={decidingId === a.id}
-                            onClick={() => handleLeaveDecision(a.id, true)}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={decidingId === a.id}
-                            onClick={() => handleLeaveDecision(a.id, false)}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-              {leaveApplications.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={isSuperAdmin ? 8 : 7} className="text-center text-muted-foreground">
-                    No leave applications yet.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
 
       {canEditSelfServiceFields && (
         <Button onClick={handleSave}>{isHrAdmin ? 'Save' : 'Submit change request'}</Button>

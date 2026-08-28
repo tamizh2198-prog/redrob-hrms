@@ -3,15 +3,8 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import {
-  Prisma,
-  AttendanceStatus,
-  LeaveApplicationStatus,
-  ReportSchedule,
-  Role,
-} from '@prisma/client';
+import { Prisma, ReportSchedule, Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
-import { LeaveService } from '../leave/leave.service';
 import { REPORT_ENTITIES, type ReportRow } from './report-entity-registry';
 import { BuildReportDto } from './dto/build-report.dto';
 import { CreateSavedReportDto } from './dto/create-saved-report.dto';
@@ -34,32 +27,13 @@ const SCHEDULE_INTERVAL_MS: Record<ReportSchedule, number> = {
 // mapping target, same as HR_ADMIN/SUPER_ADMIN already stand in for the
 // PRD's "Support Agent" concept in Helpdesk (Section 7.11).
 
-function startOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
-}
-
 function daysAgo(days: number): Date {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
-// Phase 6C: statuses counted as "present" for the company-wide attendance
-// percentage on the HR Admin/Super Admin dashboard — reused as-is from the
-// AttendanceStatus enum, no new calculation model.
-const PRESENT_LIKE_STATUSES: AttendanceStatus[] = [
-  AttendanceStatus.PRESENT,
-  AttendanceStatus.LATE,
-  AttendanceStatus.HALF_DAY,
-  AttendanceStatus.WFH,
-];
-
 @Injectable()
 export class AnalyticsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly leaveService: LeaveService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async getDashboard(actorId: string, actorRole?: Role) {
     switch (actorRole) {
@@ -76,32 +50,17 @@ export class AnalyticsService {
     }
   }
 
-  // Section 7.13 Key Feature: "Employee (my leave balance, my pending
-  // tasks, my payslip)." Payslip is omitted — no Payroll module exists yet
-  // in this codebase to source it from; inventing one would violate "do
-  // not invent metrics not explicitly supported by existing data."
+  // Section 7.13 Key Feature: "Employee (my pending tasks, my payslip)."
+  // Payslip is omitted — no Payroll module exists yet in this codebase to
+  // source it from; inventing one would violate "do not invent metrics not
+  // explicitly supported by existing data."
   private async getEmployeeDashboard(employeeId: string) {
-    const year = new Date().getUTCFullYear();
-    const [leaveBalances, myApplications, myOpenTickets] = await Promise.all([
-      this.leaveService.getBalances(employeeId, year, {
-        userId: employeeId,
-        role: Role.EMPLOYEE,
-      }),
-      this.leaveService.listMyApplications(employeeId),
-      this.prisma.ticket.count({
-        where: { employeeId, status: { notIn: ['RESOLVED', 'CLOSED'] } },
-      }),
-    ]);
+    const myOpenTickets = await this.prisma.ticket.count({
+      where: { employeeId, status: { notIn: ['RESOLVED', 'CLOSED'] } },
+    });
 
     return {
       role: 'EMPLOYEE',
-      leaveBalances: leaveBalances.map((b) => ({
-        leaveType: b.leaveType.name,
-        available: b.available,
-      })),
-      pendingLeaveApplications: myApplications.filter(
-        (a) => a.status === LeaveApplicationStatus.PENDING,
-      ).length,
       myOpenTickets,
     };
   }
@@ -111,38 +70,29 @@ export class AnalyticsService {
   // getReportingHierarchyIds(), not company-wide.
   private async getManagerDashboard(managerId: string) {
     const teamIds = await getReportingHierarchyIds(this.prisma, managerId);
-    const today = startOfDay(new Date());
 
     // `in: []` for an empty teamIds simply matches no rows — no special
     // casing needed for a manager with no reports.
-    const [attendanceToday, pendingApprovals, teamGoals, teamMembers] =
-      await Promise.all([
-        this.prisma.attendanceRecord.groupBy({
-          by: ['status'],
-          where: { employeeId: { in: teamIds }, date: today },
-          _count: true,
-        }),
-        this.leaveService.listPendingApprovals(managerId),
-        this.prisma.goal.findMany({ where: { employeeId: { in: teamIds } } }),
-        // "My Team" roster — direct + indirect reports (teamIds is the same
-        // full downward tree teamSize/attendanceToday/teamGoals already
-        // scope to), so a manager sees everyone under them, not just direct
-        // reports.
-        this.prisma.employee.findMany({
-          where: { id: { in: teamIds } },
-          select: {
-            id: true,
-            employeeCode: true,
-            firstName: true,
-            lastName: true,
-            status: true,
-            photoUrl: true,
-            designation: { select: { name: true } },
-            department: { select: { name: true } },
-          },
-          orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
-        }),
-      ]);
+    const [teamGoals, teamMembers] = await Promise.all([
+      this.prisma.goal.findMany({ where: { employeeId: { in: teamIds } } }),
+      // "My Team" roster — direct + indirect reports (teamIds is the same
+      // full downward tree teamSize/teamGoals already scope to), so a
+      // manager sees everyone under them, not just direct reports.
+      this.prisma.employee.findMany({
+        where: { id: { in: teamIds } },
+        select: {
+          id: true,
+          employeeCode: true,
+          firstName: true,
+          lastName: true,
+          status: true,
+          photoUrl: true,
+          designation: { select: { name: true } },
+          department: { select: { name: true } },
+        },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      }),
+    ]);
 
     const avgGoalProgress =
       teamGoals.length === 0
@@ -159,11 +109,6 @@ export class AnalyticsService {
     return {
       role: 'MANAGER',
       teamSize: teamIds.length,
-      attendanceToday: attendanceToday.map((a) => ({
-        status: a.status,
-        count: a._count,
-      })),
-      pendingApprovalsCount: pendingApprovals.length,
       teamGoalProgressPercent: avgGoalProgress,
       teamMembers: teamMembers.map((m) => ({
         id: m.id,
@@ -179,56 +124,35 @@ export class AnalyticsService {
   }
 
   // Section 7.13 Key Feature: "HR Admin (headcount, attrition, hiring
-  // funnel, leave liability)." Org-wide, scoped to the actor's own company.
+  // funnel)." Org-wide, scoped to the actor's own company.
   private async getHrAdminDashboard(actorId: string) {
     const actor = await this.prisma.employee.findUnique({
       where: { id: actorId },
     });
     const companyId = actor?.companyId;
 
-    const today = startOfDay(new Date());
-
-    const [
-      headcountByStatus,
-      attritionCount,
-      candidatesByStage,
-      openRequisitions,
-      leaveLiability,
-      attendanceToday,
-    ] = await Promise.all([
-      this.prisma.employee.groupBy({
-        by: ['status'],
-        where: { companyId },
-        _count: true,
-      }),
-      this.prisma.resignation.count({
-        where: { employee: { companyId }, submittedDate: { gte: daysAgo(90) } },
-      }),
-      this.prisma.candidate.groupBy({
-        by: ['currentStage'],
-        where: { requisition: { companyId } },
-        _count: true,
-      }),
-      this.prisma.jobRequisition.count({
-        where: { companyId, status: 'PUBLISHED' },
-      }),
-      this.getLeaveLiability(companyId),
-      // Phase 6C: company-wide version of the exact groupBy pattern
-      // getManagerDashboard() already uses team-scoped, below.
-      this.prisma.attendanceRecord.groupBy({
-        by: ['status'],
-        where: { employee: { companyId }, date: today },
-        _count: true,
-      }),
-    ]);
-
-    const totalRecordedToday = attendanceToday.reduce(
-      (sum, a) => sum + a._count,
-      0,
-    );
-    const presentLikeToday = attendanceToday
-      .filter((a) => PRESENT_LIKE_STATUSES.includes(a.status))
-      .reduce((sum, a) => sum + a._count, 0);
+    const [headcountByStatus, attritionCount, candidatesByStage, openRequisitions] =
+      await Promise.all([
+        this.prisma.employee.groupBy({
+          by: ['status'],
+          where: { companyId },
+          _count: true,
+        }),
+        this.prisma.resignation.count({
+          where: {
+            employee: { companyId },
+            submittedDate: { gte: daysAgo(90) },
+          },
+        }),
+        this.prisma.candidate.groupBy({
+          by: ['currentStage'],
+          where: { requisition: { companyId } },
+          _count: true,
+        }),
+        this.prisma.jobRequisition.count({
+          where: { companyId, status: 'PUBLISHED' },
+        }),
+      ]);
 
     return {
       role: 'HR_ADMIN',
@@ -242,21 +166,6 @@ export class AnalyticsService {
         count: c._count,
       })),
       openRequisitions,
-      leaveLiabilityDays: leaveLiability,
-      // Phase 6C: counts are over AttendanceRecord rows that exist for
-      // today only (same limitation the existing Manager dashboard already
-      // has) — an employee who hasn't punched/been imported yet has no row
-      // and isn't counted as Absent here. attendancePercentToday is the
-      // share of today's RECORDED rows that are present-like, not a share
-      // of total active headcount.
-      attendanceToday: attendanceToday.map((a) => ({
-        status: a.status,
-        count: a._count,
-      })),
-      attendancePercentToday:
-        totalRecordedToday === 0
-          ? null
-          : Math.round((presentLikeToday / totalRecordedToday) * 100),
     };
   }
 
@@ -266,22 +175,6 @@ export class AnalyticsService {
   private async getLeadershipDashboard(actorId: string) {
     const dashboard = await this.getHrAdminDashboard(actorId);
     return { ...dashboard, role: 'SUPER_ADMIN' };
-  }
-
-  // Read-only sum over whatever LeaveBalance rows already exist for the
-  // current year — deliberately does NOT call LeaveService.getBalances()
-  // in a loop, since that method upserts a row per employee/leave-type on
-  // read; doing that org-wide from a dashboard view would be an unwanted
-  // write side-effect at scale.
-  private async getLeaveLiability(companyId?: string): Promise<number> {
-    const balances = await this.prisma.leaveBalance.findMany({
-      where: { year: new Date().getUTCFullYear(), employee: { companyId } },
-    });
-    return balances.reduce(
-      (sum, b) =>
-        sum + b.openingBalance + b.accrued + b.carriedForward - b.used,
-      0,
-    );
   }
 
   // Metadata for the frontend to populate the entity/field/group-by

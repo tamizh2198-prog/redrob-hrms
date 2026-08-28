@@ -4,15 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  LeaveApplicationStatus,
-  Prisma,
-  ReviewStatus,
-  Role,
-} from '@prisma/client';
+import { Prisma, ReviewStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { getReportingHierarchyIds } from '../../shared/employee/reporting-hierarchy.util';
-import { LeaveService } from '../leave/leave.service';
 import { HolidayService } from '../holiday/holiday.service';
 import { HelpdeskService } from '../helpdesk/helpdesk.service';
 import {
@@ -40,30 +34,6 @@ interface ProposedAction {
 // immediately (RBAC-scoped to the caller); write tools only ever get
 // DRAFTED here — see WRITE_TOOLS / confirmAction().
 const TOOLS: LlmToolDef[] = [
-  {
-    name: 'check_leave_balance',
-    description:
-      "Check the requesting employee's own leave balances for the current year.",
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'apply_leave',
-    description:
-      'Draft a leave application for the requesting employee. Does NOT submit it — the user must separately confirm.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        leaveTypeName: {
-          type: 'string',
-          description: 'e.g. "Earned Leave", "Sick Leave"',
-        },
-        startDate: { type: 'string', description: 'YYYY-MM-DD' },
-        endDate: { type: 'string', description: 'YYYY-MM-DD' },
-        reason: { type: 'string' },
-      },
-      required: ['leaveTypeName', 'startDate', 'endDate'],
-    },
-  },
   {
     name: 'raise_ticket',
     description:
@@ -102,12 +72,6 @@ const TOOLS: LlmToolDef[] = [
 // Role.MANAGER callers (see sendMessage), never surfaced to Employee tokens.
 const MANAGER_TOOLS: LlmToolDef[] = [
   {
-    name: 'team_leave_this_week',
-    description:
-      "List the manager's direct and indirect reports who are on approved leave this week.",
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
     name: 'pending_reviews',
     description:
       "List the manager's team members whose performance review is not yet finalized.",
@@ -115,23 +79,13 @@ const MANAGER_TOOLS: LlmToolDef[] = [
   },
 ];
 
-const WRITE_TOOLS = new Set(['apply_leave', 'raise_ticket']);
-
-function startOfWeek(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getUTCDay();
-  const diff = (day + 6) % 7; // Monday-start week
-  d.setUTCDate(d.getUTCDate() - diff);
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
-}
+const WRITE_TOOLS = new Set(['raise_ticket']);
 
 @Injectable()
 export class AssistantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly llm: AssistantLlmGateway,
-    private readonly leaveService: LeaveService,
     private readonly holidayService: HolidayService,
     private readonly helpdeskService: HelpdeskService,
   ) {}
@@ -230,7 +184,7 @@ export class AssistantService {
     // Section 7.14 Business Rule: "tagged as 'AI-assisted' with the
     // underlying user's identity, not a generic system identity" — actorId
     // here is the real caller, passed straight through to the same
-    // LeaveService/HelpdeskService methods the manual UI uses.
+    // HelpdeskService methods the manual UI uses.
     return this.prisma.assistantMessage.update({
       where: { id: message.id },
       data: {
@@ -374,13 +328,6 @@ export class AssistantService {
   ): string {
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
-    if (name === 'apply_leave') {
-      const reason = str(input.reason);
-      return (
-        `I can draft a leave application: ${str(input.leaveTypeName)} from ${str(input.startDate)} to ${str(input.endDate)}` +
-        `${reason ? ` (${reason})` : ''}. Please confirm to submit it.`
-      );
-    }
     if (name === 'raise_ticket') {
       return `I can raise a ${str(input.category)} helpdesk ticket titled "${str(input.subject)}". Please confirm to submit it.`;
     }
@@ -394,18 +341,6 @@ export class AssistantService {
     role: Role | undefined,
   ): Promise<string> {
     switch (name) {
-      case 'check_leave_balance': {
-        const year = new Date().getUTCFullYear();
-        const balances = await this.leaveService.getBalances(actorId, year, {
-          userId: actorId,
-          role,
-        });
-        if (balances.length === 0)
-          return 'You have no configured leave balances.';
-        return balances
-          .map((b) => `${b.leaveType.name}: ${b.available} day(s) available`)
-          .join('\n');
-      }
       case 'view_holiday_calendar': {
         const actor = await this.prisma.employee.findUnique({
           where: { id: actorId },
@@ -423,35 +358,6 @@ export class AssistantService {
         if (holidays.length === 0) return `No holidays found for ${year}.`;
         return holidays
           .map((h) => `${h.date.toISOString().slice(0, 10)}: ${h.name}`)
-          .join('\n');
-      }
-      case 'team_leave_this_week': {
-        if (role !== Role.MANAGER) {
-          throw new ForbiddenException('Only managers can view team leave');
-        }
-        const teamIds = await getReportingHierarchyIds(this.prisma, actorId);
-        const start = startOfWeek(new Date());
-        const end = new Date(start);
-        end.setUTCDate(end.getUTCDate() + 6);
-
-        const onLeave = await this.prisma.leaveApplication.findMany({
-          where: {
-            employeeId: { in: teamIds },
-            status: LeaveApplicationStatus.APPROVED,
-            startDate: { lte: end },
-            endDate: { gte: start },
-          },
-          include: {
-            employee: { select: { firstName: true, lastName: true } },
-          },
-        });
-        if (onLeave.length === 0)
-          return 'No one on your team is on leave this week.';
-        return onLeave
-          .map(
-            (a) =>
-              `${a.employee.firstName} ${a.employee.lastName}: ${a.startDate.toISOString().slice(0, 10)} to ${a.endDate.toISOString().slice(0, 10)}`,
-          )
           .join('\n');
       }
       case 'pending_reviews': {
@@ -491,30 +397,6 @@ export class AssistantService {
     input: Record<string, unknown>,
     actorId: string,
   ) {
-    if (name === 'apply_leave') {
-      const actor = await this.prisma.employee.findUnique({
-        where: { id: actorId },
-        select: { companyId: true },
-      });
-      const leaveType = await this.prisma.leaveType.findFirst({
-        where: {
-          companyId: actor?.companyId,
-          name: { equals: input.leaveTypeName as string, mode: 'insensitive' },
-        },
-      });
-      if (!leaveType) {
-        throw new BadRequestException(
-          `Unknown leave type "${input.leaveTypeName as string}"`,
-        );
-      }
-      return this.leaveService.applyLeave(actorId, {
-        leaveTypeId: leaveType.id,
-        startDate: input.startDate as string,
-        endDate: input.endDate as string,
-        reason: input.reason as string | undefined,
-      });
-    }
-
     if (name === 'raise_ticket') {
       return this.helpdeskService.createTicket(
         {

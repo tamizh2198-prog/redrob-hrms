@@ -22,6 +22,8 @@ import {
   setHybridSchedule,
   myWfoWfhRequests,
   pendingWfoWfhRequestsForMe,
+  pendingWfoWfhManagerStageForVisibility,
+  pendingWfoWfhFinalApproval,
   decideWfoWfhRequest,
   listAllWfoWfhRequests,
   addWfoWfhComment,
@@ -47,6 +49,8 @@ export function ShiftPage() {
 
   const [myWfoWfh, setMyWfoWfh] = useState<WfoWfhRequest[]>([])
   const [pendingWfoWfh, setPendingWfoWfh] = useState<WfoWfhRequest[]>([])
+  const [managerStageVisibility, setManagerStageVisibility] = useState<WfoWfhRequest[]>([])
+  const [pendingFinalApproval, setPendingFinalApproval] = useState<WfoWfhRequest[]>([])
   const [allWfoWfh, setAllWfoWfh] = useState<WfoWfhRequest[]>([])
   const [wfoWfhComments, setWfoWfhComments] = useState<Record<string, WfoWfhComment[]>>({})
   const [newCommentBody, setNewCommentBody] = useState<Record<string, string>>({})
@@ -80,6 +84,12 @@ export function ShiftPage() {
     }
     myWfoWfhRequests().then(setMyWfoWfh).catch(() => setMyWfoWfh([]))
     pendingWfoWfhRequestsForMe().then(setPendingWfoWfh).catch(() => setPendingWfoWfh([]))
+    if (isHrAdmin) {
+      pendingWfoWfhManagerStageForVisibility()
+        .then(setManagerStageVisibility)
+        .catch(() => setManagerStageVisibility([]))
+      pendingWfoWfhFinalApproval().then(setPendingFinalApproval).catch(() => setPendingFinalApproval([]))
+    }
     if (isSuperAdmin) {
       listAllWfoWfhRequests().then(setAllWfoWfh).catch(() => setAllWfoWfh([]))
     }
@@ -160,6 +170,7 @@ export function ShiftPage() {
     try {
       await decideWfoWfhRequest(id, approve)
       setPendingWfoWfh((prev) => prev.filter((r) => r.id !== id))
+      setPendingFinalApproval((prev) => prev.filter((r) => r.id !== id))
       refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to record decision')
@@ -190,6 +201,12 @@ export function ShiftPage() {
 
   function wfoWfhRequestLabel(r: WfoWfhRequest) {
     return `${r.originalDate.slice(0, 10)} → ${r.requestedWorkMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'} (comp: ${r.compensatoryDate.slice(0, 10)} → ${r.compensatoryWorkMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'})`
+  }
+
+  function wfoWfhStatusLabel(status: WfoWfhRequest['status']) {
+    if (status === 'PENDING_MANAGER') return 'Pending Manager'
+    if (status === 'PENDING_FINAL_APPROVAL') return 'Pending Final Approval'
+    return status.charAt(0) + status.slice(1).toLowerCase()
   }
 
   return (
@@ -230,7 +247,7 @@ export function ShiftPage() {
                   r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
                 }
               >
-                {r.status}
+                {wfoWfhStatusLabel(r.status)}
               </Badge>
             </li>
           ))}
@@ -240,7 +257,7 @@ export function ShiftPage() {
 
       {pendingWfoWfh.length > 0 && (
         <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Pending WFO/WFH Requests to Decide</h2>
+          <h2 className="mb-2 font-medium">Pending WFO/WFH Requests to Decide (Manager)</h2>
           <ul className="flex flex-col gap-3 text-sm">
             {pendingWfoWfh.map((r) => (
               <li key={r.id} className="rounded-md border p-3">
@@ -278,6 +295,58 @@ export function ShiftPage() {
                     {wfoWfhComments[r.id].length === 0 && <li>No comments yet.</li>}
                   </ul>
                 )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Two-step WFO/WFH approval: this is the visibility-only view of
+          requests still waiting on the manager — Super Admin/HR Admin were
+          notified at submission, but there's nothing to act on here yet. */}
+      {isHrAdmin && managerStageVisibility.length > 0 && (
+        <div className="rounded-md border p-4">
+          <h2 className="mb-2 font-medium">Awaiting Manager Approval (not yet actionable)</h2>
+          <ul className="flex flex-col gap-2 text-sm">
+            {managerStageVisibility.map((r) => (
+              <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
+                <span>
+                  {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId} —{' '}
+                  {wfoWfhRequestLabel(r)}
+                </span>
+                <Badge variant="outline">Manager review pending</Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Two-step WFO/WFH approval: final sign-off, actionable by either a
+          Super Admin or an HR Admin once the manager has already approved. */}
+      {isHrAdmin && pendingFinalApproval.length > 0 && (
+        <div className="rounded-md border p-4">
+          <h2 className="mb-2 font-medium">Pending Final Approval (Super Admin / HR Admin)</h2>
+          <ul className="flex flex-col gap-3 text-sm">
+            {pendingFinalApproval.map((r) => (
+              <li key={r.id} className="rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">
+                      {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                    </div>
+                    <div className="text-muted-foreground">{wfoWfhRequestLabel(r)}</div>
+                    <div className="text-muted-foreground">Reason: {r.reason}</div>
+                    <div className="text-muted-foreground">Manager already approved this request.</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleWfoWfhDecision(r.id, true)}>
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => handleWfoWfhDecision(r.id, false)}>
+                      Reject
+                    </Button>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>

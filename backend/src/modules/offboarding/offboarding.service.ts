@@ -17,7 +17,6 @@ import {
   assertCanAccessEmployeeData,
   type EmployeeDataRequester,
 } from '../../shared/employee/reporting-hierarchy.util';
-import { LeaveService } from '../leave/leave.service';
 import { AssetsService } from '../assets/assets.service';
 import { SubmitResignationDto } from './dto/submit-resignation.dto';
 import { AdjustLwdDto } from './dto/adjust-lwd.dto';
@@ -155,7 +154,6 @@ export class OffboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
-    private readonly leaveService: LeaveService,
     private readonly assetsService: AssetsService,
   ) {}
 
@@ -414,29 +412,17 @@ export class OffboardingService {
     });
   }
 
-  // Section 7.10 Business Rule: "F&F settlement automatically pulls: unused
-  // leave balance (Leave module) for encashment, unreturned/damaged asset
-  // cost (Asset module), and any notice-period shortfall recovery — no
-  // manual re-entry." This is that single computation.
+  // Section 7.10 Business Rule: "F&F settlement automatically pulls:
+  // unreturned/damaged asset cost (Asset module), and any notice-period
+  // shortfall recovery — no manual re-entry." Leave encashment no longer
+  // applies (Leave module removed); the field stays at 0.
   async computeSettlement(resignationId: string, dto: ComputeSettlementDto) {
     const resignation = await this.prisma.resignation.findUnique({
       where: { id: resignationId },
     });
     if (!resignation) throw new NotFoundException('Resignation not found');
 
-    const year = resignation.lastWorkingDay.getUTCFullYear();
-    const balances = await this.leaveService.getBalances(
-      resignation.employeeId,
-      year,
-      // computeSettlement is only reachable via the HR_ADMIN/SUPER_ADMIN
-      // -gated settlement endpoints (offboarding.controller.ts), so this
-      // internal lookup is already authorization-checked at the boundary.
-      { userId: resignation.employeeId, role: Role.SUPER_ADMIN },
-    );
-    const encashableDays = balances
-      .filter((b) => b.leaveType.isEncashable)
-      .reduce((sum, b) => sum + Math.max(0, b.available), 0);
-    const leaveEncashment = encashableDays * dto.perDayPayRate;
+    const leaveEncashment = 0;
 
     const assetRecovery = await this.assetsService.getRecoverableAssetCost(
       resignation.employeeId,

@@ -6,13 +6,11 @@
 // Audit Logs (must stay admin-only), since a module grant is meant to
 // extend day-to-day operational access, not administrative capability.
 export const GRANTABLE_MODULES = [
-  'ATTENDANCE',
   'SHIFT',
   'HOLIDAY',
   'ATS',
   'ONBOARDING',
   'PERFORMANCE',
-  'ASSETS',
   'OFFBOARDING',
   'HELPDESK',
   'ANNOUNCEMENTS',

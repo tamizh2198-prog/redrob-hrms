@@ -226,8 +226,8 @@ export class SettingsService {
   // A few of these are genuine judgment calls the caller should confirm
   // before applying, not obvious either way — flagged inline. Everything
   // else not listed here follows from "it's a specific employee's own
-  // record, or logs an employee as an actor" (attendance, leave, tickets,
-  // performance, assets *assignments*, notifications, audit trail, etc).
+  // record, or logs an employee as an actor" (tickets, performance, assets
+  // *assignments*, notifications, audit trail, etc).
   private static readonly SURVIVING_MODELS = new Set<string>([
     'Company',
     'CompanySettings',
@@ -235,7 +235,6 @@ export class SettingsService {
     'Location',
     'Designation',
     'Grade',
-    'LeaveType',
     'Holiday',
     'Shift',
     'IntegrationConfig',
@@ -254,11 +253,11 @@ export class SettingsService {
   ]);
 
   // Judgment calls: kept out of SURVIVING_MODELS by default (the user only
-  // named leave types/holidays/shifts as "config to keep"), but arguably
-  // company-level config in the same spirit — flagged so the caller can
-  // decide rather than have this decided silently.
+  // named holidays/shifts as "config to keep"), but arguably company-level
+  // config in the same spirit — flagged so the caller can decide rather
+  // than have this decided silently.
   private static readonly BORDERLINE_MODELS = new Set<string>([
-    'WorkflowDefinition', // a configured approval chain, like a leave-type rule
+    'WorkflowDefinition', // a configured approval chain
     'PolicyDocument', // an uploaded HR policy file — may be real content, not demo
     'AuditLog', // historical action log — some teams want this retained regardless
     'ModuleAccessGrant', // per-employee module grants; wiped with the employee either way
@@ -340,13 +339,6 @@ export class SettingsService {
     'InterviewRound',
     'Candidate',
     'JobRequisition',
-    'LeaveApprovalStep',
-    'LeaveApplication',
-    'LeaveBalance',
-    'CompOffRequest',
-    'RegularizationRequest',
-    'OvertimeClaim',
-    'AttendanceRecord',
     'OptionalHolidaySelection',
     'WfoWfhChangeRequest',
     'ShiftSwapRequest',

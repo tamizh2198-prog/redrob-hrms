@@ -380,6 +380,14 @@ export class PerformanceService {
         'This review is finalized; use the correction workflow instead',
       );
     }
+    // A manager's score locks the moment it's first given — not just at
+    // cycle close — so it can't be silently re-edited. Any change from here
+    // on must go through the audited correction workflow instead.
+    if (review.managerAssessmentJson != null) {
+      throw new BadRequestException(
+        'A manager assessment was already submitted for this review; use the correction workflow instead',
+      );
+    }
 
     const updated = await this.prisma.review.update({
       where: { id: review.id },
@@ -455,7 +463,10 @@ export class PerformanceService {
   }
 
   // Section 7.8 Business Rule: "further changes require a documented
-  // correction workflow" once a cycle is closed.
+  // correction workflow." A score locks the instant a manager first submits
+  // it (see submitManagerAssessment), not just at cycle close — so this
+  // workflow must be usable from that moment on, otherwise a genuine mistake
+  // would be uncorrectable by anyone (including HR) until the cycle closes.
   async correctRating(
     reviewId: string,
     dto: CorrectRatingDto,
@@ -466,9 +477,9 @@ export class PerformanceService {
       include: { cycle: true },
     });
     if (!review) throw new NotFoundException('Review not found');
-    if (review.cycle.status !== ReviewCycleStatus.CLOSED) {
+    if (review.managerAssessmentJson == null) {
       throw new BadRequestException(
-        'The correction workflow only applies to reviews in a closed cycle',
+        'There is no submitted manager assessment on this review to correct yet',
       );
     }
 

@@ -6,8 +6,6 @@ import {
 import { WorkflowService } from './workflow.service';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
-import { LeaveService } from '../leave/leave.service';
-import { AttendanceService } from '../attendance/attendance.service';
 import { AssetsService } from '../assets/assets.service';
 
 function createMockPrisma() {
@@ -34,12 +32,6 @@ function createMockNotifications() {
   return { send: jest.fn().mockResolvedValue(undefined) };
 }
 
-function createMockLeaveService() {
-  return { listPendingApprovals: jest.fn().mockResolvedValue([]) };
-}
-function createMockAttendanceService() {
-  return { listRegularizations: jest.fn().mockResolvedValue([]) };
-}
 function createMockAssetsService() {
   return { listAssetRequests: jest.fn().mockResolvedValue([]) };
 }
@@ -69,22 +61,16 @@ const PARALLEL_STEPS = [
 describe('WorkflowService (Section 7.15)', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
   let notifications: ReturnType<typeof createMockNotifications>;
-  let leaveService: ReturnType<typeof createMockLeaveService>;
-  let attendanceService: ReturnType<typeof createMockAttendanceService>;
   let assetsService: ReturnType<typeof createMockAssetsService>;
   let service: WorkflowService;
 
   beforeEach(() => {
     prisma = createMockPrisma();
     notifications = createMockNotifications();
-    leaveService = createMockLeaveService();
-    attendanceService = createMockAttendanceService();
     assetsService = createMockAssetsService();
     service = new WorkflowService(
       prisma as unknown as PrismaService,
       notifications as unknown as NotificationService,
-      leaveService as unknown as LeaveService,
-      attendanceService as unknown as AttendanceService,
       assetsService as unknown as AssetsService,
     );
     prisma.employee.findUnique.mockResolvedValue({
@@ -388,7 +374,7 @@ describe('WorkflowService (Section 7.15)', () => {
   });
 
   describe('Acceptance Criteria: unified my-approvals inbox aggregates across modules', () => {
-    it('aggregates native workflow requests plus Leave/Attendance/Assets pending items', async () => {
+    it('aggregates native workflow requests plus Assets pending items', async () => {
       prisma.approvalRequest.findMany.mockResolvedValue([
         {
           id: 'wf-req-1',
@@ -413,21 +399,6 @@ describe('WorkflowService (Section 7.15)', () => {
       prisma.employee.findUnique.mockResolvedValue({
         reportingManagerId: 'mgr-1',
       });
-      leaveService.listPendingApprovals.mockResolvedValue([
-        {
-          id: 'leave-1',
-          createdAt: new Date('2026-01-02'),
-          employee: { firstName: 'A', lastName: 'B' },
-          leaveType: { name: 'EL' },
-        },
-      ]);
-      attendanceService.listRegularizations.mockResolvedValue([
-        {
-          id: 'att-1',
-          date: new Date('2026-01-03'),
-          employee: { firstName: 'C', lastName: 'D' },
-        },
-      ]);
       assetsService.listAssetRequests.mockResolvedValue([
         {
           id: 'asset-1',
@@ -446,7 +417,7 @@ describe('WorkflowService (Section 7.15)', () => {
       const items = await service.listMyApprovals('mgr-1', 'HR_ADMIN');
 
       expect(items.map((i) => i.source)).toEqual(
-        expect.arrayContaining(['WORKFLOW', 'LEAVE', 'ATTENDANCE', 'ASSETS']),
+        expect.arrayContaining(['WORKFLOW', 'ASSETS']),
       );
       // The FULFILLED asset request must be excluded (only PENDING counts).
       expect(items.find((i) => i.id === 'asset-2')).toBeUndefined();

@@ -186,7 +186,7 @@ describe('NotificationsService', () => {
       const result = await service.getPreferences('emp-1');
 
       expect(
-        result.find((r) => r.eventCategory === 'LEAVE')?.channelsEnabled,
+        result.find((r) => r.eventCategory === 'ASSETS')?.channelsEnabled,
       ).toEqual(['IN_APP', 'EMAIL', 'SLACK', 'SMS']);
     });
 

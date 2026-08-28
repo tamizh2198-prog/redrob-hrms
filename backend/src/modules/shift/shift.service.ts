@@ -1,9 +1,5 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { Role, WorkMode } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { WorkMode } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { DefaultCompanyService } from '../../shared/database/default-company.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
@@ -206,7 +202,7 @@ export class ShiftService {
     return { officeWeekdays: schedule?.officeWeekdays ?? [] };
   }
 
-  async assignRoster(dto: AssignRosterDto, actorRole?: Role) {
+  async assignRoster(dto: AssignRosterDto) {
     if (dto.shiftId) {
       const shift = await this.prisma.shift.findUnique({
         where: { id: dto.shiftId },
@@ -225,15 +221,6 @@ export class ShiftService {
       for (const dateStr of dto.dates) {
         const date = startOfDay(new Date(dateStr));
         try {
-          const existing = await this.prisma.attendanceRecord.findUnique({
-            where: { employeeId_date: { employeeId, date } },
-          });
-          if (existing?.isLocked && actorRole !== Role.SUPER_ADMIN) {
-            throw new ForbiddenException(
-              'Roster changes after the attendance lock date require Super Admin override',
-            );
-          }
-
           // Only touch workMode when explicitly given, so assigning a shift
           // never silently overwrites a WFO/WFH day HR already set via the
           // per-employee hybrid schedule above. isWeekOff defaults to the

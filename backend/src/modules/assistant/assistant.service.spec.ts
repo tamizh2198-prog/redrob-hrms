@@ -10,7 +10,6 @@ import {
   AssistantUnavailableError,
 } from './assistant-llm.gateway';
 import { PrismaService } from '../../shared/database/prisma.service';
-import { LeaveService } from '../leave/leave.service';
 import { HolidayService } from '../holiday/holiday.service';
 import { HelpdeskService } from '../helpdesk/helpdesk.service';
 
@@ -25,21 +24,12 @@ function createMockPrisma() {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
-    leaveType: { findFirst: jest.fn() },
-    leaveApplication: { findMany: jest.fn() },
     review: { findMany: jest.fn() },
   };
 }
 
 function createMockLlm() {
   return { complete: jest.fn() };
-}
-
-function createMockLeaveService() {
-  return {
-    getBalances: jest.fn(),
-    applyLeave: jest.fn(),
-  };
 }
 
 function createMockHolidayService() {
@@ -53,7 +43,6 @@ function createMockHelpdeskService() {
 describe('AssistantService (Section 7.14)', () => {
   let prisma: ReturnType<typeof createMockPrisma>;
   let llm: ReturnType<typeof createMockLlm>;
-  let leaveService: ReturnType<typeof createMockLeaveService>;
   let holidayService: ReturnType<typeof createMockHolidayService>;
   let helpdeskService: ReturnType<typeof createMockHelpdeskService>;
   let service: AssistantService;
@@ -61,13 +50,11 @@ describe('AssistantService (Section 7.14)', () => {
   beforeEach(() => {
     prisma = createMockPrisma();
     llm = createMockLlm();
-    leaveService = createMockLeaveService();
     holidayService = createMockHolidayService();
     helpdeskService = createMockHelpdeskService();
     service = new AssistantService(
       prisma as unknown as PrismaService,
       llm as unknown as AssistantLlmGateway,
-      leaveService as unknown as LeaveService,
       holidayService as unknown as HolidayService,
       helpdeskService as unknown as HelpdeskService,
     );
@@ -110,7 +97,7 @@ describe('AssistantService (Section 7.14)', () => {
     it("rejects confirming an action on a conversation that is not the caller's own", async () => {
       prisma.assistantMessage.findUnique.mockResolvedValue({
         id: 'msg-1',
-        proposedAction: { type: 'apply_leave', input: {} },
+        proposedAction: { type: 'raise_ticket', input: {} },
         actionTaken: null,
         conversation: { employeeId: 'someone-else' },
       });
@@ -119,104 +106,101 @@ describe('AssistantService (Section 7.14)', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('only offers manager-only tools (team_leave_this_week/pending_reviews) when role is MANAGER', async () => {
+    it('only offers manager-only tools (pending_reviews) when role is MANAGER', async () => {
       llm.complete.mockResolvedValue({ text: 'hi', toolCall: undefined });
       await service.sendMessage('emp-1', Role.EMPLOYEE, {
-        message: 'who is on leave',
+        message: 'anything pending for my team?',
       });
       const employeeTools = llm.complete.mock.calls[0][2].map(
         (t: any) => t.name,
       );
-      expect(employeeTools).not.toContain('team_leave_this_week');
+      expect(employeeTools).not.toContain('pending_reviews');
 
       llm.complete.mockClear();
       await service.sendMessage('mgr-1', Role.MANAGER, {
-        message: 'who is on leave',
+        message: 'anything pending for my team?',
       });
       const managerTools = llm.complete.mock.calls[0][2].map(
         (t: any) => t.name,
       );
-      expect(managerTools).toContain('team_leave_this_week');
       expect(managerTools).toContain('pending_reviews');
     });
 
-    it('rejects a non-manager attempting to invoke the manager-only team_leave_this_week tool', async () => {
+    it('rejects a non-manager attempting to invoke the manager-only pending_reviews tool', async () => {
       llm.complete.mockResolvedValue({
         text: '',
-        toolCall: { name: 'team_leave_this_week', input: {} },
+        toolCall: { name: 'pending_reviews', input: {} },
       });
       await expect(
         service.sendMessage('emp-1', Role.EMPLOYEE, {
-          message: 'who is on leave',
+          message: 'anything pending for my team?',
         }),
       ).rejects.toThrow(ForbiddenException);
     });
   });
 
   describe('AC: never executes a write action without explicit confirmation', () => {
-    it('drafts apply_leave as a proposedAction instead of calling LeaveService.applyLeave', async () => {
+    it('drafts raise_ticket as a proposedAction instead of calling HelpdeskService.createTicket', async () => {
       llm.complete.mockResolvedValue({
         text: '',
         toolCall: {
-          name: 'apply_leave',
+          name: 'raise_ticket',
           input: {
-            leaveTypeName: 'Earned Leave',
-            startDate: '2026-09-01',
-            endDate: '2026-09-02',
+            category: 'IT_SUPPORT',
+            subject: 'Laptop issue',
+            description: 'My laptop will not boot.',
           },
         },
       });
 
       await service.sendMessage('emp-1', Role.EMPLOYEE, {
-        message: 'apply 2 days leave',
+        message: 'raise a ticket for my laptop',
       });
 
-      expect(leaveService.applyLeave).not.toHaveBeenCalled();
+      expect(helpdeskService.createTicket).not.toHaveBeenCalled();
       const createCall = prisma.assistantMessage.create.mock.calls.find(
         (c) => c[0].data.role === 'ASSISTANT',
       );
       expect(createCall[0].data.proposedAction).toEqual({
-        type: 'apply_leave',
+        type: 'raise_ticket',
         input: {
-          leaveTypeName: 'Earned Leave',
-          startDate: '2026-09-01',
-          endDate: '2026-09-02',
+          category: 'IT_SUPPORT',
+          subject: 'Laptop issue',
+          description: 'My laptop will not boot.',
         },
       });
     });
 
-    it('confirmAction executes the drafted apply_leave through LeaveService.applyLeave, tagged with the real actor', async () => {
+    it('confirmAction executes the drafted raise_ticket through HelpdeskService.createTicket, tagged with the real actor', async () => {
       prisma.assistantMessage.findUnique.mockResolvedValue({
         id: 'msg-1',
         proposedAction: {
-          type: 'apply_leave',
+          type: 'raise_ticket',
           input: {
-            leaveTypeName: 'Earned Leave',
-            startDate: '2026-09-01',
-            endDate: '2026-09-02',
+            category: 'IT_SUPPORT',
+            subject: 'Laptop issue',
+            description: 'My laptop will not boot.',
           },
         },
         actionTaken: null,
         conversation: { employeeId: 'emp-1' },
       });
-      prisma.leaveType.findFirst.mockResolvedValue({
-        id: 'lt-1',
-        name: 'Earned Leave',
-      });
-      leaveService.applyLeave.mockResolvedValue({
-        id: 'app-1',
-        status: 'PENDING',
+      helpdeskService.createTicket.mockResolvedValue({
+        id: 'ticket-1',
+        status: 'OPEN',
       });
       prisma.assistantMessage.update.mockResolvedValue({ id: 'msg-1' });
 
       await service.confirmAction('emp-1', { messageId: 'msg-1' });
 
-      expect(leaveService.applyLeave).toHaveBeenCalledWith('emp-1', {
-        leaveTypeId: 'lt-1',
-        startDate: '2026-09-01',
-        endDate: '2026-09-02',
-        reason: undefined,
-      });
+      expect(helpdeskService.createTicket).toHaveBeenCalledWith(
+        {
+          category: 'IT_SUPPORT',
+          subject: 'Laptop issue',
+          description: 'My laptop will not boot.',
+        },
+        'emp-1',
+      );
       const updateData = prisma.assistantMessage.update.mock.calls[0][0].data;
       expect(updateData.actionTaken.initiatedVia).toBe('AI_ASSISTANT');
       expect(updateData.actionTaken.actorId).toBe('emp-1');
@@ -236,8 +220,8 @@ describe('AssistantService (Section 7.14)', () => {
     it('rejects double-confirming an action that was already executed', async () => {
       prisma.assistantMessage.findUnique.mockResolvedValue({
         id: 'msg-1',
-        proposedAction: { type: 'apply_leave', input: {} },
-        actionTaken: { type: 'apply_leave' },
+        proposedAction: { type: 'raise_ticket', input: {} },
+        actionTaken: { type: 'raise_ticket' },
         conversation: { employeeId: 'emp-1' },
       });
       await expect(
@@ -287,28 +271,6 @@ describe('AssistantService (Section 7.14)', () => {
         message: 'hi',
       });
       expect(result.message).toContain('not configured');
-    });
-  });
-
-  describe('Read tools execute immediately and are scoped to the caller', () => {
-    it('check_leave_balance calls LeaveService.getBalances for the caller only', async () => {
-      leaveService.getBalances.mockResolvedValue([
-        { leaveType: { name: 'Sick Leave' }, available: 5 },
-      ]);
-      llm.complete.mockResolvedValue({
-        text: '',
-        toolCall: { name: 'check_leave_balance', input: {} },
-      });
-
-      await service.sendMessage('emp-1', Role.EMPLOYEE, {
-        message: 'how many sick days do I have?',
-      });
-
-      expect(leaveService.getBalances).toHaveBeenCalledWith(
-        'emp-1',
-        expect.any(Number),
-        { userId: 'emp-1', role: Role.EMPLOYEE },
-      );
     });
   });
 });

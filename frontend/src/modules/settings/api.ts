@@ -93,8 +93,8 @@ export function updateIntegration(
 }
 
 // Bypasses the shared api() helper (JSON-only) — downloads the backup file
-// straight to the browser, same pattern as the Attendance module's
-// downloadBiometricTemplate().
+// straight to the browser, same pattern used elsewhere for file downloads
+// (e.g. Shift's downloadWfoTemplate()).
 export async function downloadBackup() {
   const token = localStorage.getItem('accessToken')
   const res = await fetch(`${API_URL}/settings/backup`, {

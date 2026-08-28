@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, CalendarCheck, Palmtree, UserPlus, type LucideIcon } from 'lucide-react'
+import { Users, UserPlus, type LucideIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { WelcomeBanner } from '../components/WelcomeBanner'
@@ -15,9 +15,7 @@ import {
 } from '@/components/ui/table'
 import { useAuth } from '@/shared/auth/AuthContext'
 import type { Role } from '@/shared/auth/role'
-import { ApiError } from '@/lib/api'
 import { getDashboard, type Dashboard } from '@/modules/analytics/api'
-import { decideLeave, listPendingRequests, isHalfDayApplication, type LeaveApplication } from '@/modules/leave/api'
 import {
   listEmployees,
   listPendingInvitations,
@@ -27,14 +25,13 @@ import {
 } from '@/modules/employee/api'
 import { listCalendar, type Holiday } from '@/modules/holiday/api'
 import { listAnnouncements, ackAnnouncement, type Announcement } from '@/modules/announcements/api'
-import { CompOffCard } from '@/modules/leave/components/CompOffCard'
 
 // This task: a simple landing page, separate from Analytics — the
 // role-specific content here is just a placeholder message, not a
 // duplicate of Analytics' dashboard views/reporting.
 const ROLE_MESSAGE: Record<Role, string> = {
-  EMPLOYEE: 'Mark your attendance and manage leave from the Attendance section in the sidebar.',
-  MANAGER: 'Review your team’s pending approvals from the Attendance and Helpdesk sections.',
+  EMPLOYEE: 'Use the sidebar to get started — Shift & Roster, Holiday Calendar, and more.',
+  MANAGER: 'Review your team’s pending approvals from the Shift & Roster and Helpdesk sections.',
   HR_ADMIN: 'Manage company-wide HR operations from the modules in the sidebar.',
   SUPER_ADMIN: 'You have full access to every module, including Roles & Permissions.',
   // This task (HR Associate, Phase 3): scoped to the 3 operational modules
@@ -55,7 +52,6 @@ export function DashboardPage() {
       <WelcomeBanner name={user?.name} role={user?.role} />
       <HighPriorityAnnouncements />
       {user?.role === 'MANAGER' && <MyTeamCard />}
-      <CompOffCard />
       <Card>
         <CardHeader>
           <CardTitle>Getting Started</CardTitle>
@@ -275,26 +271,17 @@ function UpcomingHolidays() {
 
 // This task: Super Admin's "what needs attention" summary. Every number and
 // row here comes from existing endpoints already used elsewhere in the
-// app (Analytics dashboard, leave pending-requests, employee list/
-// invitations) — nothing new is computed on the backend. Full workflows
-// stay on their existing pages (Employee Directory, Attendance & Leave,
-// Onboarding); this page only summarizes + links out.
+// app (Analytics dashboard, employee list/invitations) — nothing new is
+// computed on the backend. Full workflows stay on their existing pages
+// (Employee Directory, Shift & Roster, Onboarding); this page only
+// summarizes + links out.
 function SuperAdminDashboard({ userName }: { userName: string }) {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
-  const [companyPending, setCompanyPending] = useState<LeaveApplication[]>([])
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([])
   const [incompleteProfiles, setIncompleteProfiles] = useState(0)
-  const [decidingId, setDecidingId] = useState<string | null>(null)
-  const [leaveMessage, setLeaveMessage] = useState<string | null>(null)
-  const [leaveError, setLeaveError] = useState<string | null>(null)
-
-  function loadPendingLeave() {
-    return listPendingRequests().then(setCompanyPending).catch(() => setCompanyPending([]))
-  }
 
   useEffect(() => {
     getDashboard().then(setDashboard).catch(() => setDashboard(null))
-    loadPendingLeave()
     listPendingInvitations().then(setPendingInvitations).catch(() => setPendingInvitations([]))
     // Reuses the same existing /employees list + the existing display-completion
     // utility EmployeePage already uses — no new backend metric.
@@ -307,24 +294,6 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
       .catch(() => setIncompleteProfiles(0))
   }, [])
 
-  async function handleLeaveDecision(id: string, approve: boolean) {
-    setDecidingId(id)
-    setLeaveError(null)
-    setLeaveMessage(null)
-    try {
-      await decideLeave(id, approve)
-      await Promise.all([
-        loadPendingLeave(),
-        getDashboard().then(setDashboard).catch(() => setDashboard(null)),
-      ])
-      setLeaveMessage(approve ? 'Leave request approved.' : 'Leave request rejected.')
-    } catch (err) {
-      setLeaveError(err instanceof ApiError ? err.message : 'Failed to record decision')
-    } finally {
-      setDecidingId(null)
-    }
-  }
-
   const hrDashboard =
     dashboard && (dashboard.role === 'HR_ADMIN' || dashboard.role === 'SUPER_ADMIN') ? dashboard : null
 
@@ -336,10 +305,6 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
   const invitedEmployees = headcount('INVITED')
   const terminatedEmployees = headcount('TERMINATED')
 
-  function attendanceCount(status: string) {
-    return hrDashboard?.attendanceToday.find((a) => a.status === status)?.count ?? 0
-  }
-
   return (
     <div className="flex flex-col gap-6 p-6">
       <WelcomeBanner name={userName} role="SUPER_ADMIN" />
@@ -348,101 +313,10 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard label="Employees" value={totalEmployees} icon={Users} color="text-indigo-500" />
-        <KpiCard
-          label="Today's Attendance"
-          value={hrDashboard?.attendancePercentToday == null ? '—' : `${hrDashboard.attendancePercentToday}%`}
-          icon={CalendarCheck}
-          color="text-emerald-500"
-        />
-        <KpiCard label="On Leave" value={attendanceCount('ON_LEAVE')} icon={Palmtree} color="text-amber-500" />
         <KpiCard label="Onboarding" value={pendingInvitations.length} icon={UserPlus} color="text-teal-500" />
       </div>
 
-      {/* Today's Attendance summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Today's Attendance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-6 text-sm">
-            <SummaryStat label="Present" value={attendanceCount('PRESENT')} />
-            <SummaryStat label="Absent" value={attendanceCount('ABSENT')} />
-            <SummaryStat label="On Leave" value={attendanceCount('ON_LEAVE')} />
-            <SummaryStat label="Half Day" value={attendanceCount('HALF_DAY')} />
-            <SummaryStat label="Late" value={attendanceCount('LATE')} />
-          </div>
-        </CardContent>
-      </Card>
-
       <UpcomingHolidays />
-
-      {/* Pending Leave Requests — moved here from Attendance (Super Admin only) */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Pending Leave Requests</CardTitle>
-            <Link to="/attendance-leave">
-              <Button variant="outline" size="sm">View All</Button>
-            </Link>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {leaveMessage && <p className="text-sm text-primary">{leaveMessage}</p>}
-          {leaveError && <p className="text-sm text-destructive">{leaveError}</p>}
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Leave Type</TableHead>
-                  <TableHead>Date(s)</TableHead>
-                  <TableHead>Days</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {companyPending.map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell>
-                      {a.employee?.firstName} {a.employee?.lastName}
-                    </TableCell>
-                    <TableCell>{a.leaveType?.name ?? '—'}</TableCell>
-                    <TableCell>
-                      {a.startDate.slice(0, 10)}
-                      {a.startDate !== a.endDate && ` → ${a.endDate.slice(0, 10)}`}
-                    </TableCell>
-                    <TableCell>{isHalfDayApplication(a) ? 'Half Day' : a.daysCount}</TableCell>
-                    <TableCell className="flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={decidingId === a.id}
-                        onClick={() => handleLeaveDecision(a.id, true)}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={decidingId === a.id}
-                        onClick={() => handleLeaveDecision(a.id, false)}
-                      >
-                        Reject
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {companyPending.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      No pending leave requests.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Onboarding summary */}
       <Card>
@@ -494,8 +368,8 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
           <Link to="/employee">
             <Button variant="outline">View Employees</Button>
           </Link>
-          <Link to="/attendance-leave">
-            <Button variant="outline">Attendance</Button>
+          <Link to="/shift">
+            <Button variant="outline">Shift & Roster</Button>
           </Link>
           <Link to="/onboarding">
             <Button variant="outline">Onboarding</Button>

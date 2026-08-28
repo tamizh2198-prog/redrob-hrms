@@ -3,13 +3,11 @@ import { api } from '@/lib/api'
 // Matches backend GRANTABLE_MODULES (module-access.constants.ts) — deliberately
 // excludes Employee (invite/delete/reveal-sensitive-fields) and Audit Logs.
 export const GRANTABLE_MODULES = [
-  'ATTENDANCE',
   'SHIFT',
   'HOLIDAY',
   'ATS',
   'ONBOARDING',
   'PERFORMANCE',
-  'ASSETS',
   'OFFBOARDING',
   'HELPDESK',
   'ANNOUNCEMENTS',
@@ -20,13 +18,11 @@ export const GRANTABLE_MODULES = [
 export type GrantableModule = (typeof GRANTABLE_MODULES)[number]
 
 export const MODULE_LABELS: Record<GrantableModule, string> = {
-  ATTENDANCE: 'Attendance',
   SHIFT: 'Shift & Roster',
   HOLIDAY: 'Holiday Calendar',
   ATS: 'Recruitment (ATS)',
   ONBOARDING: 'Onboarding',
   PERFORMANCE: 'Performance',
-  ASSETS: 'Assets',
   OFFBOARDING: 'Offboarding',
   HELPDESK: 'Helpdesk',
   ANNOUNCEMENTS: 'Announcements',

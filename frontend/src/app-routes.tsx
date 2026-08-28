@@ -2,7 +2,6 @@ import { Route, Routes, Navigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
-  Clock,
   CalendarClock,
   CalendarDays,
   Briefcase,
@@ -28,13 +27,10 @@ import {
 } from '@/modules/employee'
 import { RequireRole } from '@/shared/routes/RequireRole'
 import { DashboardPage } from '@/modules/dashboard'
-import { AttendanceLeavePage } from '@/modules/attendance'
 import { ShiftPage } from '@/modules/shift'
 import { HolidayPage } from '@/modules/holiday'
-import { AtsPage } from '@/modules/ats'
 import { OnboardingPage } from '@/modules/onboarding'
 import { PerformancePage } from '@/modules/performance'
-import { AssetsPage } from '@/modules/assets'
 import { OffboardingPage } from '@/modules/offboarding'
 import { HelpdeskPage } from '@/modules/helpdesk'
 import { AnnouncementsPage } from '@/modules/announcements'
@@ -45,6 +41,12 @@ import { SettingsPage } from '@/modules/settings'
 import { AuditPage } from '@/modules/audit'
 import { RolesPermissionsPage } from '@/modules/permissions'
 
+// Our own separately-built platforms — clicking these nav items leaves the
+// HRMS entirely rather than opening an in-app page.
+const ASSETS_EXTERNAL_URL = 'https://policyassistant.redrob.io/'
+// TODO: replace with the real ATS platform URL once it's ready.
+const ATS_EXTERNAL_URL = 'https://ats.redrob.io/'
+
 // Each nav item carries its own icon + accent color so the sidebar reads
 // as a set of distinct modules at a glance instead of a plain text list —
 // AppShell renders both; nothing here changes routing/visibility.
@@ -53,32 +55,28 @@ export const MODULE_NAV = [
   // Analytics, which stays as its own nav item below.
   { path: '/dashboard', label: 'Dashboard', Component: DashboardPage, icon: LayoutDashboard, color: 'text-blue-500' },
   { path: '/employee', label: 'Employee', Component: EmployeePage, icon: Users, color: 'text-indigo-500' },
-  // This task: ONE combined employee self-service nav item, replacing the
-  // previously separate Attendance and Leave items. Available to every
-  // role (no `roles` restriction) — the page itself shows admin-only
-  // sections conditionally based on the logged-in user's role. Nav label
-  // shortened to "Attendance" — same route/page/functionality, including
-  // Leave, unchanged.
-  { path: '/attendance-leave', label: 'Attendance', Component: AttendanceLeavePage, icon: Clock, color: 'text-emerald-500' },
   { path: '/shift', label: 'Shift & Roster', Component: ShiftPage, icon: CalendarClock, color: 'text-amber-500' },
   // Holiday Calendar: viewable by every authenticated role — HolidayPage
   // itself gates the Publish/Create controls to HR_ADMIN/SUPER_ADMIN
   // internally (isHrAdmin), so no `roles` restriction here or on the route.
   { path: '/holiday', label: 'Holiday Calendar', Component: HolidayPage, icon: CalendarDays, color: 'text-rose-500' },
-  // Matches the backend's own @Roles() gate on every ATS endpoint — plain
-  // EMPLOYEE accounts have no recruitment access at all, so the nav item
-  // shouldn't be shown to them either.
+  // Recruitment (ATS): our own separately-built ATS platform now owns this
+  // entirely — clicking the nav item leaves the HRMS. Matches the backend's
+  // own @Roles() gate on the (now-unused-internally) ATS endpoints — plain
+  // EMPLOYEE accounts still don't get this link.
   {
     path: '/ats',
     label: 'Recruitment (ATS)',
-    Component: AtsPage,
+    externalHref: ATS_EXTERNAL_URL,
     icon: Briefcase,
     color: 'text-violet-500',
     roles: ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'],
   },
   { path: '/onboarding', label: 'Onboarding', Component: OnboardingPage, icon: UserPlus, color: 'text-teal-500' },
   { path: '/performance', label: 'Performance', Component: PerformancePage, icon: TrendingUp, color: 'text-orange-500' },
-  { path: '/assets', label: 'Assets', Component: AssetsPage, icon: Laptop, color: 'text-cyan-500' },
+  // Assets: our own separately-built asset management platform now owns
+  // this entirely — clicking the nav item leaves the HRMS, for every role.
+  { path: '/assets', label: 'Assets', externalHref: ASSETS_EXTERNAL_URL, icon: Laptop, color: 'text-cyan-500' },
   { path: '/offboarding', label: 'Offboarding', Component: OffboardingPage, icon: UserMinus, color: 'text-pink-500' },
   { path: '/helpdesk', label: 'Helpdesk', Component: HelpdeskPage, icon: LifeBuoy, color: 'text-sky-500' },
   { path: '/announcements', label: 'Announcements', Component: AnnouncementsPage, icon: Megaphone, color: 'text-fuchsia-500' },
@@ -165,22 +163,13 @@ export function AppRoutes({ profileIncomplete = false }: { profileIncomplete?: b
           </RequireRole>
         }
       />
-      <Route
-        path="/ats"
-        element={
-          <RequireRole roles={['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']}>
-            <AtsPage />
-          </RequireRole>
-        }
-      />
-      {/* This task: /attendance and /leave are compatibility redirects —
-          the unified page now lives at /attendance-leave and is reachable
-          by every role, so no RequireRole wrapper is needed here. */}
-      <Route path="/attendance" element={<Navigate to="/attendance-leave" replace />} />
-      <Route path="/leave" element={<Navigate to="/attendance-leave" replace />} />
+      {/* Assets and Recruitment (ATS) have no in-app route at all anymore —
+          their nav items (see MODULE_NAV) link straight out to our separate
+          Asset Management and ATS platforms instead. */}
       {MODULE_NAV.filter(
-        ({ path }) =>
-          !['/employee', '/settings', '/audit', '/roles-permissions', '/ats'].includes(path),
+        (item): item is Extract<(typeof MODULE_NAV)[number], { Component: unknown }> =>
+          'Component' in item &&
+          !['/employee', '/settings', '/audit', '/roles-permissions'].includes(item.path),
       ).map(({ path, Component }) => (
         <Route key={path} path={path} element={<Component />} />
       ))}

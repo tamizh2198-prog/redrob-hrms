@@ -23,7 +23,7 @@ describe('ModuleAccessService (Super Admin per-employee module access)', () => {
   });
 
   it('lists the fixed set of grantable modules', () => {
-    expect(service.listModules()).toContain('ASSETS');
+    expect(service.listModules()).toContain('SHIFT');
     expect(service.listModules()).toContain('HELPDESK');
     // Deliberately excluded — see module-access.constants.ts.
     expect(service.listModules()).not.toContain('EMPLOYEE');
@@ -36,16 +36,16 @@ describe('ModuleAccessService (Super Admin per-employee module access)', () => {
       prisma.moduleAccessGrant.upsert.mockResolvedValue({
         id: 'grant-1',
         employeeId: 'emp-1',
-        module: 'ASSETS',
+        module: 'SHIFT',
         grantedBy: 'admin-1',
       });
 
-      const result = await service.grant('emp-1', 'ASSETS', 'admin-1');
+      const result = await service.grant('emp-1', 'SHIFT', 'admin-1');
 
       expect(prisma.moduleAccessGrant.upsert).toHaveBeenCalledWith({
-        where: { employeeId_module: { employeeId: 'emp-1', module: 'ASSETS' } },
+        where: { employeeId_module: { employeeId: 'emp-1', module: 'SHIFT' } },
         update: { grantedBy: 'admin-1' },
-        create: { employeeId: 'emp-1', module: 'ASSETS', grantedBy: 'admin-1' },
+        create: { employeeId: 'emp-1', module: 'SHIFT', grantedBy: 'admin-1' },
       });
       expect(result.grantedBy).toBe('admin-1');
     });
@@ -54,7 +54,7 @@ describe('ModuleAccessService (Super Admin per-employee module access)', () => {
       prisma.employee.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.grant('ghost', 'ASSETS', 'admin-1'),
+        service.grant('ghost', 'SHIFT', 'admin-1'),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.moduleAccessGrant.upsert).not.toHaveBeenCalled();
     });
@@ -62,9 +62,9 @@ describe('ModuleAccessService (Super Admin per-employee module access)', () => {
 
   describe('revoke', () => {
     it('deletes the grant for that employee+module', async () => {
-      await service.revoke('emp-1', 'ASSETS');
+      await service.revoke('emp-1', 'SHIFT');
       expect(prisma.moduleAccessGrant.deleteMany).toHaveBeenCalledWith({
-        where: { employeeId: 'emp-1', module: 'ASSETS' },
+        where: { employeeId: 'emp-1', module: 'SHIFT' },
       });
     });
 
@@ -78,7 +78,7 @@ describe('ModuleAccessService (Super Admin per-employee module access)', () => {
 
   it('lists every grant currently held by an employee', async () => {
     prisma.moduleAccessGrant.findMany.mockResolvedValue([
-      { id: 'g-1', module: 'ASSETS' },
+      { id: 'g-1', module: 'SHIFT' },
       { id: 'g-2', module: 'HELPDESK' },
     ]);
 

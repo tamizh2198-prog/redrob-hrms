@@ -34,8 +34,11 @@ export interface WfoWfhRequest {
   compensatoryDate: string
   compensatoryWorkMode: 'OFFICE' | 'WORK_FROM_HOME'
   reason: string
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING_MANAGER' | 'PENDING_FINAL_APPROVAL' | 'APPROVED' | 'REJECTED'
   approverId: string | null
+  managerApproverId: string | null
+  managerDecidedAt: string | null
+  finalApproverId: string | null
   createdAt: string
 }
 
@@ -141,6 +144,16 @@ export function myWfoWfhRequests() {
 
 export function pendingWfoWfhRequestsForMe() {
   return api<WfoWfhRequest[]>('/wfo-wfh-requests/pending-for-me')
+}
+
+// Visibility-only for Super Admin/HR Admin — these are still awaiting the
+// manager's decision and aren't actionable yet.
+export function pendingWfoWfhManagerStageForVisibility() {
+  return api<WfoWfhRequest[]>('/wfo-wfh-requests/pending-manager-stage')
+}
+
+export function pendingWfoWfhFinalApproval() {
+  return api<WfoWfhRequest[]>('/wfo-wfh-requests/pending-final-approval')
 }
 
 export function decideWfoWfhRequest(id: string, approve: boolean, comment?: string) {

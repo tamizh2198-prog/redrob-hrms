@@ -7,7 +7,6 @@ import { NotificationService } from '../../shared/notifications/notification.ser
 function createMockPrisma() {
   return {
     shift: { findUnique: jest.fn(), create: jest.fn(), findMany: jest.fn() },
-    attendanceRecord: { findUnique: jest.fn() },
     rosterEntry: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
@@ -50,7 +49,6 @@ describe('ShiftService', () => {
   describe('Business Rule: one active shift per date', () => {
     it('upserts the roster entry rather than creating duplicates', async () => {
       prisma.shift.findUnique.mockResolvedValue({ id: 'shift-1' });
-      prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
       const result = await service.assignRoster({
@@ -64,35 +62,8 @@ describe('ShiftService', () => {
     });
   });
 
-  describe('Business Rule: roster changes after attendance lock require Super Admin override', () => {
-    it('fails the assignment when the date is locked and actor is only HR Admin', async () => {
-      prisma.attendanceRecord.findUnique.mockResolvedValue({ isLocked: true });
-
-      const result = await service.assignRoster(
-        { employeeIds: ['emp-1'], dates: ['2026-01-01'] },
-        Role.HR_ADMIN,
-      );
-
-      expect(result.failureCount).toBe(1);
-      expect(prisma.rosterEntry.upsert).not.toHaveBeenCalled();
-    });
-
-    it('succeeds when the actor is Super Admin', async () => {
-      prisma.attendanceRecord.findUnique.mockResolvedValue({ isLocked: true });
-      prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
-
-      const result = await service.assignRoster(
-        { employeeIds: ['emp-1'], dates: ['2026-01-01'] },
-        Role.SUPER_ADMIN,
-      );
-
-      expect(result.successCount).toBe(1);
-    });
-  });
-
   describe('assignRoster: workMode is never assumed from a shared policy', () => {
     it('defaults a brand-new roster entry to OFFICE when workMode is not given', async () => {
-      prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
       await service.assignRoster({
@@ -110,7 +81,6 @@ describe('ShiftService', () => {
 
     it('does not touch workMode on update when none is given, so reassigning a shift never clobbers an existing WFO/WFH day', async () => {
       prisma.shift.findUnique.mockResolvedValue({ id: 'shift-1' });
-      prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
       await service.assignRoster({
@@ -124,7 +94,6 @@ describe('ShiftService', () => {
     });
 
     it('lets an explicit workMode be set on both create and update', async () => {
-      prisma.attendanceRecord.findUnique.mockResolvedValue(null);
       prisma.rosterEntry.upsert.mockResolvedValue({ id: 'roster-1' });
 
       await service.assignRoster({
