@@ -6,6 +6,7 @@ import { AppShell } from '@/shared/layout/AppShell'
 import { LoginPage } from '@/shared/auth/LoginPage'
 import { ActivateAccountPage } from '@/shared/auth/ActivateAccountPage'
 import { ResetPasswordPage } from '@/shared/auth/ResetPasswordPage'
+import { ForgotPasswordPage } from '@/shared/auth/ForgotPasswordPage'
 import { AppRoutes } from '@/app-routes'
 import { CareersApplyPage, OfferResponsePage } from '@/modules/ats'
 import { PreboardingPortalPage } from '@/modules/onboarding'
@@ -61,6 +62,7 @@ function App() {
                 so activation must also stay outside the Gate. */}
             <Route path="/activate-account" element={<ActivateAccountPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="*" element={<Gate />} />
           </Routes>
         </BrowserRouter>

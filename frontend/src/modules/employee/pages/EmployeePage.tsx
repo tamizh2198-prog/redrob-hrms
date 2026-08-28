@@ -51,11 +51,6 @@ export function EmployeePage() {
   // adjust the surrounding chrome (filters/pagination don't mean anything
   // over a single row).
   const isSelfView = user?.role === 'EMPLOYEE'
-  // This task (HR Associate UX): HR Associate has no Employee module access at
-  // all (backend findAll() already returns an empty page for this role — see
-  // employee.service.ts's isPrivilegedRole() branch) — landing here otherwise
-  // looked like a broken, empty directory instead of an intentional restriction.
-  const isHrAssociate = user?.role === 'HR_ASSOCIATE'
 
   const [employees, setEmployees] = useState<Employee[]>([])
   const [total, setTotal] = useState(0)
@@ -142,18 +137,6 @@ export function EmployeePage() {
     } catch (err) {
       setInvitationError(err instanceof ApiError ? err.message : 'Failed to resend invitation')
     }
-  }
-
-  if (isHrAssociate) {
-    return (
-      <div className="flex flex-col gap-4 p-6">
-        <h1 className="text-xl font-semibold">Employee Directory</h1>
-        <p className="text-sm text-muted-foreground">
-          You don't have access to the Employee module. Your access covers Onboarding,
-          Offboarding, and Assets — see the sidebar.
-        </p>
-      </div>
-    )
   }
 
   return (

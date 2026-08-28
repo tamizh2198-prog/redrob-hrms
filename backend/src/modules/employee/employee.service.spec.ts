@@ -297,8 +297,8 @@ describe('EmployeeService', () => {
           'emp-1',
           { reportingManagerId: 'emp-1' },
           {
-            userId: 'hr-1',
-            role: Role.HR_ADMIN,
+            userId: 'sa-1',
+            role: Role.SUPER_ADMIN,
           },
         ),
       ).rejects.toThrow('An employee cannot be their own reporting manager');
@@ -317,11 +317,68 @@ describe('EmployeeService', () => {
           'emp-1',
           { reportingManagerId: 'emp-3' },
           {
-            userId: 'hr-1',
-            role: Role.HR_ADMIN,
+            userId: 'sa-1',
+            role: Role.SUPER_ADMIN,
           },
         ),
       ).rejects.toThrow('Circular reporting-manager assignment is not allowed');
+    });
+  });
+
+  describe('Super Admin-only employment fields', () => {
+    it('rejects an HR Admin trying to change department/designation/grade/location/employment type/reporting manager/date of joining/status', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.INACTIVE,
+      });
+
+      await expect(
+        service.update(
+          'emp-1',
+          { departmentId: 'dept-2' },
+          { userId: 'hr-1', role: Role.HR_ADMIN },
+        ),
+      ).rejects.toThrow(
+        'Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, or status',
+      );
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    it('lets a Super Admin change those same fields', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.INACTIVE,
+        departmentId: 'dept-1',
+      });
+      prisma.employee.update.mockResolvedValue({
+        id: 'emp-1',
+        departmentId: 'dept-2',
+      });
+
+      await expect(
+        service.update(
+          'emp-1',
+          { departmentId: 'dept-2' },
+          { userId: 'sa-1', role: Role.SUPER_ADMIN },
+        ),
+      ).resolves.toBeDefined();
+      expect(prisma.employee.update).toHaveBeenCalled();
+    });
+
+    it('still lets an HR Admin change unrelated fields like CTC', async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: 'emp-1',
+        status: EmployeeStatus.INACTIVE,
+      });
+      prisma.employee.update.mockResolvedValue({ id: 'emp-1', ctcLpa: 12 });
+
+      await expect(
+        service.update(
+          'emp-1',
+          { ctcLpa: 12 },
+          { userId: 'hr-1', role: Role.HR_ADMIN },
+        ),
+      ).resolves.toBeDefined();
     });
   });
 
@@ -367,23 +424,6 @@ describe('EmployeeService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('Phase 2: masks CTC/PAN/Aadhaar for HR_ASSOCIATE viewing someone else — not a privileged role', () => {
-      const result = service.maskSensitiveFields(employee as never, {
-        userId: 'hra-1',
-        role: Role.HR_ASSOCIATE,
-      });
-      expect(result.pan).toBe('****234F');
-      expect(result.aadhaar).toBe('****9012');
-    });
-
-    it('Phase 2: reveal endpoint rejects HR_ASSOCIATE viewing someone else', async () => {
-      await expect(
-        service.revealSensitiveFields('emp-1', {
-          userId: 'hra-1',
-          role: Role.HR_ASSOCIATE,
-        }),
-      ).rejects.toThrow(ForbiddenException);
-    });
   });
 
   describe('employee-submitted profile changes never bypass approval', () => {
@@ -733,18 +773,6 @@ describe('EmployeeService', () => {
       );
     });
 
-    it('Phase 2: HR_ASSOCIATE gets no company-wide directory access at all', async () => {
-      const result = await service.findAll(
-        {},
-        { userId: 'hra-1', role: Role.HR_ASSOCIATE },
-      );
-
-      expect(result).toEqual({ items: [], total: 0, page: 1, pageSize: 20 });
-      // Must never even reach the unscoped/company-wide query — this is an
-      // explicit early return, not an empty result from a query that ran.
-      expect(prisma.employee.findMany).not.toHaveBeenCalled();
-      expect(prisma.employee.count).not.toHaveBeenCalled();
-    });
   });
 
   describe('Section 6 data-scope: Manager can only read their own reports', () => {
@@ -778,20 +806,6 @@ describe('EmployeeService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('Phase 2: rejects HR_ASSOCIATE reading another employee\'s record — not a privileged role, not self, not their manager', async () => {
-      prisma.employee.findUnique
-        .mockResolvedValueOnce({
-          id: 'emp-9',
-          pan: null,
-          aadhaar: null,
-          bankAccountNumber: null,
-        })
-        .mockResolvedValueOnce({ reportingManagerId: null });
-
-      await expect(
-        service.findOne('emp-9', { userId: 'hra-1', role: Role.HR_ASSOCIATE }),
-      ).rejects.toThrow(ForbiddenException);
-    });
   });
 
   describe('Auth Phase 2: employee invitation', () => {

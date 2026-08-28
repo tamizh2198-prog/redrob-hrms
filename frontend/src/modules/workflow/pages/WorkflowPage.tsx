@@ -92,8 +92,8 @@ export function WorkflowPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Workflow isn&apos;t a separate approval system — it&apos;s two things: your unified approval
           inbox below (everything waiting on your sign-off, from any module), and, for HR Admins, a
-          way to define extra custom approval chains (e.g. "any leave over 5 days needs HR Admin too")
-          on top of each module&apos;s normal approver.
+          way to define extra custom approval chains (e.g. "offboarding clearance across more than
+          2 departments needs HR Admin too") on top of each module&apos;s normal approver.
         </p>
       </div>
 
@@ -103,11 +103,12 @@ export function WorkflowPage() {
       <div className="rounded-md border p-4 text-sm">
         <h2 className="mb-2 font-medium">My Approvals</h2>
         <p className="mb-2 text-muted-foreground">
-          Everything currently waiting on your decision, in one list — leave, attendance, assets,
-          recruitment, and any custom workflow below, instead of checking each module separately. The
-          badge on the left tells you which module it came from; only items badged{' '}
+          Everything currently waiting on your decision, in one list — custom workflow steps, asset
+          requests, and (for HR Admin/Super Admin) recruitment requisitions and offers — instead of
+          checking each module separately. The badge on the left tells you which module it came from;
+          only items badged{' '}
           <Badge variant="outline" className="mx-1">WORKFLOW</Badge>
-          are decided here — everything else (e.g. <Badge variant="outline" className="mx-1">LEAVE</Badge>)
+          are decided here — everything else (e.g. <Badge variant="outline" className="mx-1">ASSETS</Badge>)
           is just a summary, so go to that module's own page to act on it.
         </p>
         <ul className="flex flex-col gap-2">
@@ -156,7 +157,7 @@ export function WorkflowPage() {
 
           <div className="flex flex-col gap-2">
             <Label>Name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Leave Approval > 5 days" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Offboarding clearance > 2 departments" />
             <p className="text-xs text-muted-foreground">A short label for your own reference — not shown to employees.</p>
 
             <Label>Module</Label>
@@ -180,8 +181,8 @@ export function WorkflowPage() {
                 <li><code>slaHours</code> — optional: hours before this step is flagged overdue/escalated.</li>
                 <li>
                   <code>condition</code> — optional: only run this step when a field on the request matches,
-                  e.g. <code>{'{ field: "daysCount", operator: "gt", value: 10 }'}</code> (only for leave
-                  requests over 10 days). Omit to always run the step.
+                  e.g. <code>{'{ field: "daysCount", operator: "gt", value: 10 }'}</code> (only when that
+                  field on the request context exceeds 10). Omit to always run the step.
                 </li>
               </ul>
             </div>

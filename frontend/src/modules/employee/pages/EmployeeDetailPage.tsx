@@ -51,6 +51,26 @@ const BLOOD_GROUPS: BloodGroup[] = [
   'O_NEGATIVE',
 ]
 
+const EMPLOYMENT_TYPES: NonNullable<Employee['employmentType']>[] = [
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACT',
+  'INTERN',
+]
+
+// ARCHIVED is deliberately excluded — it's only ever set automatically once
+// Full & Final settlement is marked paid (see Offboarding), not something a
+// Super Admin should be able to toggle manually here.
+const EMPLOYEE_STATUSES: Employee['status'][] = [
+  'INVITED',
+  'PREBOARDING',
+  'ACTIVE',
+  'ACTIVE_PROBATION',
+  'ON_LEAVE',
+  'INACTIVE',
+  'TERMINATED',
+]
+
 function toDateDisplay(value: string | null): string {
   return value ? value.slice(0, 10) : '—'
 }
@@ -367,21 +387,127 @@ export function EmployeeDetailPage() {
 
       <section className="flex flex-col gap-3 rounded-md border p-4">
         <h2 className="font-medium">Employment Information</h2>
-        <p className="text-xs text-muted-foreground">Read-only system/employment fields.</p>
+        <p className="text-xs text-muted-foreground">
+          {isSuperAdmin
+            ? 'Super Admin can edit these fields directly.'
+            : 'Read-only system/employment fields — only a Super Admin can change these.'}
+        </p>
         <div className="grid grid-cols-2 gap-4">
           <ReadOnlyField label="Employee code" value={employee.employeeCode} />
           <ReadOnlyField label="Role" value={employee.role} />
-          <ReadOnlyField label="Department" value={departmentName} />
-          <ReadOnlyField label="Location" value={locationName} />
-          <ReadOnlyField label="Designation" value={designationName} />
-          <ReadOnlyField label="Grade" value={gradeName} />
-          <ReadOnlyField
-            label="Employment type"
-            value={employee.employmentType?.replaceAll('_', ' ') ?? '—'}
-          />
-          <ReadOnlyField label="Reporting manager" value={managerName} />
-          <ReadOnlyField label="Date of joining" value={toDateDisplay(employee.dateOfJoining)} />
-          <ReadOnlyField label="Status" value={employee.status} />
+          {isSuperAdmin ? (
+            <>
+              <ReferenceSelect
+                label="Department"
+                value={form.departmentId ?? ''}
+                options={reference?.departments ?? []}
+                onChange={(v) => setForm((f) => ({ ...f, departmentId: v }))}
+              />
+              <ReferenceSelect
+                label="Location"
+                value={form.locationId ?? ''}
+                options={reference?.locations ?? []}
+                onChange={(v) => setForm((f) => ({ ...f, locationId: v }))}
+              />
+              <ReferenceSelect
+                label="Designation"
+                value={form.designationId ?? ''}
+                options={reference?.designations ?? []}
+                onChange={(v) => setForm((f) => ({ ...f, designationId: v }))}
+              />
+              <ReferenceSelect
+                label="Grade"
+                value={form.gradeId ?? ''}
+                options={reference?.grades ?? []}
+                onChange={(v) => setForm((f) => ({ ...f, gradeId: v }))}
+              />
+              <div className="flex flex-col gap-1">
+                <Label>Employment type</Label>
+                <Select
+                  value={form.employmentType ?? ''}
+                  onValueChange={(v) => setForm((f) => ({ ...f, employmentType: v as Employee['employmentType'] }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select employment type">
+                      {(v: string) => (v ? v.replaceAll('_', ' ') : 'Select employment type')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMPLOYMENT_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t.replaceAll('_', ' ')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Reporting manager</Label>
+                <Select
+                  value={form.reportingManagerId ?? ''}
+                  onValueChange={(v) => setForm((f) => ({ ...f, reportingManagerId: v }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select reporting manager">
+                      {(v: string) => {
+                        const m = reference?.managers.find((mgr) => mgr.id === v)
+                        return m ? `${m.firstName} ${m.lastName} (${m.employeeCode})` : 'Select reporting manager'
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reference?.managers
+                      .filter((m) => m.id !== employee.id)
+                      .map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.firstName} {m.lastName} ({m.employeeCode})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Date of joining</Label>
+                <Input
+                  type="date"
+                  value={form.dateOfJoining ? form.dateOfJoining.slice(0, 10) : ''}
+                  onChange={(e) => setForm((f) => ({ ...f, dateOfJoining: e.target.value || null }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Status</Label>
+                <Select
+                  value={form.status ?? ''}
+                  onValueChange={(v) => setForm((f) => ({ ...f, status: v as Employee['status'] }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMPLOYEE_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s.replaceAll('_', ' ')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          ) : (
+            <>
+              <ReadOnlyField label="Department" value={departmentName} />
+              <ReadOnlyField label="Location" value={locationName} />
+              <ReadOnlyField label="Designation" value={designationName} />
+              <ReadOnlyField label="Grade" value={gradeName} />
+              <ReadOnlyField
+                label="Employment type"
+                value={employee.employmentType?.replaceAll('_', ' ') ?? '—'}
+              />
+              <ReadOnlyField label="Reporting manager" value={managerName} />
+              <ReadOnlyField label="Date of joining" value={toDateDisplay(employee.dateOfJoining)} />
+              <ReadOnlyField label="Status" value={employee.status} />
+            </>
+          )}
         </div>
       </section>
 
@@ -639,6 +765,38 @@ function Field({
         disabled={!editable}
         onChange={(e) => onChange(e.target.value)}
       />
+    </div>
+  )
+}
+
+function ReferenceSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: { id: string; name: string }[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Label>{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder={`Select ${label.toLowerCase()}`}>
+            {(v: string) => options.find((o) => o.id === v)?.name ?? `Select ${label.toLowerCase()}`}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => (
+            <SelectItem key={o.id} value={o.id}>
+              {o.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }

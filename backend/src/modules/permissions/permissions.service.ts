@@ -2,7 +2,6 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { UpdateRolePermissionsDto } from './dto/update-role-permissions.dto';
-import { ROLE_DEFAULT_MODULES } from '../../shared/rbac/roles.guard';
 
 const ALL_ROLES = Object.values(Role);
 
@@ -11,28 +10,6 @@ function assertValidRole(role: string): Role {
     throw new BadRequestException(`Unknown role: ${role}`);
   }
   return role as Role;
-}
-
-// HR Associate (Roles & Permissions UI): its real access — Onboarding,
-// Offboarding, Assets — is enforced entirely by RolesGuard's
-// ROLE_DEFAULT_MODULES map, not by the Permission/RolePermission catalog
-// below (which has no "Onboarding" category and isn't shaped for
-// whole-module operational access anyway). getRolePermissions() renders
-// that real, authoritative access directly instead of the catalog's
-// permanently-empty (exhaustiveness-only) entry for this role — this is
-// purely representational and introduces no second authorization mechanism.
-// Labels mirror the app's own existing nav/page terminology exactly.
-const HR_ASSOCIATE_RESTRICTED_LABELS = [
-  'Employee Directory',
-  'CTC / Salary',
-  'Create Leave Type',
-  'Roles & Permissions',
-  'Audit Logs',
-  'Recruitment (ATS)',
-];
-
-function titleCaseModule(moduleName: string) {
-  return moduleName.charAt(0) + moduleName.slice(1).toLowerCase();
 }
 
 @Injectable()
@@ -51,33 +28,6 @@ export class PermissionsService {
 
   async getRolePermissions(roleParam: string) {
     const role = assertValidRole(roleParam);
-
-    if (role === Role.HR_ASSOCIATE) {
-      const modules = ROLE_DEFAULT_MODULES[Role.HR_ASSOCIATE] ?? [];
-      return {
-        role,
-        editable: false,
-        permissions: [
-          ...modules.map((module) => ({
-            id: `module-${module}`,
-            key: `module.${module.toLowerCase()}`,
-            name: titleCaseModule(module),
-            description:
-              'Operational access granted directly by role (RolesGuard) — not controlled by this catalog.',
-            category: 'Operational Modules',
-            enabled: true,
-          })),
-          ...HR_ASSOCIATE_RESTRICTED_LABELS.map((label) => ({
-            id: `restricted-${label}`,
-            key: `restricted.${label.toLowerCase().replace(/[^a-z]+/g, '-')}`,
-            name: label,
-            description: 'HR Admin / Super Admin only.',
-            category: 'Not Available to HR Associate',
-            enabled: false,
-          })),
-        ],
-      };
-    }
 
     const [permissions, rolePermissions] = await Promise.all([
       this.listPermissions(),
@@ -108,11 +58,6 @@ export class PermissionsService {
     if (role === Role.SUPER_ADMIN) {
       throw new BadRequestException(
         'SUPER_ADMIN permissions cannot be modified',
-      );
-    }
-    if (role === Role.HR_ASSOCIATE) {
-      throw new BadRequestException(
-        'HR_ASSOCIATE access is granted by role via RolesGuard, not through this catalog, and cannot be modified here',
       );
     }
 

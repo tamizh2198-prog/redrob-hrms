@@ -20,6 +20,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ActivateAccountDto } from './dto/activate-account.dto';
 import { BootstrapSuperAdminDto } from './dto/bootstrap-super-admin.dto';
 import { ConsumePasswordResetDto } from './dto/consume-password-reset.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { Public } from './public.decorator';
 import { verifyPassword } from './password.util';
 import { MagicLinkService } from './magic-link.service';
@@ -282,6 +283,20 @@ export class AuthController {
   @Post('reset-password')
   consumePasswordReset(@Body() dto: ConsumePasswordResetDto) {
     return this.employeeService.consumePasswordReset(dto);
+  }
+
+  // Interim self-service entry point — see EmployeeService.forgotPassword's
+  // comment for why this notifies HR/Super Admin instead of emailing a
+  // link directly. Always returns the same generic response regardless of
+  // whether the email matched an employee, so this can never be used to
+  // enumerate which emails exist in the system.
+  @Public()
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.employeeService.forgotPassword(dto.email);
+    return {
+      message: 'If this account exists, our HR team has been notified and will reach out.',
+    };
   }
 
   // First-run setup only — see EmployeeService.bootstrapFirstSuperAdmin's

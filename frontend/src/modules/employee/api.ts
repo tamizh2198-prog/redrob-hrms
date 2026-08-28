@@ -383,6 +383,25 @@ export function consumePasswordReset(data: {
   return api<{ success: true }>('/auth/reset-password', { method: 'POST', body: data })
 }
 
+// Interim self-service entry point — always resolves with the same generic
+// message, whether or not the email matched an employee.
+export function forgotPassword(email: string) {
+  return api<{ message: string }>('/auth/forgot-password', { method: 'POST', body: { email } })
+}
+
+export interface DepartmentColleague {
+  id: string
+  firstName: string
+  lastName: string
+  employeeCode: string
+  status: EmployeeStatus
+  designation: { name: string } | null
+}
+
+export function getMyDepartmentColleagues() {
+  return api<DepartmentColleague[]>('/employees/me/department-colleagues')
+}
+
 // Auth Phase 3: profile completion
 export interface ProfileCompletion {
   completionPercentage: number

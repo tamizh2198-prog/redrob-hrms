@@ -225,6 +225,14 @@ export class EmployeeController {
     return this.employeeService.changeMyPassword(user.userId, dto);
   }
 
+  // Self-scoped the same way as me/profile above — every authenticated
+  // employee (including plain EMPLOYEE) can see their own department
+  // colleagues, no @Roles gate.
+  @Get('me/department-colleagues')
+  getMyDepartmentColleagues(@CurrentUser() user: { userId: string }) {
+    return this.employeeService.getMyDepartmentColleagues(user.userId);
+  }
+
   @Get()
   findAll(
     @Query() query: ListEmployeesQueryDto,

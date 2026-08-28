@@ -20,8 +20,12 @@ import {
   listEmployees,
   listPendingInvitations,
   getMyProfile,
+  getOrgChart,
+  getMyDepartmentColleagues,
   computeDisplayCompletionPercentage,
   type PendingInvitation,
+  type OrgChartResponse,
+  type DepartmentColleague,
 } from '@/modules/employee/api'
 import { listCalendar, type Holiday } from '@/modules/holiday/api'
 import { listAnnouncements, ackAnnouncement, type Announcement } from '@/modules/announcements/api'
@@ -34,10 +38,6 @@ const ROLE_MESSAGE: Record<Role, string> = {
   MANAGER: 'Review your team’s pending approvals from the Shift & Roster and Helpdesk sections.',
   HR_ADMIN: 'Manage company-wide HR operations from the modules in the sidebar.',
   SUPER_ADMIN: 'You have full access to every module, including Roles & Permissions.',
-  // This task (HR Associate, Phase 3): scoped to the 3 operational modules
-  // they have access to — not the Employee Directory or other HR Admin
-  // functionality.
-  HR_ASSOCIATE: 'Manage Onboarding, Offboarding, and Assets from the sidebar.',
 }
 
 export function DashboardPage() {
@@ -51,6 +51,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-6 p-6">
       <WelcomeBanner name={user?.name} role={user?.role} />
       <HighPriorityAnnouncements />
+      {user?.id && <MyReportingAndDepartmentCard employeeId={user.id} />}
       {user?.role === 'MANAGER' && <MyTeamCard />}
       <Card>
         <CardHeader>
@@ -131,6 +132,87 @@ function MyTeamCard() {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+// Surfaces two things every employee could previously only find by opening
+// their own Employee Detail page: their reporting chain (up through
+// managers, plus their own direct reports) and who else is in their
+// department. Both endpoints are already self-scoped server-side — this
+// component just puts them somewhere more visible than a buried tab.
+function MyReportingAndDepartmentCard({ employeeId }: { employeeId: string }) {
+  const [orgChart, setOrgChart] = useState<OrgChartResponse | null>(null)
+  const [colleagues, setColleagues] = useState<DepartmentColleague[]>([])
+
+  useEffect(() => {
+    getOrgChart(employeeId).then(setOrgChart).catch(() => setOrgChart(null))
+    getMyDepartmentColleagues().then(setColleagues).catch(() => setColleagues([]))
+  }, [employeeId])
+
+  const hasReportingChain =
+    orgChart && (orgChart.managers.length > 0 || orgChart.directReports.length > 0)
+
+  if (!hasReportingChain && colleagues.length === 0) return null
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {hasReportingChain && orgChart && (
+        <Card>
+          <CardHeader>
+            <CardTitle>My Reporting Chain</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            {orgChart.managers.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Reports up to</p>
+                <ul className="flex flex-col gap-1">
+                  {orgChart.managers.map((m) => (
+                    <li key={m.id}>
+                      {m.firstName} {m.lastName} ({m.employeeCode})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {orgChart.directReports.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Direct reports</p>
+                <ul className="flex flex-col gap-1">
+                  {orgChart.directReports.map((r) => (
+                    <li key={r.id}>
+                      {r.firstName} {r.lastName} ({r.employeeCode})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {colleagues.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>My Department</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-1 text-sm">
+              {colleagues.map((c) => (
+                <li key={c.id} className="flex items-center justify-between">
+                  <span>
+                    {c.firstName} {c.lastName}
+                    {c.designation ? ` — ${c.designation.name}` : ''}
+                  </span>
+                  <Badge variant={c.status === 'TERMINATED' ? 'destructive' : 'outline'}>
+                    {c.status}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   )
 }
 

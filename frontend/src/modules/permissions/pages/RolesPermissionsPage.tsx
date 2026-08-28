@@ -7,9 +7,7 @@ import {
   type PermissionWithState,
 } from '../api'
 
-// HR Associate: sits between HR Admin and Manager in privilege — added
-// alongside the existing roles, nothing else in this list changes.
-const ROLES: Role[] = ['SUPER_ADMIN', 'HR_ADMIN', 'HR_ASSOCIATE', 'MANAGER', 'EMPLOYEE']
+const ROLES: Role[] = ['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER', 'EMPLOYEE']
 
 function groupByCategory(permissions: PermissionWithState[]) {
   const groups = new Map<string, PermissionWithState[]>()

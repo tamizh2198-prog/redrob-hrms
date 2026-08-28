@@ -28,14 +28,13 @@ describe('PermissionsService (Auth Phase 5: Roles & Permissions)', () => {
   });
 
   describe('listRoles', () => {
-    it('returns all five existing Role enum values, unmodified', () => {
+    it('returns all four existing Role enum values, unmodified', () => {
       const result = service.listRoles();
       expect(result).toEqual([
         { role: Role.EMPLOYEE },
         { role: Role.MANAGER },
         { role: Role.HR_ADMIN },
         { role: Role.SUPER_ADMIN },
-        { role: Role.HR_ASSOCIATE },
       ]);
     });
   });
@@ -83,31 +82,6 @@ describe('PermissionsService (Auth Phase 5: Roles & Permissions)', () => {
         BadRequestException,
       );
     });
-
-    describe('HR_ASSOCIATE (Roles & Permissions UI)', () => {
-      it('shows the real RolesGuard-enforced module access instead of the dormant catalog, and is not editable', async () => {
-        const result = await service.getRolePermissions('HR_ASSOCIATE');
-
-        expect(result.editable).toBe(false);
-        // Never touches the Permission/RolePermission catalog for this role —
-        // its access isn't governed by that table at all.
-        expect(prisma.permission.findMany).not.toHaveBeenCalled();
-        expect(prisma.rolePermission.findMany).not.toHaveBeenCalled();
-
-        const enabled = result.permissions.filter((p) => p.enabled).map((p) => p.name);
-        expect(enabled).toEqual(['Onboarding', 'Offboarding', 'Assets']);
-
-        const disabled = result.permissions.filter((p) => !p.enabled).map((p) => p.name);
-        expect(disabled).toEqual([
-          'Employee Directory',
-          'CTC / Salary',
-          'Create Leave Type',
-          'Roles & Permissions',
-          'Audit Logs',
-          'Recruitment (ATS)',
-        ]);
-      });
-    });
   });
 
   describe('updateRolePermissions — security', () => {
@@ -124,15 +98,6 @@ describe('PermissionsService (Auth Phase 5: Roles & Permissions)', () => {
       await expect(
         service.updateRolePermissions('LEADERSHIP', { permissionIds: [] }),
       ).rejects.toThrow(BadRequestException);
-    });
-
-    it('rejects any attempt to modify HR_ASSOCIATE permissions — access is granted by RolesGuard, not this catalog', async () => {
-      await expect(
-        service.updateRolePermissions('HR_ASSOCIATE', {
-          permissionIds: ['p-1'],
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('rejects permission ids that do not exist in the catalog', async () => {

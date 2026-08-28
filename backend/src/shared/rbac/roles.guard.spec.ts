@@ -135,76 +135,19 @@ describe('RolesGuard (Auth Phase 1: Super Admin authorization)', () => {
     });
   });
 
-  describe('Phase 2: HR_ASSOCIATE static role-default module access', () => {
-    it.each(['ONBOARDING', 'OFFBOARDING', 'ASSETS'])(
-      'admits an HR_ASSOCIATE into a route requiring HR_ADMIN/SUPER_ADMIN when the route is tagged @RequiresModule(%s)',
-      async (module) => {
-        const { context, reflector } = createMockContext(
-          { userId: 'hra-1', role: 'HR_ASSOCIATE' },
-          [Role.HR_ADMIN, Role.SUPER_ADMIN],
-          module,
-        );
-        const guard = new RolesGuard(
-          reflector as unknown as Reflector,
-          prisma as unknown as PrismaService,
-        );
-
-        await expect(guard.canActivate(context)).resolves.toBe(true);
-        // Role-based default is a static, synchronous check — it must never
-        // fall through to (or depend on) the per-employee grant lookup.
-        expect(prisma.moduleAccessGrant.findUnique).not.toHaveBeenCalled();
-      },
+  it('does not change behavior for other roles on a @RequiresModule()-tagged route (e.g. MANAGER still needs an explicit grant)', async () => {
+    const { context, reflector } = createMockContext(
+      { userId: 'mgr-1', role: 'MANAGER' },
+      [Role.HR_ADMIN, Role.SUPER_ADMIN],
+      'ONBOARDING',
+    );
+    prisma.moduleAccessGrant.findUnique.mockResolvedValue(null);
+    const guard = new RolesGuard(
+      reflector as unknown as Reflector,
+      prisma as unknown as PrismaService,
     );
 
-    it('does not admit HR_ASSOCIATE into a module outside its fixed default set', async () => {
-      const { context, reflector } = createMockContext(
-        { userId: 'hra-1', role: 'HR_ASSOCIATE' },
-        [Role.HR_ADMIN, Role.SUPER_ADMIN],
-        'ANALYTICS',
-      );
-      prisma.moduleAccessGrant.findUnique.mockResolvedValue(null);
-      const guard = new RolesGuard(
-        reflector as unknown as Reflector,
-        prisma as unknown as PrismaService,
-      );
-
-      await expect(guard.canActivate(context)).resolves.toBe(false);
-      // Falls through to the existing per-employee grant path, same as any
-      // other role — HR_ASSOCIATE is not a blanket module bypass.
-      expect(prisma.moduleAccessGrant.findUnique).toHaveBeenCalledWith({
-        where: { employeeId_module: { employeeId: 'hra-1', module: 'ANALYTICS' } },
-      });
-    });
-
-    it('still rejects HR_ASSOCIATE outright on a route with no @RequiresModule() tag at all (e.g. Leave Type management)', async () => {
-      const { context, reflector } = createMockContext(
-        { userId: 'hra-1', role: 'HR_ASSOCIATE' },
-        [Role.HR_ADMIN, Role.SUPER_ADMIN],
-        undefined,
-      );
-      const guard = new RolesGuard(
-        reflector as unknown as Reflector,
-        prisma as unknown as PrismaService,
-      );
-
-      await expect(guard.canActivate(context)).resolves.toBe(false);
-      expect(prisma.moduleAccessGrant.findUnique).not.toHaveBeenCalled();
-    });
-
-    it('does not change behavior for other roles on a @RequiresModule()-tagged route (e.g. MANAGER still needs an explicit grant)', async () => {
-      const { context, reflector } = createMockContext(
-        { userId: 'mgr-1', role: 'MANAGER' },
-        [Role.HR_ADMIN, Role.SUPER_ADMIN],
-        'ONBOARDING',
-      );
-      prisma.moduleAccessGrant.findUnique.mockResolvedValue(null);
-      const guard = new RolesGuard(
-        reflector as unknown as Reflector,
-        prisma as unknown as PrismaService,
-      );
-
-      await expect(guard.canActivate(context)).resolves.toBe(false);
-      expect(prisma.moduleAccessGrant.findUnique).toHaveBeenCalled();
-    });
+    await expect(guard.canActivate(context)).resolves.toBe(false);
+    expect(prisma.moduleAccessGrant.findUnique).toHaveBeenCalled();
   });
 });

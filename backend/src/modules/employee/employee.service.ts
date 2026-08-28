@@ -195,6 +195,20 @@ function isPrivilegedRole(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
 }
 
+// Reassigning any of these on an existing employee is Super Admin-only —
+// an HR Admin can still edit every other privileged field via update()
+// (CTC, PAN/bank details, contact info, etc.), just not these.
+const SUPER_ADMIN_ONLY_FIELDS = [
+  'reportingManagerId',
+  'departmentId',
+  'designationId',
+  'gradeId',
+  'locationId',
+  'employmentType',
+  'dateOfJoining',
+  'status',
+] as const satisfies readonly (keyof UpdateEmployeeDto)[];
+
 @Injectable()
 export class EmployeeService {
   constructor(
@@ -878,14 +892,45 @@ export class EmployeeService {
   }
 
   // ---------------------------------------------------------------------
-  // Admin-assisted password reset + MFA reset. There is no self-service
-  // "forgot password" — without real email delivery configured, showing a
-  // reset link back to whoever merely claims an email address would let
-  // anyone reset anyone's password. Instead an HR Admin/Super Admin
-  // triggers this for a specific employee (same trust model as inviting
-  // one) and gets a copyable link to send them directly, same shape as the
-  // invitation flow above.
+  // Admin-assisted password reset + MFA reset, plus the interim
+  // self-service "Forgot password?" entry point (forgotPassword() below).
+  // Real email delivery isn't configured in production yet, so
+  // forgotPassword() deliberately never emails or returns a reset link to
+  // whoever asks — that would let anyone reset anyone's password just by
+  // typing their email. Instead it notifies every HR Admin/Super Admin,
+  // who complete the reset via resetPassword() below exactly as they do
+  // today. Revisit once real email delivery is live.
   // ---------------------------------------------------------------------
+
+  private async listPrivilegedIds(): Promise<string[]> {
+    const admins = await this.prisma.employee.findMany({
+      where: { role: { in: [Role.HR_ADMIN, Role.SUPER_ADMIN] } },
+      select: { id: true },
+    });
+    return admins.map((a) => a.id);
+  }
+
+  // Always resolves with no return value regardless of whether the email
+  // matched anyone — the controller returns the same generic response
+  // either way, so this never leaks which emails exist in the system.
+  async forgotPassword(email: string): Promise<void> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { workEmail: { equals: email.trim(), mode: 'insensitive' } },
+    });
+    if (!employee) return;
+
+    const privilegedIds = await this.listPrivilegedIds();
+    await Promise.all(
+      privilegedIds.map((id) =>
+        this.notifications.send({
+          recipientId: id,
+          template: 'auth.password-reset-requested',
+          body: `${employee.firstName} ${employee.lastName} (${employee.workEmail}) asked for help signing in — use Reset Password on their profile to send them a new link.`,
+          data: { employeeId: employee.id },
+        }),
+      ),
+    );
+  }
 
   // Mirrors inviteEmployee's isPrivilegedRoleRequested gate: an HR Admin
   // can reset password/MFA for ordinary staff, but only a Super Admin can
@@ -1261,13 +1306,13 @@ export class EmployeeService {
       );
       scopedIds = [requester.userId, ...teamIds];
     } else if (!isPrivilegedRole(requester.role)) {
-      // This task (HR Associate): the unscoped company-wide query below is
-      // an HR Admin/Super Admin surface only. Previously anyone who was
-      // neither EMPLOYEE nor MANAGER fell through to it by omission — that
-      // silently handed the full directory to any future role (like
-      // HR_ASSOCIATE) the moment it existed. Explicit allowlist instead:
-      // only a privileged role reaches the unscoped query below; everyone
-      // else (HR_ASSOCIATE included) gets no company-wide directory data.
+      // The unscoped company-wide query below is an HR Admin/Super Admin
+      // surface only. Previously anyone who was neither EMPLOYEE nor
+      // MANAGER fell through to it by omission — that would silently hand
+      // the full directory to any other non-privileged role. Explicit
+      // allowlist instead: only a privileged role reaches the unscoped
+      // query below; every other non-manager, non-privileged role gets no
+      // company-wide directory data.
       return { items: [], total: 0, page, pageSize };
     }
 
@@ -1388,6 +1433,20 @@ export class EmployeeService {
     if (!isPrivilegedRole(requester.role)) {
       if (!isSelf) throw new ForbiddenException();
       return this.createChangeRequestsFromDto(id, dto);
+    }
+
+    // These 8 fields are Super Admin-only — an HR Admin can edit everything
+    // else on this endpoint (CTC, PAN/bank details, contact info, etc.) but
+    // not reassign someone's manager/department/designation/grade/location/
+    // employment type/joining date/status. No UI ever exposed this to HR
+    // Admin either, so this only closes an API-level gap.
+    const superAdminOnlyFieldsTouched = SUPER_ADMIN_ONLY_FIELDS.some(
+      (field) => dto[field] !== undefined,
+    );
+    if (superAdminOnlyFieldsTouched && requester.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, or status',
+      );
     }
 
     if (dto.reportingManagerId !== undefined) {
@@ -1637,6 +1696,34 @@ export class EmployeeService {
       managers: managers.map(toBasicProfile),
       directReports: employee.directReports.map(toBasicProfile),
     };
+  }
+
+  // Self-scoped by construction (always the caller's own department), so
+  // this needs no @Roles() gate — same posture as getOrgChart above. Uses
+  // a deliberately narrow select, not findAll()'s unscoped findMany + mask,
+  // since this is reachable by every role including plain EMPLOYEE.
+  async getMyDepartmentColleagues(requesterId: string) {
+    const requester = await this.prisma.employee.findUnique({
+      where: { id: requesterId },
+      select: { departmentId: true },
+    });
+    if (!requester?.departmentId) return [];
+
+    return this.prisma.employee.findMany({
+      where: {
+        departmentId: requester.departmentId,
+        id: { not: requesterId },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        status: true,
+        designation: { select: { name: true } },
+      },
+      orderBy: { firstName: 'asc' },
+    });
   }
 
   private async validateRow(row: CreateEmployeeDto): Promise<string[]> {
