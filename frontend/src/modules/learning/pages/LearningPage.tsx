@@ -363,16 +363,28 @@ export function LearningPage() {
                     <TableCell>
                       {s.firstName} {s.lastName} ({s.employeeCode})
                     </TableCell>
-                    <TableCell>{s.ctcLpa}</TableCell>
-                    <TableCell>{formatCurrency(s.annualLimit)}</TableCell>
+                    <TableCell>{s.ctcLpa ?? <span className="text-muted-foreground">Not on file</span>}</TableCell>
+                    <TableCell>
+                      {s.annualLimit != null ? (
+                        formatCurrency(s.annualLimit)
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>{formatCurrency(s.used)}</TableCell>
-                    <TableCell>{formatCurrency(s.remaining)}</TableCell>
+                    <TableCell>
+                      {s.remaining != null ? (
+                        formatCurrency(s.remaining)
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
                 {allSpendLimits.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      No employees with CTC on file yet.
+                      No employees found.
                     </TableCell>
                   </TableRow>
                 )}

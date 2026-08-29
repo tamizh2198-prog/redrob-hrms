@@ -41,7 +41,13 @@ export interface SpendLimit {
   remaining: number
 }
 
-export interface SpendLimitWithEmployee extends SpendLimit {
+export interface SpendLimitWithEmployee {
+  employeeId: string
+  ctcLpa: number | null
+  requestYear: number
+  annualLimit: number | null
+  used: number
+  remaining: number | null
   firstName: string
   lastName: string
   employeeCode: string

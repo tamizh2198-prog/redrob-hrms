@@ -65,6 +65,29 @@ describe('LearningService', () => {
     });
   });
 
+  describe('listAllSpendLimits: full roster for Super Admin', () => {
+    it('includes every employee, not just ones with a CTC on file', async () => {
+      prisma.employee.findMany.mockResolvedValue([
+        { id: 'emp-1', firstName: 'A', lastName: 'One', employeeCode: 'E1', ctcLpa: 10 },
+        { id: 'emp-2', firstName: 'B', lastName: 'Two', employeeCode: 'E2', ctcLpa: null },
+      ]);
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', ctcLpa: 10 });
+      prisma.learningRequest.findMany.mockResolvedValue([]);
+
+      const result = await service.listAllSpendLimits();
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({ employeeId: 'emp-1', ctcLpa: 10, annualLimit: 30000, remaining: 30000 });
+      expect(result[1]).toMatchObject({
+        employeeId: 'emp-2',
+        ctcLpa: null,
+        annualLimit: null,
+        used: 0,
+        remaining: null,
+      });
+    });
+  });
+
   describe('submitRequest', () => {
     const dto = {
       courseName: 'Advanced React',

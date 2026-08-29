@@ -90,19 +90,35 @@ export class LearningService {
     return this.computeSpendLimit(employeeId);
   }
 
-  // Super Admin only — see every employee's spend limit for the year.
+  // Super Admin only — the complete roster, not just employees who happen
+  // to have a CTC on file; a missing CTC surfaces as null fields instead
+  // of silently dropping that employee from the table.
   async listAllSpendLimits() {
     const employees = await this.prisma.employee.findMany({
-      where: { ctcLpa: { not: null } },
-      select: { id: true, firstName: true, lastName: true, employeeCode: true },
+      select: { id: true, firstName: true, lastName: true, employeeCode: true, ctcLpa: true },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
     });
+    const requestYear = new Date().getUTCFullYear();
     return Promise.all(
-      employees.map(async (e) => ({
-        ...(await this.computeSpendLimit(e.id)),
-        firstName: e.firstName,
-        lastName: e.lastName,
-        employeeCode: e.employeeCode,
-      })),
+      employees.map(async (e) => {
+        const base = {
+          firstName: e.firstName,
+          lastName: e.lastName,
+          employeeCode: e.employeeCode,
+        };
+        if (e.ctcLpa == null) {
+          return {
+            ...base,
+            employeeId: e.id,
+            ctcLpa: null,
+            requestYear,
+            annualLimit: null,
+            used: 0,
+            remaining: null,
+          };
+        }
+        return { ...base, ...(await this.computeSpendLimit(e.id)) };
+      }),
     );
   }
 
