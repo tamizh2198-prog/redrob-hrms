@@ -334,21 +334,14 @@ export function WorkflowPage() {
                     </Button>
                   </div>
 
-                  <div className="flex flex-col gap-1">
-                    <Label className="text-xs text-muted-foreground">When more than one approver is listed above</Label>
-                    <Select
-                      value={step.requireAll ? 'ALL' : 'ANY'}
-                      onValueChange={(v) => updateStep(stepIndex, { requireAll: v === 'ALL' })}
-                    >
-                      <SelectTrigger className="w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ANY">Any one of them is enough</SelectItem>
-                        <SelectItem value="ALL">All of them must approve</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={step.requireAll}
+                      onChange={(e) => updateStep(stepIndex, { requireAll: e.target.checked })}
+                    />
+                    Require all approvers listed above (unchecked: any one is enough)
+                  </label>
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="flex flex-col gap-1">
