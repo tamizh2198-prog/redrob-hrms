@@ -36,6 +36,27 @@ const APPROVER_TYPE_LABELS: Record<ApproverRuleType, string> = {
 // even though the backend's Role enum technically allows it.
 const APPROVER_ROLE_OPTIONS = ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
 
+// The backend's `module` field is deliberately free-text (see
+// CreateWorkflowDefinitionDto — "so new modules can plug into the engine
+// without a schema change"), but every module that actually exists today
+// is tagged with one of these @RequiresModule() identifiers — a dropdown
+// over the real set beats a free-text field an HR Admin could typo into
+// silently matching nothing.
+const MODULE_OPTIONS: Record<string, string> = {
+  ANNOUNCEMENTS: 'Announcements',
+  ANALYTICS: 'Analytics',
+  ASSETS: 'Assets',
+  ATS: 'Recruitment (ATS)',
+  HELPDESK: 'Helpdesk',
+  HOLIDAY: 'Holiday Calendar',
+  LEARNING: 'Learning',
+  OFFBOARDING: 'Offboarding',
+  ONBOARDING: 'Onboarding',
+  PERFORMANCE: 'Performance',
+  SHIFT: 'Shift & Roster',
+  WORKFLOW: 'Workflow',
+}
+
 const CONDITION_OPERATOR_LABELS: Record<StepCondition['operator'], string> = {
   gt: 'is greater than',
   gte: 'is greater than or equal to',
@@ -252,11 +273,20 @@ export function WorkflowPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <Label>Module</Label>
-                <Input
-                  value={moduleName}
-                  onChange={(e) => setModuleName(e.target.value)}
-                  placeholder="OFFBOARDING"
-                />
+                <Select value={moduleName} onValueChange={setModuleName}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a module">
+                      {(v: string) => MODULE_OPTIONS[v]}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(MODULE_OPTIONS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
