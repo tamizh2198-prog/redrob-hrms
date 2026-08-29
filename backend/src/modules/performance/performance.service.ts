@@ -27,6 +27,8 @@ import { SubmitManagerAssessmentDto } from './dto/submit-manager-assessment.dto'
 import { CorrectRatingDto } from './dto/correct-rating.dto';
 import { SubmitMonthlyEvaluationDto } from './dto/submit-monthly-evaluation.dto';
 import { AuditMonthlyEvaluationDto } from './dto/audit-monthly-evaluation.dto';
+import { SubmitQuarterlyKpiDto } from './dto/submit-quarterly-kpi.dto';
+import { AuditQuarterlyKpiDto } from './dto/audit-quarterly-kpi.dto';
 
 const WEIGHTAGE_TOLERANCE = 0.01;
 
@@ -78,6 +80,43 @@ function normalizeToMonthStart(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }
 
+// Monthly scores go live to the employee on the 3rd of the month *after*
+// the evaluated period, regardless of when Super Admin actually approves
+// it — approving late just means it's already past its release date.
+function monthlyReleaseDate(period: Date): Date {
+  return new Date(Date.UTC(period.getUTCFullYear(), period.getUTCMonth() + 1, 3));
+}
+
+function isMonthlyScoreVisible(evaluation: {
+  auditStatus: EvaluationAuditStatus;
+  period: Date;
+}): boolean {
+  return (
+    evaluation.auditStatus === EvaluationAuditStatus.APPROVED &&
+    new Date() >= monthlyReleaseDate(evaluation.period)
+  );
+}
+
+// Quarterly KPI% releases the calendar day after Super Admin approves —
+// unlike the monthly score, there's no fixed day-of-month; it's always
+// relative to the approval itself.
+function quarterlyReleaseDate(auditedAt: Date): Date {
+  return new Date(
+    Date.UTC(auditedAt.getUTCFullYear(), auditedAt.getUTCMonth(), auditedAt.getUTCDate() + 1),
+  );
+}
+
+function isQuarterlyKpiVisible(kpi: {
+  auditStatus: EvaluationAuditStatus;
+  auditedAt: Date | null;
+}): boolean {
+  return (
+    kpi.auditStatus === EvaluationAuditStatus.APPROVED &&
+    kpi.auditedAt != null &&
+    new Date() >= quarterlyReleaseDate(kpi.auditedAt)
+  );
+}
+
 // Review Cycle cadence: Monthly = 1 month, Quarterly = 3 months (the
 // existing/default behavior), Yearly = 12 months.
 const REVIEW_CYCLE_MONTHS: Record<ReviewCycleType, number> = {
@@ -99,7 +138,10 @@ function addMonthsUtc(date: Date, months: number): Date {
 // scores are never shared with employees): the employee dashboard shows the
 // score and grade, but never the manager's justification or who submitted
 // it — an allow-list, not a deny-list, so a new confidential field added
-// later is hidden by default rather than leaked.
+// later is hidden by default rather than leaked. Additionally gated on
+// isMonthlyScoreVisible: an approved-but-not-yet-released score is hidden
+// from the subject the same as an unapproved one — releaseDate is always
+// included so the UI can say when it'll show up.
 function redactForSubject(evaluation: {
   id: string;
   employeeId: string;
@@ -109,14 +151,16 @@ function redactForSubject(evaluation: {
   auditStatus: EvaluationAuditStatus;
   createdAt: Date;
 }) {
+  const visible = isMonthlyScoreVisible(evaluation);
   return {
     id: evaluation.id,
     employeeId: evaluation.employeeId,
     period: evaluation.period,
-    kpiScore: evaluation.kpiScore,
-    kpiPercent: kpiScoreToPercent(evaluation.kpiScore),
-    grade: evaluation.grade,
+    kpiScore: visible ? evaluation.kpiScore : null,
+    kpiPercent: visible ? kpiScoreToPercent(evaluation.kpiScore) : null,
+    grade: visible ? evaluation.grade : null,
     auditStatus: evaluation.auditStatus,
+    releaseDate: monthlyReleaseDate(evaluation.period),
     createdAt: evaluation.createdAt,
   };
 }
@@ -125,6 +169,34 @@ function withKpiPercent<T extends { kpiScore: number }>(
   evaluation: T,
 ): T & { kpiPercent: number } {
   return { ...evaluation, kpiPercent: kpiScoreToPercent(evaluation.kpiScore) };
+}
+
+// Same confidentiality contract as redactForSubject, for the new quarterly
+// KPI%: hidden from the subject until approved AND past its release date.
+// releaseDate is only knowable once Super Admin has actually approved it
+// (it's relative to auditedAt, not a fixed calendar day), so it's null
+// until then.
+function redactQuarterlyKpiForSubject(kpi: {
+  id: string;
+  employeeId: string;
+  year: number;
+  quarter: number;
+  kpiPercent: number;
+  auditStatus: EvaluationAuditStatus;
+  auditedAt: Date | null;
+  createdAt: Date;
+}) {
+  const visible = isQuarterlyKpiVisible(kpi);
+  return {
+    id: kpi.id,
+    employeeId: kpi.employeeId,
+    year: kpi.year,
+    quarter: kpi.quarter,
+    kpiPercent: visible ? kpi.kpiPercent : null,
+    auditStatus: kpi.auditStatus,
+    releaseDate: kpi.auditedAt ? quarterlyReleaseDate(kpi.auditedAt) : null,
+    createdAt: kpi.createdAt,
+  };
 }
 
 // Submission order (self vs manager) never matters — status is always
@@ -589,6 +661,7 @@ export class PerformanceService {
         auditedBy: null,
         auditedAt: null,
         auditNotes: null,
+        releaseNotifiedAt: null,
       },
       create: {
         employeeId: dto.employeeId,
@@ -600,14 +673,31 @@ export class PerformanceService {
       },
     });
 
-    await this.notifications.send({
-      recipientId: 'hr-admin',
-      template: 'performance.monthly-evaluation-submitted',
-      body: `A monthly evaluation for employee ${dto.employeeId} (period ${period.toISOString().slice(0, 10)}, grade ${grade}) was submitted and is awaiting audit.`,
-      data: { evaluationId: evaluation.id, employeeId: dto.employeeId },
-    });
+    const superAdminIds = await this.listSuperAdminIds();
+    await Promise.all(
+      superAdminIds.map((id) =>
+        this.notifications.send({
+          recipientId: id,
+          template: 'performance.monthly-evaluation-submitted',
+          body: `A monthly evaluation for employee ${dto.employeeId} (period ${period.toISOString().slice(0, 10)}, grade ${grade}) was submitted and is awaiting audit.`,
+          data: { evaluationId: evaluation.id, employeeId: dto.employeeId },
+        }),
+      ),
+    );
 
     return evaluation;
+  }
+
+  // Only SUPER_ADMIN can audit either monthly scores or quarterly KPIs in
+  // this module (an established, explicit product decision — HR_ADMIN has
+  // no audit role here), so this is the actual notification audience for
+  // both submit flows.
+  private async listSuperAdminIds(): Promise<string[]> {
+    const admins = await this.prisma.employee.findMany({
+      where: { role: Role.SUPER_ADMIN },
+      select: { id: true },
+    });
+    return admins.map((a) => a.id);
   }
 
   // Section 2: "Scores may be sent back for clarification or validation
@@ -656,6 +746,185 @@ export class PerformanceService {
     });
 
     return updated;
+  }
+
+  // Standalone quarterly KPI percentage — distinct from both the monthly
+  // KPI score above and the auto-computed quarterly reward derived from it
+  // (computeQuarterlyKpiReward, below). Same restriction as
+  // submitMonthlyEvaluation: only the employee's actual assigned manager,
+  // never HR/Super Admin on their behalf.
+  async submitQuarterlyKpi(dto: SubmitQuarterlyKpiDto, actorId: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: dto.employeeId },
+    });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (employee.reportingManagerId !== actorId) {
+      throw new ForbiddenException(
+        "Only this employee's assigned manager can submit a quarterly KPI",
+      );
+    }
+
+    const existing = await this.prisma.quarterlyKpi.findUnique({
+      where: {
+        employeeId_year_quarter: {
+          employeeId: dto.employeeId,
+          year: dto.year,
+          quarter: dto.quarter,
+        },
+      },
+    });
+    if (existing?.auditStatus === EvaluationAuditStatus.APPROVED) {
+      throw new BadRequestException(
+        'This quarter has already been audited and approved; it cannot be resubmitted',
+      );
+    }
+
+    const kpi = await this.prisma.quarterlyKpi.upsert({
+      where: {
+        employeeId_year_quarter: {
+          employeeId: dto.employeeId,
+          year: dto.year,
+          quarter: dto.quarter,
+        },
+      },
+      update: {
+        kpiPercent: dto.kpiPercent,
+        justification: dto.justification,
+        submittedBy: actorId,
+        submittedAt: new Date(),
+        auditStatus: EvaluationAuditStatus.PENDING_AUDIT,
+        auditedBy: null,
+        auditedAt: null,
+        auditNotes: null,
+        releaseNotifiedAt: null,
+      },
+      create: {
+        employeeId: dto.employeeId,
+        year: dto.year,
+        quarter: dto.quarter,
+        kpiPercent: dto.kpiPercent,
+        justification: dto.justification,
+        submittedBy: actorId,
+      },
+    });
+
+    const superAdminIds = await this.listSuperAdminIds();
+    await Promise.all(
+      superAdminIds.map((id) =>
+        this.notifications.send({
+          recipientId: id,
+          template: 'performance.quarterly-kpi-submitted',
+          body: `A Q${dto.quarter} ${dto.year} KPI (${dto.kpiPercent}%) for employee ${dto.employeeId} was submitted and is awaiting audit.`,
+          data: { kpiId: kpi.id, employeeId: dto.employeeId },
+        }),
+      ),
+    );
+
+    return kpi;
+  }
+
+  async auditQuarterlyKpi(
+    id: string,
+    dto: AuditQuarterlyKpiDto,
+    actorId: string,
+  ) {
+    const kpi = await this.prisma.quarterlyKpi.findUnique({ where: { id } });
+    if (!kpi) throw new NotFoundException('Quarterly KPI not found');
+    if (kpi.auditStatus !== EvaluationAuditStatus.PENDING_AUDIT) {
+      throw new BadRequestException('This KPI is not pending audit');
+    }
+    if (!dto.approve && !dto.auditNotes) {
+      throw new BadRequestException(
+        'auditNotes is required when sending a KPI back for clarification',
+      );
+    }
+
+    const updated = await this.prisma.quarterlyKpi.update({
+      where: { id },
+      data: {
+        auditStatus: dto.approve
+          ? EvaluationAuditStatus.APPROVED
+          : EvaluationAuditStatus.SENT_BACK,
+        auditedBy: actorId,
+        auditedAt: new Date(),
+        auditNotes: dto.auditNotes ?? null,
+      },
+    });
+
+    await this.notifications.send({
+      recipientId: updated.submittedBy,
+      template: dto.approve
+        ? 'performance.quarterly-kpi-approved'
+        : 'performance.quarterly-kpi-sent-back',
+      body: dto.approve
+        ? `The Q${updated.quarter} ${updated.year} KPI you submitted was approved.`
+        : `The Q${updated.quarter} ${updated.year} KPI you submitted was sent back for clarification.${dto.auditNotes ? ` Comment: "${dto.auditNotes}"` : ''}`,
+      data: { kpiId: updated.id },
+    });
+
+    return updated;
+  }
+
+  async listQuarterlyKpis(
+    employeeId: string,
+    actorId: string,
+    actorRole?: Role,
+  ) {
+    await this.assertCanViewEvaluations(employeeId, actorId, actorRole);
+    const kpis = await this.prisma.quarterlyKpi.findMany({
+      where: { employeeId },
+      orderBy: [{ year: 'desc' }, { quarter: 'desc' }],
+    });
+    return employeeId === actorId
+      ? kpis.map(redactQuarterlyKpiForSubject)
+      : kpis;
+  }
+
+  async getQuarterlyKpi(id: string, actorId: string, actorRole?: Role) {
+    const kpi = await this.prisma.quarterlyKpi.findUnique({ where: { id } });
+    if (!kpi) throw new NotFoundException('Quarterly KPI not found');
+    await this.assertCanViewEvaluations(kpi.employeeId, actorId, actorRole);
+    return kpi.employeeId === actorId
+      ? redactQuarterlyKpiForSubject(kpi)
+      : kpi;
+  }
+
+  // Orchestration for PerformanceKpiReleaseService's daily cron — the "what's
+  // due" query lives here (same split as AnalyticsReportSchedulerService /
+  // WorkflowEscalationService), filtered to APPROVED-and-not-yet-notified
+  // rows first in SQL, then to those actually past their release date.
+  async findDueMonthlyReleases() {
+    const now = new Date();
+    const candidates = await this.prisma.monthlyEvaluation.findMany({
+      where: { auditStatus: EvaluationAuditStatus.APPROVED, releaseNotifiedAt: null },
+    });
+    return candidates.filter((e) => now >= monthlyReleaseDate(e.period));
+  }
+
+  async markMonthlyReleaseNotified(id: string) {
+    await this.prisma.monthlyEvaluation.update({
+      where: { id },
+      data: { releaseNotifiedAt: new Date() },
+    });
+  }
+
+  async findDueQuarterlyKpiReleases() {
+    const now = new Date();
+    const candidates = await this.prisma.quarterlyKpi.findMany({
+      where: {
+        auditStatus: EvaluationAuditStatus.APPROVED,
+        releaseNotifiedAt: null,
+        auditedAt: { not: null },
+      },
+    });
+    return candidates.filter((k) => k.auditedAt && now >= quarterlyReleaseDate(k.auditedAt));
+  }
+
+  async markQuarterlyKpiReleaseNotified(id: string) {
+    await this.prisma.quarterlyKpi.update({
+      where: { id },
+      data: { releaseNotifiedAt: new Date() },
+    });
   }
 
   // Product decision: unlike goals/reviews (isPrivileged — HR_ADMIN or

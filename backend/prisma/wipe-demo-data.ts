@@ -97,6 +97,7 @@ async function main() {
   });
   await prisma.reviewCycle.deleteMany({ where: { id: { in: manifest.reviewCycleIds } } });
   await prisma.monthlyEvaluation.deleteMany({ where: { employeeId: { in: employeeIds } } });
+  await prisma.quarterlyKpi.deleteMany({ where: { employeeId: { in: employeeIds } } });
 
   // --- Shift & roster ---
   await prisma.rosterEntry.deleteMany({ where: { employeeId: { in: employeeIds } } });

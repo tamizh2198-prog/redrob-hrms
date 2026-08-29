@@ -278,6 +278,7 @@ model Employee {
   goals              Goal[]
   reviews            Review[]
   monthlyEvaluations MonthlyEvaluation[]
+  quarterlyKpis      QuarterlyKpi[]
   assetAssignments   AssetAssignment[]
   assetRequestsMade  AssetRequest[]      @relation("AssetRequester")
   assetRequestsOwned AssetRequest[]      @relation("AssetApprover")
@@ -1065,9 +1066,38 @@ model MonthlyEvaluation {
   auditedBy     String?
   auditedAt     DateTime?
   auditNotes    String?
+  // Set once the release-notification cron has told the employee their
+  // score is visible — prevents notifying them again on every cron tick.
+  releaseNotifiedAt DateTime?
   createdAt     DateTime              @default(now())
 
   @@unique([employeeId, period])
+  @@index([employeeId])
+}
+
+// A quarterly, manager-entered KPI percentage — distinct from both the
+// monthly KPI score above and the auto-computed quarterly reward derived
+// from it (see PerformanceService.computeQuarterlyKpiReward): this is a
+// standalone number the manager submits directly each quarter, gated by
+// the same manager-submits/Super-Admin-approves flow as MonthlyEvaluation.
+model QuarterlyKpi {
+  id            String                @id @default(uuid())
+  employeeId    String
+  employee      Employee              @relation(fields: [employeeId], references: [id])
+  year          Int
+  quarter       Int // 1-4
+  kpiPercent    Float // manager-entered, 0-100
+  justification String
+  submittedBy   String
+  submittedAt   DateTime              @default(now())
+  auditStatus   EvaluationAuditStatus @default(PENDING_AUDIT)
+  auditedBy     String?
+  auditedAt     DateTime?
+  auditNotes    String?
+  releaseNotifiedAt DateTime?
+  createdAt     DateTime              @default(now())
+
+  @@unique([employeeId, year, quarter])
   @@index([employeeId])
 }
 

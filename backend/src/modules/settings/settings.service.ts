@@ -329,6 +329,7 @@ export class SettingsService {
     'AssetRequest',
     'AssetAssignment',
     'MonthlyEvaluation',
+    'QuarterlyKpi',
     'ReviewCorrection',
     'Review',
     'Goal',

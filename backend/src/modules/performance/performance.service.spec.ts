@@ -32,7 +32,15 @@ function createMockPrisma() {
       update: jest.fn(),
       findMany: jest.fn(),
     },
-    employee: { findMany: jest.fn(), findUnique: jest.fn() },
+    quarterlyKpi: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+      update: jest.fn(),
+      findMany: jest.fn(),
+    },
+    // Defaults to no Super Admins found — most tests here don't care about
+    // the submit-time notification fan-out; tests that do override this.
+    employee: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn() },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
   };
 }
@@ -596,7 +604,10 @@ describe('PerformanceService', () => {
         {
           id: 'eval-1',
           employeeId: 'emp-1',
-          period: new Date('2026-08-01'),
+          // Well in the past so it's also past its release date (the 3rd of
+          // the month after) — this test is about confidentiality, not
+          // release timing, which has its own describe block below.
+          period: new Date('2025-01-01'),
           kpiScore: 900,
           grade: 'EE',
           justification: 'Great work',
@@ -795,6 +806,271 @@ describe('PerformanceService', () => {
       await expect(
         service.listQuarterlyKpiRewards('emp-1', 2026, 'emp-2', Role.EMPLOYEE),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('submitMonthlyEvaluation notifies real Super Admins (fixes the dead "hr-admin" placeholder)', () => {
+    it('notifies every Super Admin, not the literal string "hr-admin"', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.employee.findMany.mockResolvedValue([{ id: 'sa-1' }, { id: 'sa-2' }]);
+      prisma.monthlyEvaluation.findUnique.mockResolvedValue(null);
+      prisma.monthlyEvaluation.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({ id: 'eval-1', ...create }),
+      );
+
+      await service.submitMonthlyEvaluation(
+        { employeeId: 'emp-1', period: '2026-08-01', kpiScore: 800, justification: 'x' },
+        'mgr-1',
+      );
+
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'sa-1' }),
+      );
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'sa-2' }),
+      );
+      expect(notifications.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'hr-admin' }),
+      );
+    });
+  });
+
+  describe('Monthly score release gating: hidden from the subject until approved AND past the 3rd of next month', () => {
+    it('hides the score from the subject while still pending audit', async () => {
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        { id: 'eval-1', employeeId: 'emp-1', period: new Date('2025-01-01'), kpiScore: 900, grade: 'EE', auditStatus: 'PENDING_AUDIT' },
+      ]);
+
+      const result = await service.listMonthlyEvaluations('emp-1', 'emp-1', Role.EMPLOYEE);
+
+      expect(result[0].kpiScore).toBeNull();
+      expect(result[0].grade).toBeNull();
+      expect(result[0].auditStatus).toBe('PENDING_AUDIT');
+    });
+
+    it("hides an APPROVED score from the subject until the 3rd of the month after the period", async () => {
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        // Today is well after 2026-08 per the test clock (see system date),
+        // but this period is deliberately the *current* month so its release
+        // date (3rd of next month) hasn't arrived yet regardless of when
+        // this suite runs relative to the 3rd.
+        { id: 'eval-1', employeeId: 'emp-1', period: new Date(Date.UTC(9999, 0, 1)), kpiScore: 900, grade: 'EE', auditStatus: 'APPROVED' },
+      ]);
+
+      const result = await service.listMonthlyEvaluations('emp-1', 'emp-1', Role.EMPLOYEE);
+
+      expect(result[0].kpiScore).toBeNull();
+      expect((result[0] as { releaseDate: Date }).releaseDate).toEqual(
+        new Date(Date.UTC(9999, 1, 3)),
+      );
+    });
+
+    it('shows an APPROVED score once past its release date', async () => {
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        { id: 'eval-1', employeeId: 'emp-1', period: new Date('2025-01-01'), kpiScore: 900, grade: 'EE', auditStatus: 'APPROVED' },
+      ]);
+
+      const result = await service.listMonthlyEvaluations('emp-1', 'emp-1', Role.EMPLOYEE);
+
+      expect(result[0].kpiScore).toBe(900);
+      expect(result[0].grade).toBe('EE');
+    });
+
+    it("does not gate the manager's or Super Admin's own view of the score", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', reportingManagerId: 'mgr-1' });
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        { id: 'eval-1', employeeId: 'emp-1', period: new Date(Date.UTC(9999, 0, 1)), kpiScore: 900, grade: 'EE', auditStatus: 'APPROVED' },
+      ]);
+
+      const result = await service.listMonthlyEvaluations('emp-1', 'mgr-1', Role.MANAGER);
+
+      expect(result[0].kpiScore).toBe(900);
+    });
+  });
+
+  describe('Quarterly KPI%: standalone from monthly scores, same manager-submits/Super-Admin-approves shape', () => {
+    it("only the employee's assigned manager can submit a quarterly KPI", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', reportingManagerId: 'mgr-real' });
+
+      await expect(
+        service.submitQuarterlyKpi(
+          { employeeId: 'emp-1', year: 2026, quarter: 2, kpiPercent: 80, justification: 'x' },
+          'mgr-imposter',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('submits a new quarterly KPI as PENDING_AUDIT and notifies every Super Admin', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', reportingManagerId: 'mgr-1' });
+      prisma.employee.findMany.mockResolvedValue([{ id: 'sa-1' }]);
+      prisma.quarterlyKpi.findUnique.mockResolvedValue(null);
+      prisma.quarterlyKpi.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({ id: 'qkpi-1', ...create }),
+      );
+
+      const result = await service.submitQuarterlyKpi(
+        { employeeId: 'emp-1', year: 2026, quarter: 2, kpiPercent: 82, justification: 'Solid quarter' },
+        'mgr-1',
+      );
+
+      expect(result.kpiPercent).toBe(82);
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'sa-1', template: 'performance.quarterly-kpi-submitted' }),
+      );
+    });
+
+    it('blocks resubmission once a quarter is already APPROVED', async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', reportingManagerId: 'mgr-1' });
+      prisma.quarterlyKpi.findUnique.mockResolvedValue({ auditStatus: 'APPROVED' });
+
+      await expect(
+        service.submitQuarterlyKpi(
+          { employeeId: 'emp-1', year: 2026, quarter: 2, kpiPercent: 90, justification: 'x' },
+          'mgr-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.quarterlyKpi.upsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unauthorized decider and requires auditNotes on send-back', async () => {
+      prisma.quarterlyKpi.findUnique.mockResolvedValue({ id: 'qkpi-1', auditStatus: 'PENDING_AUDIT' });
+
+      await expect(
+        service.auditQuarterlyKpi('qkpi-1', { approve: false }, 'sa-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('approves a quarterly KPI, stamping auditedBy/auditedAt and notifying the submitting manager', async () => {
+      prisma.quarterlyKpi.findUnique.mockResolvedValue({
+        id: 'qkpi-1',
+        auditStatus: 'PENDING_AUDIT',
+        submittedBy: 'mgr-1',
+        year: 2026,
+        quarter: 2,
+      });
+      prisma.quarterlyKpi.update.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'qkpi-1', submittedBy: 'mgr-1', year: 2026, quarter: 2, ...data }),
+      );
+
+      const result = await service.auditQuarterlyKpi('qkpi-1', { approve: true }, 'sa-1');
+
+      expect(result.auditStatus).toBe('APPROVED');
+      expect(result.auditedBy).toBe('sa-1');
+      expect(notifications.send).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: 'mgr-1', template: 'performance.quarterly-kpi-approved' }),
+      );
+    });
+
+    it('rejects auditing a KPI that was already decided', async () => {
+      prisma.quarterlyKpi.findUnique.mockResolvedValue({ id: 'qkpi-1', auditStatus: 'APPROVED' });
+
+      await expect(
+        service.auditQuarterlyKpi('qkpi-1', { approve: true }, 'sa-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('hides an approved kpiPercent from the subject until the day after approval', async () => {
+      prisma.quarterlyKpi.findMany.mockResolvedValue([
+        {
+          id: 'qkpi-1',
+          employeeId: 'emp-1',
+          year: 2026,
+          quarter: 2,
+          kpiPercent: 82,
+          auditStatus: 'APPROVED',
+          auditedAt: new Date(Date.UTC(9999, 0, 1)),
+        },
+      ]);
+
+      const result = await service.listQuarterlyKpis('emp-1', 'emp-1', Role.EMPLOYEE);
+
+      expect(result[0].kpiPercent).toBeNull();
+      expect((result[0] as { releaseDate: Date | null }).releaseDate).toEqual(
+        new Date(Date.UTC(9999, 0, 2)),
+      );
+    });
+
+    it('shows the released kpiPercent to the subject once past the release date', async () => {
+      prisma.quarterlyKpi.findMany.mockResolvedValue([
+        {
+          id: 'qkpi-1',
+          employeeId: 'emp-1',
+          year: 2025,
+          quarter: 1,
+          kpiPercent: 82,
+          auditStatus: 'APPROVED',
+          auditedAt: new Date('2025-01-01'),
+        },
+      ]);
+
+      const result = await service.listQuarterlyKpis('emp-1', 'emp-1', Role.EMPLOYEE);
+
+      expect(result[0].kpiPercent).toBe(82);
+    });
+
+    it("does not gate the manager's or Super Admin's own view of the KPI%", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: 'emp-1', reportingManagerId: 'mgr-1' });
+      prisma.quarterlyKpi.findMany.mockResolvedValue([
+        {
+          id: 'qkpi-1',
+          employeeId: 'emp-1',
+          year: 2026,
+          quarter: 2,
+          kpiPercent: 82,
+          auditStatus: 'APPROVED',
+          auditedAt: new Date(Date.UTC(9999, 0, 1)),
+        },
+      ]);
+
+      const result = await service.listQuarterlyKpis('emp-1', 'mgr-1', Role.MANAGER);
+
+      expect(result[0].kpiPercent).toBe(82);
+    });
+  });
+
+  describe('Release-notification cron queries', () => {
+    it('findDueMonthlyReleases returns only APPROVED, not-yet-notified rows past their release date', async () => {
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([
+        { id: 'eval-past', period: new Date('2025-01-01') },
+        { id: 'eval-future', period: new Date(Date.UTC(9999, 0, 1)) },
+      ]);
+
+      const due = await service.findDueMonthlyReleases();
+
+      expect(due.map((e: { id: string }) => e.id)).toEqual(['eval-past']);
+      expect(prisma.monthlyEvaluation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { auditStatus: 'APPROVED', releaseNotifiedAt: null },
+        }),
+      );
+    });
+
+    it('findDueQuarterlyKpiReleases returns only rows past auditedAt + 1 day', async () => {
+      prisma.quarterlyKpi.findMany.mockResolvedValue([
+        { id: 'qkpi-past', auditedAt: new Date('2025-01-01') },
+        { id: 'qkpi-future', auditedAt: new Date(Date.UTC(9999, 0, 1)) },
+      ]);
+
+      const due = await service.findDueQuarterlyKpiReleases();
+
+      expect(due.map((k: { id: string }) => k.id)).toEqual(['qkpi-past']);
+    });
+
+    it('markMonthlyReleaseNotified/markQuarterlyKpiReleaseNotified stamp releaseNotifiedAt', async () => {
+      await service.markMonthlyReleaseNotified('eval-1');
+      expect(prisma.monthlyEvaluation.update).toHaveBeenCalledWith({
+        where: { id: 'eval-1' },
+        data: { releaseNotifiedAt: expect.any(Date) },
+      });
+
+      await service.markQuarterlyKpiReleaseNotified('qkpi-1');
+      expect(prisma.quarterlyKpi.update).toHaveBeenCalledWith({
+        where: { id: 'qkpi-1' },
+        data: { releaseNotifiedAt: expect.any(Date) },
+      });
     });
   });
 });

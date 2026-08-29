@@ -133,17 +133,22 @@ export type EvaluationAuditStatus = 'PENDING_AUDIT' | 'APPROVED' | 'SENT_BACK'
 
 // kpiScore/justification/submittedBy/auditNotes are omitted by the backend
 // when the viewer is the evaluation's own subject — see PerformanceService's
-// confidentiality rule. Optional here so both shapes type-check.
+// confidentiality rule. Optional here so both shapes type-check. kpiScore/
+// kpiPercent/grade are additionally null on the subject's own view until
+// auditStatus is APPROVED *and* the release date (3rd of the month after
+// the period) has passed — releaseDate is always present so the UI can say
+// when it'll show up.
 export interface MonthlyEvaluation {
   id: string
   employeeId: string
   period: string
-  grade: PerformanceGrade
+  grade: PerformanceGrade | null
   auditStatus: EvaluationAuditStatus
+  releaseDate?: string
   createdAt: string
-  kpiScore?: number
+  kpiScore?: number | null
   // kpiScore on a 0-100 scale (kpiScore / 10, rounded).
-  kpiPercent?: number
+  kpiPercent?: number | null
   justification?: string
   submittedBy?: string
   submittedAt?: string
@@ -202,4 +207,48 @@ export interface QuarterlyKpiRewardsResponse {
 
 export function listQuarterlyKpiRewards(employeeId: string, year: number) {
   return api<QuarterlyKpiRewardsResponse>(`/performance/kpi-rewards/${employeeId}/${year}`)
+}
+
+// A standalone, manager-entered quarterly KPI percentage — distinct from
+// the auto-computed QuarterlyKpiReward above. Named "Rating" here (not
+// "Kpi") specifically to avoid confusion with that existing type. Same
+// confidentiality/release-gating contract as MonthlyEvaluation: kpiPercent
+// is null on the subject's own view until approved and past releaseDate
+// (the day after Super Admin approves).
+export interface QuarterlyKpiRating {
+  id: string
+  employeeId: string
+  year: number
+  quarter: number
+  kpiPercent: number | null
+  auditStatus: EvaluationAuditStatus
+  releaseDate: string | null
+  createdAt: string
+  justification?: string
+  submittedBy?: string
+  submittedAt?: string
+  auditedBy?: string | null
+  auditedAt?: string | null
+  auditNotes?: string | null
+}
+
+export function submitQuarterlyKpi(data: {
+  employeeId: string
+  year: number
+  quarter: number
+  kpiPercent: number
+  justification: string
+}) {
+  return api<QuarterlyKpiRating>('/performance/quarterly-kpis', { method: 'POST', body: data })
+}
+
+export function listQuarterlyKpis(employeeId: string) {
+  return api<QuarterlyKpiRating[]>('/performance/quarterly-kpis', { params: { employeeId } })
+}
+
+export function auditQuarterlyKpi(id: string, data: { approve: boolean; auditNotes?: string }) {
+  return api<QuarterlyKpiRating>(`/performance/quarterly-kpis/${id}/audit`, {
+    method: 'POST',
+    body: data,
+  })
 }

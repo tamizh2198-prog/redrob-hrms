@@ -29,6 +29,9 @@ import {
   listMonthlyEvaluations,
   auditMonthlyEvaluation,
   listQuarterlyKpiRewards,
+  submitQuarterlyKpi,
+  listQuarterlyKpis,
+  auditQuarterlyKpi,
   type ReviewCycle,
   type ReviewCycleType,
   type Goal,
@@ -36,6 +39,7 @@ import {
   type CalibrationView,
   type MonthlyEvaluation,
   type QuarterlyKpiRewardsResponse,
+  type QuarterlyKpiRating,
 } from '../api'
 
 const CYCLE_TYPES: ReviewCycleType[] = ['MONTHLY', 'QUARTERLY', 'YEARLY']
@@ -97,6 +101,13 @@ export function PerformancePage() {
   const [evalJustification, setEvalJustification] = useState('')
   const [auditNotesByEval, setAuditNotesByEval] = useState<Record<string, string>>({})
 
+  const [myQuarterlyKpis, setMyQuarterlyKpis] = useState<QuarterlyKpiRating[]>([])
+  const [reportQuarterlyKpis, setReportQuarterlyKpis] = useState<QuarterlyKpiRating[]>([])
+  const [kpiYear, setKpiYear] = useState(String(new Date().getFullYear()))
+  const [kpiQuarter, setKpiQuarter] = useState('1')
+  const [kpiPercent, setKpiPercent] = useState('')
+  const [kpiJustification, setKpiJustification] = useState('')
+
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -157,6 +168,7 @@ export function PerformancePage() {
     listQuarterlyKpiRewards(user.id, new Date().getFullYear())
       .then(setMyRewards)
       .catch(() => setMyRewards(null))
+    listQuarterlyKpis(user.id).then(setMyQuarterlyKpis).catch(() => setMyQuarterlyKpis([]))
   }
 
   function refreshReportEvaluations() {
@@ -167,6 +179,9 @@ export function PerformancePage() {
     listQuarterlyKpiRewards(reportEmployeeId, new Date().getFullYear())
       .then(setReportRewards)
       .catch(() => setReportRewards(null))
+    listQuarterlyKpis(reportEmployeeId)
+      .then(setReportQuarterlyKpis)
+      .catch(() => setReportQuarterlyKpis([]))
   }
 
   function personName(id: string) {
@@ -333,6 +348,54 @@ export function PerformancePage() {
     }
   }
 
+  async function handleSubmitQuarterlyKpi() {
+    if (!reportEmployeeId) return
+    setError(null)
+    setMessage(null)
+    try {
+      await submitQuarterlyKpi({
+        employeeId: reportEmployeeId,
+        year: Number(kpiYear),
+        quarter: Number(kpiQuarter),
+        kpiPercent: Number(kpiPercent),
+        justification: kpiJustification,
+      })
+      setMessage('Quarterly KPI submitted for audit.')
+      setKpiPercent('')
+      setKpiJustification('')
+      refreshReportEvaluations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to submit quarterly KPI')
+    }
+  }
+
+  async function handleAuditKpiApprove(kpiId: string) {
+    setError(null)
+    setMessage(null)
+    try {
+      await auditQuarterlyKpi(kpiId, { approve: true })
+      setMessage('Quarterly KPI approved.')
+      refreshReportEvaluations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to approve quarterly KPI')
+    }
+  }
+
+  async function handleAuditKpiSendBack(kpiId: string) {
+    setError(null)
+    setMessage(null)
+    try {
+      await auditQuarterlyKpi(kpiId, {
+        approve: false,
+        auditNotes: auditNotesByEval[kpiId] ?? '',
+      })
+      setMessage('Quarterly KPI sent back for clarification.')
+      refreshReportEvaluations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to send the quarterly KPI back')
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Performance Management</h1>
@@ -432,12 +495,22 @@ export function PerformancePage() {
               <li key={e.id} className="flex items-center justify-between rounded border p-2">
                 <span>{e.period.slice(0, 7)}</span>
                 <div className="flex items-center gap-2">
-                  {e.kpiScore != null && (
-                    <span className="text-muted-foreground">
-                      {e.kpiScore} ({e.kpiPercent}%)
+                  {e.kpiScore != null ? (
+                    <>
+                      <span className="text-muted-foreground">
+                        {e.kpiScore} ({e.kpiPercent}%)
+                      </span>
+                      <Badge variant="outline">{e.grade}</Badge>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {e.auditStatus === 'APPROVED'
+                        ? `Approved — visible from ${e.releaseDate?.slice(0, 10)}`
+                        : e.auditStatus === 'SENT_BACK'
+                          ? 'Sent back to your manager'
+                          : 'Pending Super Admin approval'}
                     </span>
                   )}
-                  <Badge variant="outline">{e.grade}</Badge>
                   <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
                 </div>
               </li>
@@ -445,6 +518,7 @@ export function PerformancePage() {
             {myEvaluations.length === 0 && <p className="text-muted-foreground">No monthly evaluations yet.</p>}
           </ul>
           <QuarterlyKpiRewardsPanel rewards={myRewards} />
+          <YourKpisPanel kpis={myQuarterlyKpis} />
         </div>
 
         {(isManager || isSuperAdmin) && (
@@ -537,6 +611,86 @@ export function PerformancePage() {
                   </Button>
                 </div>
               )}
+
+              <div className="mt-3 border-t pt-3">
+                <h3 className="mb-2 text-sm font-medium">Quarterly KPI %</h3>
+                <ul className="flex flex-col gap-2 text-sm">
+                  {reportQuarterlyKpis.map((k) => (
+                    <li key={k.id} className="rounded border p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          Q{k.quarter} {k.year}
+                        </span>
+                        <Badge variant={k.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{k.auditStatus}</Badge>
+                      </div>
+                      {k.kpiPercent != null && (
+                        <p className="text-muted-foreground">
+                          {k.kpiPercent}% — {k.justification}
+                        </p>
+                      )}
+                      {isSuperAdmin && k.auditStatus === 'PENDING_AUDIT' && (
+                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                          <Button size="sm" variant="outline" onClick={() => handleAuditKpiApprove(k.id)}>
+                            Approve
+                          </Button>
+                          <Input
+                            placeholder="Notes for send-back"
+                            value={auditNotesByEval[k.id] ?? ''}
+                            onChange={(ev) =>
+                              setAuditNotesByEval((s) => ({ ...s, [k.id]: ev.target.value }))
+                            }
+                          />
+                          <Button size="sm" variant="outline" onClick={() => handleAuditKpiSendBack(k.id)}>
+                            Send Back
+                          </Button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                  {reportQuarterlyKpis.length === 0 && (
+                    <p className="text-muted-foreground">No quarterly KPIs yet.</p>
+                  )}
+                </ul>
+
+                {isManager && (
+                  <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
+                    <Input
+                      placeholder="Year"
+                      type="number"
+                      value={kpiYear}
+                      onChange={(e) => setKpiYear(e.target.value)}
+                      className="w-24"
+                    />
+                    <Select value={kpiQuarter} onValueChange={setKpiQuarter}>
+                      <SelectTrigger className="w-24">
+                        <SelectValue placeholder="Quarter">{(v: string) => `Q${v}`}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {['1', '2', '3', '4'].map((q) => (
+                          <SelectItem key={q} value={q}>
+                            Q{q}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="KPI %"
+                      type="number"
+                      value={kpiPercent}
+                      onChange={(e) => setKpiPercent(e.target.value)}
+                      className="w-24"
+                    />
+                    <Textarea
+                      placeholder="Justification"
+                      value={kpiJustification}
+                      onChange={(e) => setKpiJustification(e.target.value)}
+                    />
+                    <Button size="sm" variant="outline" onClick={handleSubmitQuarterlyKpi}>
+                      Submit for Audit
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -745,6 +899,51 @@ function QuarterlyKpiRewardsPanel({ rewards }: { rewards: QuarterlyKpiRewardsRes
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// The new employee-facing view onto their own standalone quarterly KPI%
+// (see QuarterlyKpiRating) — deliberately separate from
+// QuarterlyKpiRewardsPanel above so a ₹ payout and a KPI% aren't visually
+// conflated. Same confidentiality contract as the monthly evaluations list:
+// kpiPercent is null until approved and past its release date.
+function YourKpisPanel({ kpis }: { kpis: QuarterlyKpiRating[] }) {
+  if (kpis.length === 0) return null
+  const byYear = new Map<number, QuarterlyKpiRating[]>()
+  for (const k of kpis) {
+    byYear.set(k.year, [...(byYear.get(k.year) ?? []), k])
+  }
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+      <h3 className="text-sm font-medium">Your KPIs</h3>
+      {[...byYear.entries()]
+        .sort(([a], [b]) => b - a)
+        .map(([year, yearKpis]) => (
+          <div key={year} className="flex flex-col gap-1">
+            <div className="text-xs font-medium text-muted-foreground">{year}</div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[...yearKpis]
+                .sort((a, b) => a.quarter - b.quarter)
+                .map((k) => (
+                  <div key={k.id} className="rounded border p-2 text-xs">
+                    <div className="font-medium">Q{k.quarter}</div>
+                    {k.kpiPercent != null ? (
+                      <div className="font-medium text-primary">{k.kpiPercent}%</div>
+                    ) : (
+                      <div className="text-muted-foreground">
+                        {k.auditStatus === 'APPROVED'
+                          ? `Visible from ${k.releaseDate?.slice(0, 10)}`
+                          : k.auditStatus === 'SENT_BACK'
+                            ? 'Sent back to your manager'
+                            : 'Pending approval'}
+                      </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+        ))}
     </div>
   )
 }

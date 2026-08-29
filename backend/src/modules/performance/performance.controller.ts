@@ -20,6 +20,8 @@ import { SubmitManagerAssessmentDto } from './dto/submit-manager-assessment.dto'
 import { CorrectRatingDto } from './dto/correct-rating.dto';
 import { SubmitMonthlyEvaluationDto } from './dto/submit-monthly-evaluation.dto';
 import { AuditMonthlyEvaluationDto } from './dto/audit-monthly-evaluation.dto';
+import { SubmitQuarterlyKpiDto } from './dto/submit-quarterly-kpi.dto';
+import { AuditQuarterlyKpiDto } from './dto/audit-quarterly-kpi.dto';
 
 @Controller('performance')
 @RequiresModule('PERFORMANCE')
@@ -183,6 +185,48 @@ export class PerformanceController {
     return this.performanceService.listQuarterlyKpiRewards(
       employeeId,
       Number(year),
+      user.userId,
+      user.role as Role,
+    );
+  }
+
+  @Post('quarterly-kpis')
+  submitQuarterlyKpi(
+    @Body() dto: SubmitQuarterlyKpiDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.performanceService.submitQuarterlyKpi(dto, user.userId);
+  }
+
+  @Get('quarterly-kpis')
+  listQuarterlyKpis(
+    @Query('employeeId') employeeId: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.performanceService.listQuarterlyKpis(
+      employeeId,
+      user.userId,
+      user.role as Role,
+    );
+  }
+
+  @Post('quarterly-kpis/:id/audit')
+  @Roles(Role.SUPER_ADMIN)
+  auditQuarterlyKpi(
+    @Param('id') id: string,
+    @Body() dto: AuditQuarterlyKpiDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.performanceService.auditQuarterlyKpi(id, dto, user.userId);
+  }
+
+  @Get('quarterly-kpis/:id')
+  getQuarterlyKpi(
+    @Param('id') id: string,
+    @CurrentUser() user: { userId: string; role: string },
+  ) {
+    return this.performanceService.getQuarterlyKpi(
+      id,
       user.userId,
       user.role as Role,
     );
