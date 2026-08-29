@@ -11,6 +11,7 @@ function createMockPrisma() {
       create: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       findMany: jest.fn(),
     },
     onboardingChecklist: {
@@ -36,6 +37,12 @@ function createMockPrisma() {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
+    },
+    probationFeedback: {
+      createMany: jest.fn().mockResolvedValue({ count: 3 }),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
     },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
@@ -153,6 +160,166 @@ describe('OnboardingService', () => {
       );
       expect(notifications.send).toHaveBeenCalledWith(
         expect.objectContaining({ recipientId: 'mgr-1' }),
+      );
+    });
+  });
+
+  describe('Template library: default flag and explicit template selection', () => {
+    it('lets a manually-started checklist use a specific template instead of the auto-resolved default', async () => {
+      prisma.onboardingChecklist.findUnique.mockResolvedValue(null);
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        companyId: 'co-1',
+        departmentId: 'dept-1',
+        dateOfJoining: new Date('2026-09-01'),
+        reportingManagerId: 'mgr-1',
+        status: 'PREBOARDING',
+      });
+      prisma.onboardingChecklistTemplate.findFirst.mockResolvedValueOnce({
+        id: 'tmpl-sales',
+        taskTemplates: [
+          { ownerRole: 'HR', phase: 'PRE_BOARDING', description: 'x', dueOffsetDays: 0 },
+        ],
+      });
+      prisma.onboardingChecklist.create.mockResolvedValue({
+        id: 'checklist-1',
+        tasks: [{ ownerRole: 'HR' }],
+      });
+
+      await service.initChecklist('emp-1', 'tmpl-sales');
+
+      expect(prisma.onboardingChecklistTemplate.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'tmpl-sales', companyId: 'co-1', isActive: true },
+        }),
+      );
+    });
+
+    it('unseats the previous default when creating a new default company-wide template', async () => {
+      prisma.onboardingChecklistTemplate.findFirst.mockResolvedValueOnce(null); // no same-name previous version
+      prisma.onboardingChecklistTemplate.create.mockResolvedValue({
+        id: 'tmpl-new',
+        taskTemplates: [],
+      });
+
+      await service.createTemplate({
+        companyId: 'co-1',
+        name: 'New Default',
+        isDefault: true,
+        tasks: [{ ownerRole: 'HR', phase: 'PRE_BOARDING', description: 'x' }],
+      } as never);
+
+      expect(prisma.onboardingChecklistTemplate.updateMany).toHaveBeenCalledWith({
+        where: { companyId: 'co-1', departmentId: null, isDefault: true },
+        data: { isDefault: false },
+      });
+      expect(prisma.onboardingChecklistTemplate.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ isDefault: true }) }),
+      );
+    });
+  });
+
+  describe('30/60/90-day probation feedback', () => {
+    it('creates a pending row for every checkpoint when an employee is activated', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-1',
+        status: 'PREBOARDING',
+      });
+      prisma.preboardingSubmission.findMany.mockResolvedValue([
+        { fieldType: 'ID_PROOF' },
+        { fieldType: 'EDUCATION_CERTIFICATE' },
+        { fieldType: 'BANK_DETAILS' },
+        { fieldType: 'BACKGROUND_CHECK_CONSENT' },
+      ]);
+
+      await service.activateEmployee('emp-1', 'hr-1');
+
+      expect(prisma.probationFeedback.createMany).toHaveBeenCalledWith({
+        data: [
+          { employeeId: 'emp-1', checkpoint: 'DAY_30' },
+          { employeeId: 'emp-1', checkpoint: 'DAY_60' },
+          { employeeId: 'emp-1', checkpoint: 'DAY_90' },
+        ],
+      });
+    });
+
+    it("rejects submitting someone else's feedback checkpoint", async () => {
+      prisma.probationFeedback.findUnique.mockResolvedValue({
+        id: 'fb-1',
+        employeeId: 'emp-1',
+        reminderSentAt: new Date(),
+        submittedAt: null,
+      });
+
+      await expect(
+        service.submitProbationFeedback('fb-1', 'emp-2', {
+          companyRating: 5,
+          workCultureRating: 5,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("rejects submitting before the checkpoint's reminder has actually fired", async () => {
+      prisma.probationFeedback.findUnique.mockResolvedValue({
+        id: 'fb-1',
+        employeeId: 'emp-1',
+        reminderSentAt: null,
+        submittedAt: null,
+      });
+
+      await expect(
+        service.submitProbationFeedback('fb-1', 'emp-1', {
+          companyRating: 5,
+          workCultureRating: 5,
+        }),
+      ).rejects.toThrow('This checkpoint is not due yet');
+    });
+
+    it('rejects submitting a checkpoint twice', async () => {
+      prisma.probationFeedback.findUnique.mockResolvedValue({
+        id: 'fb-1',
+        employeeId: 'emp-1',
+        reminderSentAt: new Date(),
+        submittedAt: new Date(),
+      });
+
+      await expect(
+        service.submitProbationFeedback('fb-1', 'emp-1', {
+          companyRating: 5,
+          workCultureRating: 5,
+        }),
+      ).rejects.toThrow('This checkpoint was already submitted');
+    });
+
+    it('records the submission when everything checks out', async () => {
+      prisma.probationFeedback.findUnique.mockResolvedValue({
+        id: 'fb-1',
+        employeeId: 'emp-1',
+        reminderSentAt: new Date(),
+        submittedAt: null,
+      });
+      prisma.probationFeedback.update.mockResolvedValue({
+        id: 'fb-1',
+        companyRating: 4,
+        workCultureRating: 5,
+      });
+
+      const result = await service.submitProbationFeedback('fb-1', 'emp-1', {
+        companyRating: 4,
+        workCultureRating: 5,
+        comments: 'Great so far',
+      });
+
+      expect(result.companyRating).toBe(4);
+      expect(prisma.probationFeedback.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'fb-1' },
+          data: expect.objectContaining({
+            companyRating: 4,
+            workCultureRating: 5,
+            comments: 'Great so far',
+          }),
+        }),
       );
     });
   });

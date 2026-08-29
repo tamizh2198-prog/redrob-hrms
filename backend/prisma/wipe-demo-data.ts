@@ -110,6 +110,7 @@ async function main() {
   await prisma.checklistTask.deleteMany({ where: { checklist: { employeeId: { in: employeeIds } } } });
   await prisma.onboardingChecklist.deleteMany({ where: { employeeId: { in: employeeIds } } });
   await prisma.preboardingSubmission.deleteMany({ where: { employeeId: { in: employeeIds } } });
+  await prisma.probationFeedback.deleteMany({ where: { employeeId: { in: employeeIds } } });
 
   // --- Resignation / offboarding ---
   await prisma.finalSettlement.deleteMany({ where: { employeeId: { in: employeeIds } } });

@@ -79,6 +79,7 @@ const EMPLOYEE_OWNED_MODELS = [
   'wfoWfhChangeRequest',
   'onboardingChecklist',
   'preboardingSubmission',
+  'probationFeedback',
   'assetAssignment',
   'assetRequest',
   'exitInterview',

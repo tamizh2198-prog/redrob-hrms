@@ -8,6 +8,8 @@ import { OnboardingService } from './onboarding.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { PreboardSubmitDto } from './dto/preboard-submit.dto';
 import { PortalCompleteTaskDto } from './dto/portal-complete-task.dto';
+import { InitChecklistDto } from './dto/init-checklist.dto';
+import { SubmitProbationFeedbackDto } from './dto/submit-probation-feedback.dto';
 
 @Controller('onboarding')
 @RequiresModule('ONBOARDING')
@@ -30,6 +32,32 @@ export class OnboardingController {
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
   listActiveChecklists() {
     return this.onboardingService.listActiveChecklists();
+  }
+
+  // Registered here (before ":employeeId/..." below) for the same reason
+  // as the "portal/..." routes further down.
+  @Get('probation-feedback/mine')
+  myProbationFeedback(@CurrentUser() user: { userId: string }) {
+    return this.onboardingService.listMyProbationFeedback(user.userId);
+  }
+
+  @Post('probation-feedback/:id/submit')
+  submitProbationFeedback(
+    @Param('id') id: string,
+    @Body() dto: SubmitProbationFeedbackDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.onboardingService.submitProbationFeedback(
+      id,
+      user.userId,
+      dto,
+    );
+  }
+
+  @Get('probation-feedback')
+  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  listProbationFeedback() {
+    return this.onboardingService.listProbationFeedback();
   }
 
   // Literal "portal/..." routes must be registered before the ":employeeId/..."
@@ -73,8 +101,11 @@ export class OnboardingController {
 
   @Post(':employeeId/init')
   @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  init(@Param('employeeId') employeeId: string) {
-    return this.onboardingService.initChecklist(employeeId);
+  init(
+    @Param('employeeId') employeeId: string,
+    @Body() dto: InitChecklistDto,
+  ) {
+    return this.onboardingService.initChecklist(employeeId, dto.templateId);
   }
 
   @Get(':employeeId/progress')

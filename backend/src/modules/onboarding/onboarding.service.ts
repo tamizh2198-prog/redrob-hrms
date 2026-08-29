@@ -7,6 +7,7 @@ import {
   ChecklistOwnerRole,
   ChecklistStatus,
   ChecklistTaskStatus,
+  ProbationCheckpoint,
   Role,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/database/prisma.service';
@@ -32,6 +33,15 @@ const MANDATORY_PREBOARDING_FIELDS = [
 ];
 
 const PREBOARDING_PORTAL_PURPOSE = 'preboarding-portal';
+
+// Anchors the 30/60/90-day feedback checkpoints to dateOfJoining — used by
+// both activateEmployee() (row creation) and ProbationFeedbackReminderService
+// (when to actually send each reminder).
+export const PROBATION_CHECKPOINT_DAYS: Record<ProbationCheckpoint, number> = {
+  DAY_30: 30,
+  DAY_60: 60,
+  DAY_90: 90,
+};
 
 function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
@@ -73,15 +83,30 @@ export class OnboardingService {
       });
     }
 
+    // A re-versioned template inherits the previous version's isDefault
+    // unless explicitly overridden — otherwise superseding today's default
+    // template (without remembering to re-tick "default") would silently
+    // leave the company with no auto-selectable fallback at all.
+    const isDefault = dto.isDefault ?? previous?.isDefault ?? false;
+    if (isDefault && !dto.departmentId) {
+      // Exactly one company-wide template holds this flag at a time.
+      await this.prisma.onboardingChecklistTemplate.updateMany({
+        where: { companyId, departmentId: null, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
     return this.prisma.onboardingChecklistTemplate.create({
       data: {
         companyId,
         name: dto.name,
         departmentId: dto.departmentId,
+        isDefault,
         version: (previous?.version ?? 0) + 1,
         taskTemplates: {
           create: dto.tasks.map((t) => ({
             ownerRole: t.ownerRole,
+            phase: t.phase,
             description: t.description,
             dueOffsetDays: t.dueOffsetDays ?? 0,
           })),
@@ -110,8 +135,17 @@ export class OnboardingService {
         });
       if (byDepartment) return byDepartment;
     }
+    // isDefault (not just isActive) keeps this deterministic now that a
+    // company can have several active company-wide templates in its
+    // library — only the one explicitly flagged default is ever
+    // auto-selected here.
     return this.prisma.onboardingChecklistTemplate.findFirst({
-      where: { companyId, departmentId: null, isActive: true },
+      where: {
+        companyId,
+        departmentId: null,
+        isActive: true,
+        isDefault: true,
+      },
       include: { taskTemplates: true },
     });
   }
@@ -119,8 +153,12 @@ export class OnboardingService {
   // Section 7.7 Key Features: "auto-assigned on hire, with tasks split
   // across HR, IT, Manager and the new hire." Idempotent — calling this
   // twice for the same employee returns the existing checklist rather than
-  // failing on the employeeId unique constraint.
-  async initChecklist(employeeId: string) {
+  // failing on the employeeId unique constraint. `templateId` lets an HR
+  // Admin pick a specific template from the library when starting
+  // onboarding manually; the automatic ATS offer-accept trigger never
+  // passes one, so it always goes through the same auto-resolution as
+  // before (findApplicableTemplate's isDefault-scoped fallback).
+  async initChecklist(employeeId: string, templateId?: string) {
     const existing = await this.prisma.onboardingChecklist.findUnique({
       where: { employeeId },
       include: { tasks: true },
@@ -142,13 +180,24 @@ export class OnboardingService {
       );
     }
 
-    const template = await this.findApplicableTemplate(
-      employee.companyId,
-      employee.departmentId,
-    );
+    const template = templateId
+      ? await this.prisma.onboardingChecklistTemplate.findFirst({
+          where: {
+            id: templateId,
+            companyId: employee.companyId,
+            isActive: true,
+          },
+          include: { taskTemplates: true },
+        })
+      : await this.findApplicableTemplate(
+          employee.companyId,
+          employee.departmentId,
+        );
     if (!template) {
       throw new NotFoundException(
-        'No onboarding checklist template configured for this department',
+        templateId
+          ? 'The selected onboarding checklist template was not found'
+          : 'No onboarding checklist template configured for this department',
       );
     }
 
@@ -160,6 +209,7 @@ export class OnboardingService {
         tasks: {
           create: template.taskTemplates.map((t) => ({
             ownerRole: t.ownerRole,
+            phase: t.phase,
             description: t.description,
             dueDate: employee.dateOfJoining
               ? addDays(employee.dateOfJoining, t.dueOffsetDays)
@@ -439,6 +489,15 @@ export class OnboardingService {
         where: { employeeId, status: { not: ChecklistStatus.COMPLETED } },
         data: { status: ChecklistStatus.COMPLETED },
       }),
+      // Pre-created child row per checkpoint (same shape as
+      // AnnouncementAck) — reminderSentAt stays null until
+      // ProbationFeedbackReminderService's sweep decides day 30/60/90 has
+      // actually arrived.
+      this.prisma.probationFeedback.createMany({
+        data: (
+          Object.keys(PROBATION_CHECKPOINT_DAYS) as ProbationCheckpoint[]
+        ).map((checkpoint) => ({ employeeId, checkpoint })),
+      }),
     ]);
 
     await this.notifications.send({
@@ -448,6 +507,58 @@ export class OnboardingService {
     });
 
     return { status: 'ACTIVE_PROBATION' };
+  }
+
+  async listMyProbationFeedback(employeeId: string) {
+    return this.prisma.probationFeedback.findMany({
+      where: { employeeId },
+      orderBy: { checkpoint: 'asc' },
+    });
+  }
+
+  async submitProbationFeedback(
+    id: string,
+    actorId: string,
+    dto: { companyRating: number; workCultureRating: number; comments?: string },
+  ) {
+    const feedback = await this.prisma.probationFeedback.findUnique({
+      where: { id },
+    });
+    if (!feedback) throw new NotFoundException('Feedback checkpoint not found');
+    if (feedback.employeeId !== actorId) {
+      throw new BadRequestException('This feedback checkpoint is not yours');
+    }
+    if (!feedback.reminderSentAt) {
+      throw new BadRequestException('This checkpoint is not due yet');
+    }
+    if (feedback.submittedAt) {
+      throw new BadRequestException('This checkpoint was already submitted');
+    }
+
+    return this.prisma.probationFeedback.update({
+      where: { id },
+      data: {
+        companyRating: dto.companyRating,
+        workCultureRating: dto.workCultureRating,
+        comments: dto.comments,
+        submittedAt: new Date(),
+      },
+    });
+  }
+
+  // HR/Super Admin-only culture/retention signal — every checkpoint an
+  // employee has actually answered, across everyone. Narrow select, not
+  // include: { employee: true } — no reason to pull passwordHash etc. here.
+  listProbationFeedback() {
+    return this.prisma.probationFeedback.findMany({
+      where: { submittedAt: { not: null } },
+      include: {
+        employee: {
+          select: { firstName: true, lastName: true, employeeCode: true },
+        },
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
   }
 
   listActiveChecklists() {

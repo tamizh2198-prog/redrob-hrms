@@ -3,6 +3,14 @@ import { Link } from 'react-router-dom'
 import { Users, UserPlus, ArrowRight, CornerDownRight, type LucideIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { WelcomeBanner } from '../components/WelcomeBanner'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -15,6 +23,7 @@ import {
 } from '@/components/ui/table'
 import { useAuth } from '@/shared/auth/AuthContext'
 import type { Role } from '@/shared/auth/role'
+import { ApiError } from '@/lib/api'
 import { getDashboard, type Dashboard } from '@/modules/analytics/api'
 import {
   listEmployees,
@@ -29,6 +38,11 @@ import {
 } from '@/modules/employee/api'
 import { listCalendar, type Holiday } from '@/modules/holiday/api'
 import { listAnnouncements, ackAnnouncement, type Announcement } from '@/modules/announcements/api'
+import {
+  getMyProbationFeedback,
+  submitProbationFeedback,
+  type ProbationFeedback,
+} from '@/modules/onboarding/api'
 
 // This task: a simple landing page, separate from Analytics — the
 // role-specific content here is just a placeholder message, not a
@@ -51,6 +65,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-6 p-6">
       <WelcomeBanner name={user?.name} role={user?.role} />
       <HighPriorityAnnouncements />
+      <ProbationFeedbackCard />
       {user?.id && <MyReportingAndDepartmentCard employeeId={user.id} />}
       {user?.role === 'MANAGER' && <MyTeamCard />}
       <Card>
@@ -132,6 +147,108 @@ function MyTeamCard() {
             </TableBody>
           </Table>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+const RATING_OPTIONS = [1, 2, 3, 4, 5]
+
+// Only renders once a checkpoint has actually come due (reminderSentAt is
+// set server-side) and hasn't been answered yet — otherwise nothing shows,
+// same "quiet unless something's pending" idiom as HighPriorityAnnouncements.
+function ProbationFeedbackCard() {
+  const [pending, setPending] = useState<ProbationFeedback | null>(null)
+  const [companyRating, setCompanyRating] = useState('')
+  const [workCultureRating, setWorkCultureRating] = useState('')
+  const [comments, setComments] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getMyProbationFeedback()
+      .then((rows) => setPending(rows.find((r) => r.reminderSentAt && !r.submittedAt) ?? null))
+      .catch(() => setPending(null))
+  }, [])
+
+  if (!pending) return null
+
+  async function handleSubmit() {
+    if (!pending || !companyRating || !workCultureRating) return
+    setError(null)
+    setSubmitting(true)
+    try {
+      await submitProbationFeedback(pending.id, {
+        companyRating: Number(companyRating),
+        workCultureRating: Number(workCultureRating),
+        comments: comments || undefined,
+      })
+      setPending(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to submit feedback')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const checkpointLabel = pending.checkpoint.replace('_', ' ').toLowerCase()
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>How's it going so far?</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm">
+        <p className="text-muted-foreground">
+          You're at your {checkpointLabel} check-in — a couple of quick questions on the company and
+          work culture so far.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Company (1-5)</label>
+            <Select value={companyRating} onValueChange={setCompanyRating}>
+              <SelectTrigger className="w-28">
+                <SelectValue placeholder="Rate" />
+              </SelectTrigger>
+              <SelectContent>
+                {RATING_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Work culture (1-5)</label>
+            <Select value={workCultureRating} onValueChange={setWorkCultureRating}>
+              <SelectTrigger className="w-28">
+                <SelectValue placeholder="Rate" />
+              </SelectTrigger>
+              <SelectContent>
+                {RATING_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <Textarea
+          placeholder="Anything you'd like to share (optional)"
+          value={comments}
+          onChange={(e) => setComments(e.target.value)}
+        />
+        {error && <p className="text-destructive">{error}</p>}
+        <Button
+          size="sm"
+          className="self-start"
+          disabled={submitting || !companyRating || !workCultureRating}
+          onClick={handleSubmit}
+        >
+          {submitting ? 'Submitting…' : 'Submit Feedback'}
+        </Button>
       </CardContent>
     </Card>
   )

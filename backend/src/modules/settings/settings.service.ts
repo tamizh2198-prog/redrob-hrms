@@ -333,6 +333,7 @@ export class SettingsService {
     'Review',
     'Goal',
     'PreboardingSubmission',
+    'ProbationFeedback',
     'ChecklistTask',
     'OnboardingChecklist',
     'Offer',

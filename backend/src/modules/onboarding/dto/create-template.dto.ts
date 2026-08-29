@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -9,11 +10,14 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { ChecklistOwnerRole } from '@prisma/client';
+import { ChecklistOwnerRole, OnboardingPhase } from '@prisma/client';
 
 export class ChecklistTaskTemplateDto {
   @IsEnum(ChecklistOwnerRole)
   ownerRole: ChecklistOwnerRole;
+
+  @IsEnum(OnboardingPhase)
+  phase: OnboardingPhase;
 
   @IsString()
   description: string;
@@ -35,6 +39,13 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsUUID()
   departmentId?: string;
+
+  // Company-wide (departmentId omitted) only — see
+  // OnboardingChecklistTemplate.isDefault's schema comment. Defaults to
+  // false; setting it true unseats whichever template previously held it.
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 
   @ValidateNested({ each: true })
   @Type(() => ChecklistTaskTemplateDto)

@@ -21,17 +21,31 @@ import {
   initChecklist,
   activateEmployee,
   completeTask,
+  listProbationFeedback,
+  ONBOARDING_PHASES,
+  ONBOARDING_PHASE_LABELS,
   type ChecklistWithEmployee,
   type OnboardingTemplate,
   type ChecklistOwnerRole,
+  type OnboardingPhase,
+  type ChecklistTask,
+  type ProbationFeedbackWithEmployee,
 } from '../api'
 
 const OWNER_ROLES: ChecklistOwnerRole[] = ['HR', 'IT', 'MANAGER', 'NEW_HIRE']
+const AUTO_DETECT_TEMPLATE = 'AUTO_DETECT'
 
 interface TaskRow {
   ownerRole: ChecklistOwnerRole
+  phase: OnboardingPhase
   description: string
   dueOffsetDays: string
+}
+
+function groupByPhase(tasks: ChecklistTask[]): Array<[OnboardingPhase, ChecklistTask[]]> {
+  return ONBOARDING_PHASES.map((phase) => [phase, tasks.filter((t) => t.phase === phase)]).filter(
+    ([, tasks]) => tasks.length > 0,
+  ) as Array<[OnboardingPhase, ChecklistTask[]]>
 }
 
 export function OnboardingPage() {
@@ -42,14 +56,17 @@ export function OnboardingPage() {
   const [templates, setTemplates] = useState<OnboardingTemplate[]>([])
   const [departments, setDepartments] = useState<ReferenceOption[]>([])
   const [people, setPeople] = useState<ManagerOption[]>([])
+  const [feedback, setFeedback] = useState<ProbationFeedbackWithEmployee[]>([])
 
   const [templateName, setTemplateName] = useState('')
   const [templateDepartmentId, setTemplateDepartmentId] = useState('')
+  const [templateIsDefault, setTemplateIsDefault] = useState(false)
   const [taskRows, setTaskRows] = useState<TaskRow[]>([
-    { ownerRole: 'NEW_HIRE', description: '', dueOffsetDays: '0' },
+    { ownerRole: 'NEW_HIRE', phase: 'DAY_ONE', description: '', dueOffsetDays: '0' },
   ])
 
   const [initEmployeeId, setInitEmployeeId] = useState('')
+  const [initTemplateId, setInitTemplateId] = useState(AUTO_DETECT_TEMPLATE)
 
   const preboardingPeople = people.filter((p) => p.status === 'PREBOARDING')
 
@@ -69,11 +86,15 @@ export function OnboardingPage() {
     if (isHrAdmin) {
       listActiveChecklists().then(setChecklists).catch(() => setChecklists([]))
       listTemplates().then(setTemplates).catch(() => setTemplates([]))
+      listProbationFeedback().then(setFeedback).catch(() => setFeedback([]))
     }
   }
 
   function addTaskRow() {
-    setTaskRows((rows) => [...rows, { ownerRole: 'HR', description: '', dueOffsetDays: '0' }])
+    setTaskRows((rows) => [
+      ...rows,
+      { ownerRole: 'HR', phase: 'DAY_ONE', description: '', dueOffsetDays: '0' },
+    ])
   }
 
   function removeTaskRow(index: number) {
@@ -91,15 +112,18 @@ export function OnboardingPage() {
       await createTemplate({
         name: templateName,
         departmentId: templateDepartmentId || undefined,
+        isDefault: templateIsDefault,
         tasks: taskRows.map((t) => ({
           ownerRole: t.ownerRole,
+          phase: t.phase,
           description: t.description,
           dueOffsetDays: Number(t.dueOffsetDays) || 0,
         })),
       })
       setMessage('Onboarding template created.')
       setTemplateName('')
-      setTaskRows([{ ownerRole: 'NEW_HIRE', description: '', dueOffsetDays: '0' }])
+      setTemplateIsDefault(false)
+      setTaskRows([{ ownerRole: 'NEW_HIRE', phase: 'DAY_ONE', description: '', dueOffsetDays: '0' }])
       refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create template')
@@ -110,7 +134,10 @@ export function OnboardingPage() {
     setError(null)
     setMessage(null)
     try {
-      await initChecklist(initEmployeeId)
+      await initChecklist(
+        initEmployeeId,
+        initTemplateId === AUTO_DETECT_TEMPLATE ? undefined : initTemplateId,
+      )
       setMessage('Onboarding checklist created.')
       refresh()
     } catch (err) {
@@ -181,6 +208,25 @@ export function OnboardingPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={initTemplateId} onValueChange={setInitTemplateId}>
+              <SelectTrigger className="w-64">
+                <SelectValue>
+                  {(v: string) =>
+                    v === AUTO_DETECT_TEMPLATE
+                      ? 'Auto-detect from department'
+                      : (templates.find((t) => t.id === v)?.name ?? 'Auto-detect from department')
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTO_DETECT_TEMPLATE}>Auto-detect from department</SelectItem>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" onClick={handleInitChecklist} disabled={!initEmployeeId}>
               Create Checklist
             </Button>
@@ -212,24 +258,33 @@ export function OnboardingPage() {
                     <Badge variant="outline">{c.status}</Badge>
                   </div>
                 </div>
-                <ul className="mt-2 flex flex-col gap-1">
-                  {c.tasks.map((t) => (
-                    <li key={t.id} className="flex items-center justify-between">
-                      <span>
-                        [{t.ownerRole}] {t.description}
-                      </span>
-                      {t.status === 'COMPLETED' ? (
-                        <Badge>Done</Badge>
-                      ) : t.ownerRole === 'NEW_HIRE' ? (
-                        <span className="text-muted-foreground">Via preboarding portal</span>
-                      ) : (
-                        <Button size="sm" variant="outline" onClick={() => handleCompleteTask(t.id)}>
-                          Mark Complete
-                        </Button>
-                      )}
-                    </li>
+                <div className="mt-2 flex flex-col gap-3">
+                  {groupByPhase(c.tasks).map(([phase, tasks]) => (
+                    <div key={phase}>
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">
+                        {ONBOARDING_PHASE_LABELS[phase]}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {tasks.map((t) => (
+                          <li key={t.id} className="flex items-center justify-between">
+                            <span>
+                              [{t.ownerRole}] {t.description}
+                            </span>
+                            {t.status === 'COMPLETED' ? (
+                              <Badge>Done</Badge>
+                            ) : t.ownerRole === 'NEW_HIRE' ? (
+                              <span className="text-muted-foreground">Via preboarding portal</span>
+                            ) : (
+                              <Button size="sm" variant="outline" onClick={() => handleCompleteTask(t.id)}>
+                                Mark Complete
+                              </Button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
                 <div className="mt-2">
                   <Button size="sm" variant="outline" onClick={() => handleActivate(c.employee.id)}>
                     Activate (end Preboarding)
@@ -250,9 +305,12 @@ export function OnboardingPage() {
         <h2 className="mb-2 font-medium">Onboarding Checklist Templates</h2>
         <ul className="mb-4 flex flex-col gap-1 text-sm">
           {templates.map((t) => (
-            <li key={t.id}>
-              {t.name} {t.departmentId ? '' : '(all departments)'} — v{t.version} —{' '}
-              {t.taskTemplates.length} tasks
+            <li key={t.id} className="flex items-center gap-2">
+              <span>
+                {t.name} {t.departmentId ? '' : '(all departments)'} — v{t.version} —{' '}
+                {t.taskTemplates.length} tasks
+              </span>
+              {t.isDefault && <Badge variant="outline">Default</Badge>}
             </li>
           ))}
           {templates.length === 0 && (
@@ -263,7 +321,7 @@ export function OnboardingPage() {
         <div className="flex flex-col gap-2">
           <Label>Template name</Label>
           <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
-          <Label>Department (optional — leave unset for a company-wide default)</Label>
+          <Label>Department (optional — leave unset for a company-wide template)</Label>
           <Select value={templateDepartmentId} onValueChange={setTemplateDepartmentId}>
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Any department">
@@ -279,6 +337,26 @@ export function OnboardingPage() {
             </SelectContent>
           </Select>
 
+          {!templateDepartmentId && (
+            <>
+              <Label>
+                Auto-selected default (used when starting onboarding without picking a template)
+              </Label>
+              <Select
+                value={templateIsDefault ? 'YES' : 'NO'}
+                onValueChange={(v) => setTemplateIsDefault(v === 'YES')}
+              >
+                <SelectTrigger className="w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NO">No — library option only</SelectItem>
+                  <SelectItem value="YES">Yes — make this the default</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
+
           <div className="mt-2 flex flex-col gap-2">
             {taskRows.map((row, i) => (
               <div key={i} className="flex flex-wrap items-center gap-2">
@@ -293,6 +371,21 @@ export function OnboardingPage() {
                     {OWNER_ROLES.map((r) => (
                       <SelectItem key={r} value={r}>
                         {r}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={row.phase}
+                  onValueChange={(v) => updateTaskRow(i, { phase: v as OnboardingPhase })}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue>{(v: string) => ONBOARDING_PHASE_LABELS[v as OnboardingPhase]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ONBOARDING_PHASES.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {ONBOARDING_PHASE_LABELS[p]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -324,6 +417,34 @@ export function OnboardingPage() {
             Create Template
           </Button>
         </div>
+      </div>
+      )}
+
+      {isHrAdmin && (
+      <div className="rounded-md border p-4">
+        <h2 className="mb-2 font-medium">Probation Feedback</h2>
+        <p className="mb-2 text-sm text-muted-foreground">
+          30/60/90-day company and work-culture feedback submitted by employees still in probation.
+        </p>
+        <ul className="flex flex-col gap-2 text-sm">
+          {feedback.map((f) => (
+            <li key={f.id} className="rounded border p-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">
+                  {f.employee.firstName} {f.employee.lastName} ({f.employee.employeeCode})
+                </span>
+                <Badge variant="outline">{f.checkpoint.replace('_', ' ')}</Badge>
+              </div>
+              <p className="text-muted-foreground">
+                Company: {f.companyRating}/5 · Work culture: {f.workCultureRating}/5
+              </p>
+              {f.comments && <p className="mt-1">{f.comments}</p>}
+            </li>
+          ))}
+          {feedback.length === 0 && (
+            <p className="text-muted-foreground">No feedback submitted yet.</p>
+          )}
+        </ul>
       </div>
       )}
     </div>

@@ -62,55 +62,252 @@ async function main() {
     create: { companyId: company.id, name: 'Engineering', code: 'ENG' },
   });
 
-  // Section 7.7: a company-wide (departmentId: null) fallback template so
-  // initChecklist() always finds one on offer acceptance, even for a
-  // department that has never had its own template configured — without
-  // this, the new hire's checklist/preboarding link silently fails to be
-  // created (see AtsService.respondOffer's swallowed NotFoundException).
-  // No compound unique key exists on this model, so this is a manual
-  // findFirst-then-create instead of an upsert.
-  const hasDefaultChecklistTemplate =
-    await prisma.onboardingChecklistTemplate.findFirst({
-      where: { companyId: company.id, departmentId: null },
+  // Section 7.7: a default-template library, not just a single fallback.
+  // Exactly one company-wide (departmentId: null) template carries
+  // isDefault: true — the one initChecklist() always finds on offer
+  // acceptance for a department with no template of its own configured
+  // (without this, the new hire's checklist/preboarding link silently
+  // fails to be created — see AtsService.respondOffer's swallowed
+  // NotFoundException). Every other template here is a real alternative
+  // an HR Admin picks explicitly when starting onboarding manually — never
+  // auto-selected. No compound unique key exists on this model, so each is
+  // a manual findFirst-then-create instead of an upsert.
+  const NEW_HIRE_DOCUMENTS_TASK = {
+    ownerRole: 'NEW_HIRE' as const,
+    phase: 'DAY_ONE' as const,
+    description:
+      'Submit ID proof, education certificates, bank details, and background-check consent',
+    dueOffsetDays: 3,
+  };
+
+  async function seedTemplate(data: {
+    name: string;
+    departmentId?: string;
+    isDefault?: boolean;
+    tasks: Array<{
+      ownerRole: 'HR' | 'IT' | 'MANAGER' | 'NEW_HIRE';
+      phase: 'PRE_BOARDING' | 'DAY_ONE' | 'WEEK_ONE' | 'FIRST_90_DAYS';
+      description: string;
+      dueOffsetDays: number;
+    }>;
+  }) {
+    const existing = await prisma.onboardingChecklistTemplate.findFirst({
+      where: {
+        companyId: company.id,
+        name: data.name,
+        departmentId: data.departmentId ?? null,
+      },
     });
-  if (!hasDefaultChecklistTemplate) {
+    if (existing) return;
     await prisma.onboardingChecklistTemplate.create({
       data: {
         companyId: company.id,
-        name: 'Default Onboarding Checklist',
-        taskTemplates: {
-          create: [
-            {
-              ownerRole: 'HR',
-              description: 'Prepare offer letter and employment contract',
-              dueOffsetDays: 0,
-            },
-            {
-              ownerRole: 'IT',
-              description: 'Provision laptop, email, and system access',
-              dueOffsetDays: 0,
-            },
-            {
-              ownerRole: 'MANAGER',
-              description: 'Plan first-week onboarding schedule',
-              dueOffsetDays: 1,
-            },
-            {
-              ownerRole: 'NEW_HIRE',
-              description:
-                'Submit ID proof, education certificates, bank details, and background-check consent',
-              dueOffsetDays: 3,
-            },
-            {
-              ownerRole: 'HR',
-              description: 'Conduct orientation and policy walkthrough',
-              dueOffsetDays: 5,
-            },
-          ],
-        },
+        name: data.name,
+        departmentId: data.departmentId,
+        isDefault: data.isDefault ?? false,
+        taskTemplates: { create: data.tasks },
       },
     });
   }
+
+  await seedTemplate({
+    name: 'Default Onboarding Checklist',
+    isDefault: true,
+    tasks: [
+      {
+        ownerRole: 'HR',
+        phase: 'PRE_BOARDING',
+        description: 'Prepare offer letter and employment contract',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'IT',
+        phase: 'PRE_BOARDING',
+        description: 'Provision laptop, email, and system access',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'DAY_ONE',
+        description: 'Plan first-week onboarding schedule',
+        dueOffsetDays: 1,
+      },
+      NEW_HIRE_DOCUMENTS_TASK,
+      {
+        ownerRole: 'HR',
+        phase: 'WEEK_ONE',
+        description: 'Conduct orientation and policy walkthrough',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'FIRST_90_DAYS',
+        description: 'Complete 90-day performance check-in',
+        dueOffsetDays: 85,
+      },
+    ],
+  });
+
+  // Department-scoped — auto-selected for anyone hired into Engineering
+  // (see `department` below), ahead of the company-wide default.
+  await seedTemplate({
+    name: 'Engineering Onboarding',
+    departmentId: department.id,
+    tasks: [
+      {
+        ownerRole: 'HR',
+        phase: 'PRE_BOARDING',
+        description: 'Prepare offer letter and employment contract',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'IT',
+        phase: 'PRE_BOARDING',
+        description: 'Provision laptop, dev accounts, and VPN access',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'IT',
+        phase: 'DAY_ONE',
+        description: 'Grant repository and CI/CD access',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'DAY_ONE',
+        description: 'Assign an onboarding buddy and a pair-programming session',
+        dueOffsetDays: 1,
+      },
+      NEW_HIRE_DOCUMENTS_TASK,
+      {
+        ownerRole: 'HR',
+        phase: 'WEEK_ONE',
+        description: 'Conduct orientation and policy walkthrough',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'WEEK_ONE',
+        description: 'Walk through codebase architecture and coding standards',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'FIRST_90_DAYS',
+        description: 'Review first project contribution and give feedback',
+        dueOffsetDays: 30,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'FIRST_90_DAYS',
+        description: 'Complete 90-day performance check-in',
+        dueOffsetDays: 85,
+      },
+    ],
+  });
+
+  // Company-wide, library-only — an HR Admin picks this explicitly for a
+  // Sales hire (no Sales department is seeded, so it's never auto-selected).
+  await seedTemplate({
+    name: 'Sales Onboarding',
+    tasks: [
+      {
+        ownerRole: 'HR',
+        phase: 'PRE_BOARDING',
+        description: 'Prepare offer letter and employment contract',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'IT',
+        phase: 'PRE_BOARDING',
+        description: 'Provision laptop, email, and CRM access',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'DAY_ONE',
+        description: 'Introduce to the sales team and assign a mentor',
+        dueOffsetDays: 1,
+      },
+      NEW_HIRE_DOCUMENTS_TASK,
+      {
+        ownerRole: 'HR',
+        phase: 'WEEK_ONE',
+        description: 'Conduct orientation and policy walkthrough',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'WEEK_ONE',
+        description: 'Walk through territory, quota, and pipeline expectations',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'WEEK_ONE',
+        description: 'Shadow a live sales call',
+        dueOffsetDays: 7,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'FIRST_90_DAYS',
+        description: 'Complete 90-day performance check-in',
+        dueOffsetDays: 85,
+      },
+    ],
+  });
+
+  // Company-wide, library-only — for a fully remote hire, in-office-specific
+  // tasks (desk setup, in-person orientation) are swapped for their remote
+  // equivalents.
+  await seedTemplate({
+    name: 'Remote Employee Onboarding',
+    tasks: [
+      {
+        ownerRole: 'HR',
+        phase: 'PRE_BOARDING',
+        description: 'Prepare offer letter and employment contract',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'IT',
+        phase: 'PRE_BOARDING',
+        description: 'Ship laptop and equipment to home address',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'HR',
+        phase: 'PRE_BOARDING',
+        description: 'Confirm home-office setup and stipend details',
+        dueOffsetDays: 0,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'DAY_ONE',
+        description: 'Host a virtual welcome call with the team',
+        dueOffsetDays: 0,
+      },
+      NEW_HIRE_DOCUMENTS_TASK,
+      {
+        ownerRole: 'HR',
+        phase: 'WEEK_ONE',
+        description: 'Conduct orientation and policy walkthrough (virtual)',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'WEEK_ONE',
+        description: 'Set up recurring 1:1s and communication norms',
+        dueOffsetDays: 5,
+      },
+      {
+        ownerRole: 'MANAGER',
+        phase: 'FIRST_90_DAYS',
+        description: 'Complete 90-day performance check-in',
+        dueOffsetDays: 85,
+      },
+    ],
+  });
 
   const designationManager = await prisma.designation.upsert({
     where: { companyId_code: { companyId: company.id, code: 'ENG-MGR' } },

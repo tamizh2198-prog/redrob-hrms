@@ -272,6 +272,7 @@ model Employee {
   interviewRoundsAsInterviewer InterviewRound[]        @relation("InterviewerRounds")
   onboardingChecklist          OnboardingChecklist?
   preboardingSubmissions       PreboardingSubmission[]
+  probationFeedback            ProbationFeedback[]
 
   goals              Goal[]
   reviews            Review[]
@@ -762,6 +763,16 @@ enum ChecklistOwnerRole {
   NEW_HIRE
 }
 
+// Every checklist task belongs to one of these — lets the UI group a
+// checklist into sections instead of one flat list, matching the
+// Pre-boarding/Day-1/Week-1/first-90-days structure a modern HRIS uses.
+enum OnboardingPhase {
+  PRE_BOARDING
+  DAY_ONE
+  WEEK_ONE
+  FIRST_90_DAYS
+}
+
 // Versioned per Section 7.7 Business Rules ("changing a template doesn't
 // retroactively alter checklists already in progress") — OnboardingChecklist
 // snapshots templateId at creation and is never re-pointed at a newer version.
@@ -774,6 +785,12 @@ model OnboardingChecklistTemplate {
   department   Department? @relation(fields: [departmentId], references: [id])
   version      Int         @default(1)
   isActive     Boolean     @default(true)
+  // Exactly one company-wide (departmentId: null) template should carry
+  // this — it's the one findApplicableTemplate() auto-selects when nothing
+  // department-specific exists (e.g. the automatic ATS offer-accept
+  // trigger, which can't ask a human to pick). Every other template is a
+  // real alternative an HR Admin can choose explicitly, never auto-picked.
+  isDefault    Boolean     @default(false)
   createdAt    DateTime    @default(now())
 
   taskTemplates ChecklistTaskTemplate[]
@@ -785,6 +802,7 @@ model ChecklistTaskTemplate {
   templateId    String
   template      OnboardingChecklistTemplate @relation(fields: [templateId], references: [id])
   ownerRole     ChecklistOwnerRole
+  phase         OnboardingPhase
   description   String
   dueOffsetDays Int                         @default(0)
 
@@ -808,6 +826,7 @@ model ChecklistTask {
   checklistId String
   checklist   OnboardingChecklist @relation(fields: [checklistId], references: [id])
   ownerRole   ChecklistOwnerRole
+  phase       OnboardingPhase
   description String
   dueDate     DateTime?
   status      ChecklistTaskStatus @default(PENDING)
@@ -828,6 +847,32 @@ model PreboardingSubmission {
   submittedAt DateTime  @default(now())
 
   @@index([employeeId])
+}
+
+// One row per (employee, checkpoint), pre-created the moment an employee
+// enters probation — same "pre-created child row per target" shape as
+// AnnouncementAck. reminderSentAt is the per-occurrence guard a scheduled
+// sweep sets exactly once per checkpoint (mirrors Ticket's
+// slaWarningNotifiedAt/slaBreachedAt in HelpdeskService.runSlaSweep()), so
+// day 30/60/90 each fire independently without re-notifying.
+enum ProbationCheckpoint {
+  DAY_30
+  DAY_60
+  DAY_90
+}
+
+model ProbationFeedback {
+  id                String              @id @default(uuid())
+  employeeId        String
+  employee          Employee            @relation(fields: [employeeId], references: [id])
+  checkpoint        ProbationCheckpoint
+  reminderSentAt    DateTime?
+  submittedAt       DateTime?
+  companyRating     Int?
+  workCultureRating Int?
+  comments          String?
+
+  @@unique([employeeId, checkpoint])
 }
 
 // ---------------------------------------------------------------------------
