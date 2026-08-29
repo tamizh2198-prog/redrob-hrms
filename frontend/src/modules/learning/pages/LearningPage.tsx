@@ -56,6 +56,7 @@ export function LearningPage() {
 
   const [mySpendLimit, setMySpendLimit] = useState<SpendLimit | null>(null)
   const [allSpendLimits, setAllSpendLimits] = useState<SpendLimitWithEmployee[]>([])
+  const [spendLimitSearch, setSpendLimitSearch] = useState('')
   const [myRequests, setMyRequests] = useState<LearningRequest[]>([])
   const [pendingForMe, setPendingForMe] = useState<LearningRequest[]>([])
   const [managerStageVisibility, setManagerStageVisibility] = useState<LearningRequest[]>([])
@@ -73,6 +74,13 @@ export function LearningPage() {
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const spendLimitQuery = spendLimitSearch.trim().toLowerCase()
+  const filteredSpendLimits = spendLimitQuery
+    ? allSpendLimits.filter((s) =>
+        `${s.firstName} ${s.lastName} ${s.employeeCode}`.toLowerCase().includes(spendLimitQuery),
+      )
+    : allSpendLimits
 
   function refresh() {
     getMySpendLimit().then(setMySpendLimit).catch(() => setMySpendLimit(null))
@@ -346,6 +354,12 @@ export function LearningPage() {
       {isSuperAdmin && (
         <div className="rounded-md border p-4">
           <h2 className="mb-2 font-medium">All Employees' Spend Limits ({new Date().getFullYear()})</h2>
+          <Input
+            placeholder="Search by name or employee code"
+            value={spendLimitSearch}
+            onChange={(e) => setSpendLimitSearch(e.target.value)}
+            className="mb-2 max-w-xs"
+          />
           <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
@@ -358,7 +372,7 @@ export function LearningPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {allSpendLimits.map((s) => (
+                {filteredSpendLimits.map((s) => (
                   <TableRow key={s.employeeId}>
                     <TableCell>
                       {s.firstName} {s.lastName} ({s.employeeCode})
@@ -381,10 +395,10 @@ export function LearningPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {allSpendLimits.length === 0 && (
+                {filteredSpendLimits.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      No employees found.
+                      {allSpendLimits.length === 0 ? 'No employees found.' : 'No employees match your search.'}
                     </TableCell>
                   </TableRow>
                 )}
