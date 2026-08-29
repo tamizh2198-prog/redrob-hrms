@@ -273,6 +273,7 @@ model Employee {
   onboardingChecklist          OnboardingChecklist?
   preboardingSubmissions       PreboardingSubmission[]
   probationFeedback            ProbationFeedback[]
+  learningRequests             LearningRequest[]
 
   goals              Goal[]
   reviews            Review[]
@@ -873,6 +874,54 @@ model ProbationFeedback {
   comments          String?
 
   @@unique([employeeId, checkpoint])
+}
+
+// ---------------------------------------------------------------------------
+// Learning: CTC-tiered course reimbursement, manager then Super Admin
+// approval, reimbursed only after a completion certificate is submitted.
+// ---------------------------------------------------------------------------
+
+enum LearningRequestStatus {
+  PENDING_MANAGER
+  PENDING_SUPER_ADMIN
+  APPROVED
+  REJECTED
+  COMPLETED
+  REIMBURSED
+}
+
+model LearningRequest {
+  id                   String                @id @default(uuid())
+  employeeId           String
+  employee             Employee              @relation(fields: [employeeId], references: [id])
+  courseName           String
+  duration             String
+  purpose              String
+  organizationalImpact String
+  cost                 Float
+  timeCommitment       String
+  // Calendar year at submission — the annual CTC-tiered budget resets each
+  // year, computed by summing this employee's non-rejected requests for the
+  // same year rather than a separately-maintained running balance.
+  requestYear          Int
+  status               LearningRequestStatus @default(PENDING_MANAGER)
+  // Loose string, not a Prisma relation — same shape as
+  // WfoWfhChangeRequest.approverId.
+  approverId           String?
+  managerApproverId    String?
+  managerDecidedAt     DateTime?
+  finalApproverId      String?
+  decidedAt            DateTime?
+  // Text/URL reference, not a real file upload — this codebase has no file
+  // storage mechanism anywhere (PreboardingSubmission's document collection
+  // uses the same pattern).
+  certificateRef       String?
+  completedAt          DateTime?
+  reimbursedBy         String?
+  reimbursedAt         DateTime?
+  createdAt            DateTime              @default(now())
+
+  @@index([employeeId])
 }
 
 // ---------------------------------------------------------------------------

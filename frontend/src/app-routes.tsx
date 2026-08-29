@@ -17,6 +17,7 @@ import {
   Settings,
   ShieldCheck,
   KeyRound,
+  GraduationCap,
 } from 'lucide-react'
 
 import {
@@ -36,6 +37,7 @@ import { HelpdeskPage } from '@/modules/helpdesk'
 import { AnnouncementsPage } from '@/modules/announcements'
 import { AnalyticsPage } from '@/modules/analytics'
 import { WorkflowPage } from '@/modules/workflow'
+import { LearningPage } from '@/modules/learning'
 import { NotificationsPage } from '@/modules/notifications'
 import { SettingsPage } from '@/modules/settings'
 import { AuditPage } from '@/modules/audit'
@@ -74,6 +76,10 @@ export const MODULE_NAV = [
   },
   { path: '/onboarding', label: 'Onboarding', Component: OnboardingPage, icon: UserPlus, color: 'text-teal-500' },
   { path: '/performance', label: 'Performance', Component: PerformancePage, icon: TrendingUp, color: 'text-orange-500' },
+  // Everyone requests/tracks their own learning reimbursement here — no
+  // `roles` restriction; Super-Admin-only sections are gated inside the
+  // page itself, same pattern as Shift & Roster's WFO/WFH panels.
+  { path: '/learning', label: 'Learning', Component: LearningPage, icon: GraduationCap, color: 'text-emerald-600' },
   // Assets: our own separately-built asset management platform now owns
   // this entirely — clicking the nav item leaves the HRMS, for every role.
   { path: '/assets', label: 'Assets', externalHref: ASSETS_EXTERNAL_URL, icon: Laptop, color: 'text-cyan-500' },

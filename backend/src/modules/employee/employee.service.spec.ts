@@ -28,6 +28,7 @@ const EMPLOYEE_OWNED_MODEL_NAMES = [
   'onboardingChecklist',
   'preboardingSubmission',
   'probationFeedback',
+  'learningRequest',
   'assetAssignment',
   'assetRequest',
   'resignation',

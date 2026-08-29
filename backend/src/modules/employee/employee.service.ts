@@ -80,6 +80,7 @@ const EMPLOYEE_OWNED_MODELS = [
   'onboardingChecklist',
   'preboardingSubmission',
   'probationFeedback',
+  'learningRequest',
   'assetAssignment',
   'assetRequest',
   'exitInterview',

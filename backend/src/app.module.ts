@@ -31,6 +31,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { AuditModule as AuditFeatureModule } from './modules/audit/audit.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { ModuleAccessModule } from './modules/module-access/module-access.module';
+import { LearningModule } from './modules/learning/learning.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { ModuleAccessModule } from './modules/module-access/module-access.module
     AuditFeatureModule,
     PermissionsModule,
     ModuleAccessModule,
+    LearningModule,
   ],
   controllers: [AppController],
   providers: [AppService],

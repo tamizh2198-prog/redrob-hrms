@@ -334,6 +334,7 @@ export class SettingsService {
     'Goal',
     'PreboardingSubmission',
     'ProbationFeedback',
+    'LearningRequest',
     'ChecklistTask',
     'OnboardingChecklist',
     'Offer',
