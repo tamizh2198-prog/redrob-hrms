@@ -68,10 +68,10 @@ export function ChangeRequestsPage() {
               <TableCell>{r.oldValue}</TableCell>
               <TableCell>{r.newValue}</TableCell>
               <TableCell className="flex gap-2">
-                <Button size="sm" onClick={() => handleApprove(r.id)}>
+                <Button size="sm" variant="success" onClick={() => handleApprove(r.id)}>
                   Approve
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => handleReject(r.id)}>
+                <Button size="sm" variant="destructive" onClick={() => handleReject(r.id)}>
                   Reject
                 </Button>
               </TableCell>

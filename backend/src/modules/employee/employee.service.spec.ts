@@ -47,7 +47,6 @@ const EMPLOYEE_OWNED_MODEL_NAMES = [
   'goal',
   'review',
   'monthlyEvaluation',
-  'quarterlyKpi',
   'jobRequisition',
   'interviewRound',
   'ticketMessage',

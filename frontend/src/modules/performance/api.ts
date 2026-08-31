@@ -29,16 +29,6 @@ export interface Goal {
   createdAt: string
 }
 
-export interface ReviewCorrection {
-  id: string
-  reviewId: string
-  previousRating: number | null
-  newRating: number
-  reason: string
-  correctedBy: string
-  correctedAt: string
-}
-
 export interface Review {
   id: string
   cycleId: string
@@ -50,7 +40,6 @@ export interface Review {
   version: number
   finalizedBy: string | null
   finalizedAt: string | null
-  corrections?: ReviewCorrection[]
 }
 
 export interface CalibrationBucket {
@@ -120,10 +109,6 @@ export function submitManagerAssessment(data: {
   return api<Review>('/performance/reviews/manager-assessment', { method: 'POST', body: data })
 }
 
-export function correctRating(reviewId: string, data: { newRating: number; reason: string }) {
-  return api<Review>(`/performance/reviews/${reviewId}/correct-rating`, { method: 'POST', body: data })
-}
-
 export function getReview(cycleId: string, employeeId: string) {
   return api<Review | null>(`/performance/reviews/${cycleId}/${employeeId}`)
 }
@@ -172,83 +157,4 @@ export function listMonthlyEvaluations(employeeId: string) {
 
 export function auditMonthlyEvaluation(id: string, data: { approve: boolean; auditNotes?: string }) {
   return api<MonthlyEvaluation>(`/performance/evaluations/${id}/audit`, { method: 'POST', body: data })
-}
-
-// P&B effective January 2026, "3a. Member KPI Linked Rewards" — a quarter's
-// payout, derived from that quarter's 3 approved monthly evaluations and the
-// employee's CTC band. Never persisted; always computed fresh.
-export interface QuarterlyKpiRewardMonth {
-  period: string
-  kpiScore: number | null
-  kpiPercent: number | null
-  auditStatus: EvaluationAuditStatus | null
-}
-
-export interface QuarterlyKpiReward {
-  employeeId: string
-  year: number
-  quarter: number
-  months: QuarterlyKpiRewardMonth[]
-  avgKpiPercent: number | null
-  ctcBandLabel: string | null
-  yearlyLimit: number | null
-  quarterlyLimit: number | null
-  rewardAmount: number | null
-  complete: boolean
-  reason: string | null
-}
-
-export interface QuarterlyKpiRewardsResponse {
-  employeeId: string
-  year: number
-  ctcLpa: number | null
-  quarters: QuarterlyKpiReward[]
-}
-
-export function listQuarterlyKpiRewards(employeeId: string, year: number) {
-  return api<QuarterlyKpiRewardsResponse>(`/performance/kpi-rewards/${employeeId}/${year}`)
-}
-
-// A standalone, manager-entered quarterly KPI percentage — distinct from
-// the auto-computed QuarterlyKpiReward above. Named "Rating" here (not
-// "Kpi") specifically to avoid confusion with that existing type. Same
-// confidentiality/release-gating contract as MonthlyEvaluation: kpiPercent
-// is null on the subject's own view until approved and past releaseDate
-// (the day after Super Admin approves).
-export interface QuarterlyKpiRating {
-  id: string
-  employeeId: string
-  year: number
-  quarter: number
-  kpiPercent: number | null
-  auditStatus: EvaluationAuditStatus
-  releaseDate: string | null
-  createdAt: string
-  justification?: string
-  submittedBy?: string
-  submittedAt?: string
-  auditedBy?: string | null
-  auditedAt?: string | null
-  auditNotes?: string | null
-}
-
-export function submitQuarterlyKpi(data: {
-  employeeId: string
-  year: number
-  quarter: number
-  kpiPercent: number
-  justification: string
-}) {
-  return api<QuarterlyKpiRating>('/performance/quarterly-kpis', { method: 'POST', body: data })
-}
-
-export function listQuarterlyKpis(employeeId: string) {
-  return api<QuarterlyKpiRating[]>('/performance/quarterly-kpis', { params: { employeeId } })
-}
-
-export function auditQuarterlyKpi(id: string, data: { approve: boolean; auditNotes?: string }) {
-  return api<QuarterlyKpiRating>(`/performance/quarterly-kpis/${id}/audit`, {
-    method: 'POST',
-    body: data,
-  })
 }

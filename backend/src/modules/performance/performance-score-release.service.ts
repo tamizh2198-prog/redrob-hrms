@@ -3,14 +3,14 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PerformanceService } from './performance.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 
-// Orchestration only — PerformanceService owns the "what's due" queries
-// (findDueMonthlyReleases/findDueQuarterlyKpiReleases), same split as
+// Orchestration only — PerformanceService owns the "what's due" query
+// (findDueMonthlyReleases), same split as
 // AnalyticsReportSchedulerService/WorkflowEscalationService. Release
 // granularity is a calendar day, so a daily midnight cron (matching
 // DocumentExpiryService's cadence) is fine.
 @Injectable()
-export class PerformanceKpiReleaseService {
-  private readonly logger = new Logger(PerformanceKpiReleaseService.name);
+export class PerformanceScoreReleaseService {
+  private readonly logger = new Logger(PerformanceScoreReleaseService.name);
 
   constructor(
     private readonly performanceService: PerformanceService,
@@ -31,20 +31,6 @@ export class PerformanceKpiReleaseService {
     }
     if (monthly.length > 0) {
       this.logger.log(`${monthly.length} monthly score(s) released`);
-    }
-
-    const quarterly = await this.performanceService.findDueQuarterlyKpiReleases();
-    for (const kpi of quarterly) {
-      await this.notifications.send({
-        recipientId: kpi.employeeId,
-        template: 'performance.quarterly-kpi-released',
-        body: `Your Q${kpi.quarter} ${kpi.year} KPI result is now available.`,
-        data: { kpiId: kpi.id },
-      });
-      await this.performanceService.markQuarterlyKpiReleaseNotified(kpi.id);
-    }
-    if (quarterly.length > 0) {
-      this.logger.log(`${quarterly.length} quarterly KPI(s) released`);
     }
   }
 }

@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ReferenceOption } from '@/modules/employee/api'
@@ -126,34 +127,40 @@ export function HolidayPage() {
         </div>
       </div>
 
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Calendar</h2>
-        <ul className="flex flex-col gap-2 text-sm">
-          {holidays.map((h) => (
-            <li key={h.id} className="flex items-center justify-between">
-              <span>
-                {h.date.slice(0, 10)} — {h.name}{' '}
+      <Card>
+        <CardHeader>
+          <CardTitle>Calendar</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="flex flex-col gap-2 text-sm">
+            {holidays.map((h) => (
+              <li key={h.id} className="flex items-center justify-between gap-3">
+                <span className="min-w-24 shrink-0 text-muted-foreground">{h.date.slice(0, 10)}</span>
+                <span className="min-w-0 flex-1 truncate">{h.name}</span>
                 {h.isOptional && <Badge variant="outline">Optional</Badge>}
-              </span>
-              {h.isOptional && !selectedIds.has(h.id) && (
-                <Button size="sm" variant="outline" onClick={() => handleSelect(h.id)}>
-                  Select
-                </Button>
-              )}
-              {h.isOptional && selectedIds.has(h.id) && (
-                <Badge>Selected</Badge>
-              )}
-            </li>
-          ))}
-          {holidays.length === 0 && (
-            <p className="text-muted-foreground">No holidays published for this calendar yet.</p>
-          )}
-        </ul>
-      </div>
+                {h.isOptional && !selectedIds.has(h.id) && (
+                  <Button size="sm" variant="outline" onClick={() => handleSelect(h.id)}>
+                    Select
+                  </Button>
+                )}
+                {h.isOptional && selectedIds.has(h.id) && (
+                  <Badge>Selected</Badge>
+                )}
+              </li>
+            ))}
+            {holidays.length === 0 && (
+              <p className="text-muted-foreground">No holidays published for this calendar yet.</p>
+            )}
+          </ul>
+        </CardContent>
+      </Card>
 
       {isHrAdmin && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Publish Holiday (HR Admin)</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Publish Holiday (HR Admin)</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex flex-col gap-1">
               <Label>Date</Label>
@@ -175,7 +182,8 @@ export function HolidayPage() {
               Publish
             </Button>
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

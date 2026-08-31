@@ -1,4 +1,4 @@
-import { PerformanceKpiReleaseService } from './performance-kpi-release.service';
+import { PerformanceScoreReleaseService } from './performance-score-release.service';
 import { PerformanceService } from './performance.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
 
@@ -6,8 +6,6 @@ function createMockPerformanceService() {
   return {
     findDueMonthlyReleases: jest.fn().mockResolvedValue([]),
     markMonthlyReleaseNotified: jest.fn().mockResolvedValue(undefined),
-    findDueQuarterlyKpiReleases: jest.fn().mockResolvedValue([]),
-    markQuarterlyKpiReleaseNotified: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -15,15 +13,15 @@ function createMockNotifications() {
   return { send: jest.fn().mockResolvedValue(undefined) };
 }
 
-describe('PerformanceKpiReleaseService', () => {
+describe('PerformanceScoreReleaseService', () => {
   let performanceService: ReturnType<typeof createMockPerformanceService>;
   let notifications: ReturnType<typeof createMockNotifications>;
-  let service: PerformanceKpiReleaseService;
+  let service: PerformanceScoreReleaseService;
 
   beforeEach(() => {
     performanceService = createMockPerformanceService();
     notifications = createMockNotifications();
-    service = new PerformanceKpiReleaseService(
+    service = new PerformanceScoreReleaseService(
       performanceService as unknown as PerformanceService,
       notifications as unknown as NotificationService,
     );
@@ -40,19 +38,6 @@ describe('PerformanceKpiReleaseService', () => {
       expect.objectContaining({ recipientId: 'emp-1', template: 'performance.monthly-score-released' }),
     );
     expect(performanceService.markMonthlyReleaseNotified).toHaveBeenCalledWith('eval-1');
-  });
-
-  it('notifies each due quarterly KPI and marks it notified exactly once', async () => {
-    performanceService.findDueQuarterlyKpiReleases.mockResolvedValue([
-      { id: 'qkpi-1', employeeId: 'emp-1', year: 2026, quarter: 2 },
-    ]);
-
-    await service.releaseDueScores();
-
-    expect(notifications.send).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientId: 'emp-1', template: 'performance.quarterly-kpi-released' }),
-    );
-    expect(performanceService.markQuarterlyKpiReleaseNotified).toHaveBeenCalledWith('qkpi-1');
   });
 
   it('does nothing when nothing is due', async () => {

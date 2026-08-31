@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -172,8 +173,11 @@ export function ProfileCompletionPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
       {message && <p className="text-sm text-primary">{message}</p>}
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Personal Information</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Personal Information</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <Label>First name</Label>
@@ -217,10 +221,14 @@ export function ProfileCompletionPage() {
             />
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Address</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Address</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2 flex flex-col gap-1">
             <Label>Address {isRequired('Address') && '*'}</Label>
@@ -243,10 +251,14 @@ export function ProfileCompletionPage() {
             <Input value={form.postalCode ?? ''} onChange={(e) => update('postalCode', e.target.value)} />
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Employment Information</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Employment Information</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">Read-only — contact HR to change these.</p>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
@@ -292,10 +304,14 @@ export function ProfileCompletionPage() {
             <Input value={toDateInputValue(employee.dateOfJoining)} disabled />
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Bank / Payroll Information</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Bank / Payroll Information</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <Label>PAN {isRequired('PAN') && '*'}</Label>
@@ -337,10 +353,14 @@ export function ProfileCompletionPage() {
             </Select>
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Emergency Contact</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Emergency Contact</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <Label>Name {isRequired('Emergency Contact Name') && '*'}</Label>
@@ -357,7 +377,8 @@ export function ProfileCompletionPage() {
             />
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
       <div className="flex gap-2">
         <Button disabled={saving} onClick={() => handleSave(true)}>

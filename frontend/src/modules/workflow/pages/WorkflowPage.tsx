@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import {
@@ -213,8 +214,11 @@ export function WorkflowPage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4 text-sm">
-        <h2 className="mb-2 font-medium">My Approvals</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>My Approvals</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
         <p className="mb-2 text-muted-foreground">
           Everything waiting on your decision, in one list. Only items badged{' '}
           <Badge variant="outline" className="mx-1">WORKFLOW</Badge>
@@ -222,19 +226,17 @@ export function WorkflowPage() {
         </p>
         <ul className="flex flex-col gap-2">
           {approvals.map((a) => (
-            <li key={`${a.source}-${a.id}`} className="flex items-center justify-between rounded border p-2">
-              <div>
-                <Badge variant="outline" className="mr-2">
-                  {a.source}
-                </Badge>
-                {a.summary}
+            <li key={`${a.source}-${a.id}`} className="flex items-center justify-between gap-2 rounded-md border p-2">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">{a.source}</Badge>
+                <span>{a.summary}</span>
               </div>
               {a.source === 'WORKFLOW' && (
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => handleDecide(a.id, 'APPROVED')}>
+                  <Button size="sm" variant="success" onClick={() => handleDecide(a.id, 'APPROVED')}>
                     Approve
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => handleDecide(a.id, 'REJECTED')}>
+                  <Button size="sm" variant="destructive" onClick={() => handleDecide(a.id, 'REJECTED')}>
                     Reject
                   </Button>
                 </div>
@@ -243,11 +245,15 @@ export function WorkflowPage() {
           ))}
           {approvals.length === 0 && <p className="text-muted-foreground">No pending approvals.</p>}
         </ul>
-      </div>
+        </CardContent>
+      </Card>
 
       {isHrAdmin && (
-        <div className="rounded-md border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Workflow Definitions</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Workflow Definitions</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
           <p className="mb-3 text-muted-foreground">
             An extra approval chain attached to a module, on top of its normal approver — e.g. "over a
             certain amount, a second person must also sign off."
@@ -459,7 +465,8 @@ export function WorkflowPage() {
               Create Definition
             </Button>
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

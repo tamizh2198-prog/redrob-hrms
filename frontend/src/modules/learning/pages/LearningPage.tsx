@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -167,270 +168,308 @@ export function LearningPage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">My Spend Limit ({mySpendLimit?.requestYear ?? new Date().getFullYear()})</h2>
-        {mySpendLimit ? (
-          <div className="flex flex-wrap gap-6 text-sm">
-            <div className="rounded-md bg-muted px-3 py-2">
-              <div className="text-xs text-muted-foreground">Annual Limit</div>
-              <div className="text-lg font-semibold">{formatCurrency(mySpendLimit.annualLimit)}</div>
-            </div>
-            <div className="rounded-md bg-muted px-3 py-2">
-              <div className="text-xs text-muted-foreground">Used</div>
-              <div className="text-lg font-semibold">{formatCurrency(mySpendLimit.used)}</div>
-            </div>
-            <div className="rounded-md bg-muted px-3 py-2">
-              <div className="text-xs text-muted-foreground">Remaining</div>
-              <div className="text-lg font-semibold">{formatCurrency(mySpendLimit.remaining)}</div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Your CTC isn't on file yet — contact HR before requesting learning reimbursement.
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Request Learning</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <Label>Course name</Label>
-            <Input value={courseName} onChange={(e) => setCourseName(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Duration</Label>
-            <Input
-              placeholder="e.g. 6 weeks"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <Label>Use of the course</Label>
-            <Textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <Label>What impact will this create for the organization?</Label>
-            <Textarea
-              value={organizationalImpact}
-              onChange={(e) => setOrganizationalImpact(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Cost</Label>
-            <Input type="number" min={0} value={cost} onChange={(e) => setCost(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>Time commitment</Label>
-            <Input
-              placeholder="e.g. 5 hours/week"
-              value={timeCommitment}
-              onChange={(e) => setTimeCommitment(e.target.value)}
-            />
-          </div>
-        </div>
-        <Button
-          className="mt-3"
-          variant="outline"
-          onClick={handleSubmitRequest}
-          disabled={!courseName || !duration || !purpose || !organizationalImpact || !cost || !timeCommitment}
-        >
-          Submit Request
-        </Button>
-      </div>
-
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">My Learning Requests</h2>
-        <ul className="flex flex-col gap-2 text-sm">
-          {myRequests.map((r) => (
-            <li key={r.id} className="rounded border p-3">
-              <div className="flex items-center justify-between">
-                <span className="font-medium">
-                  {r.courseName} — {formatCurrency(r.cost)}
-                </span>
-                <Badge variant={statusBadgeVariant(r.status)}>{STATUS_LABELS[r.status]}</Badge>
+      <Card>
+        <CardHeader>
+          <CardTitle>My Spend Limit ({mySpendLimit?.requestYear ?? new Date().getFullYear()})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {mySpendLimit ? (
+            <div className="flex flex-wrap gap-6 text-sm">
+              <div className="rounded-md bg-muted px-3 py-2">
+                <div className="text-xs text-muted-foreground">Annual Limit</div>
+                <div className="text-lg font-semibold">{formatCurrency(mySpendLimit.annualLimit)}</div>
               </div>
-              {r.status === 'APPROVED' && (
-                <div className="mt-2 flex gap-2">
-                  <Input
-                    placeholder="Certificate link / reference"
-                    value={certificateRefById[r.id] ?? ''}
-                    onChange={(e) =>
-                      setCertificateRefById((prev) => ({ ...prev, [r.id]: e.target.value }))
-                    }
-                  />
-                  <Button size="sm" variant="outline" onClick={() => handleSubmitCertificate(r.id)}>
-                    Submit Certificate
-                  </Button>
-                </div>
-              )}
-            </li>
-          ))}
-          {myRequests.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
-        </ul>
-      </div>
+              <div className="rounded-md bg-muted px-3 py-2">
+                <div className="text-xs text-muted-foreground">Used</div>
+                <div className="text-lg font-semibold">{formatCurrency(mySpendLimit.used)}</div>
+              </div>
+              <div className="rounded-md bg-muted px-3 py-2">
+                <div className="text-xs text-muted-foreground">Remaining</div>
+                <div className="text-lg font-semibold">{formatCurrency(mySpendLimit.remaining)}</div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Your CTC isn't on file yet — contact HR before requesting learning reimbursement.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
-      {pendingForMe.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Pending Requests to Decide (Manager)</h2>
-          <ul className="flex flex-col gap-3 text-sm">
-            {pendingForMe.map((r) => (
+      <Card>
+        <CardHeader>
+          <CardTitle>Request Learning</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <Label>Course name</Label>
+              <Input value={courseName} onChange={(e) => setCourseName(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Duration</Label>
+              <Input
+                placeholder="e.g. 6 weeks"
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <Label>Use of the course</Label>
+              <Textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <Label>What impact will this create for the organization?</Label>
+              <Textarea
+                value={organizationalImpact}
+                onChange={(e) => setOrganizationalImpact(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Cost</Label>
+              <Input type="number" min={0} value={cost} onChange={(e) => setCost(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label>Time commitment</Label>
+              <Input
+                placeholder="e.g. 5 hours/week"
+                value={timeCommitment}
+                onChange={(e) => setTimeCommitment(e.target.value)}
+              />
+            </div>
+          </div>
+          <Button
+            className="mt-3"
+            variant="outline"
+            onClick={handleSubmitRequest}
+            disabled={!courseName || !duration || !purpose || !organizationalImpact || !cost || !timeCommitment}
+          >
+            Submit Request
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>My Learning Requests</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="flex flex-col gap-2 text-sm">
+            {myRequests.map((r) => (
               <li key={r.id} className="rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">
-                      {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
-                    </div>
-                    <div className="text-muted-foreground">
-                      {r.courseName} — {formatCurrency(r.cost)} — {r.duration}
-                    </div>
-                    <div className="text-muted-foreground">Purpose: {r.purpose}</div>
-                    <div className="text-muted-foreground">Impact: {r.organizationalImpact}</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleDecision(r.id, true)}>
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleDecision(r.id, false)}>
-                      Reject
-                    </Button>
-                  </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">
+                    {r.courseName} — {formatCurrency(r.cost)}
+                  </span>
+                  <Badge variant={statusBadgeVariant(r.status)}>{STATUS_LABELS[r.status]}</Badge>
                 </div>
+                {r.status === 'APPROVED' && (
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      placeholder="Certificate link / reference"
+                      value={certificateRefById[r.id] ?? ''}
+                      onChange={(e) =>
+                        setCertificateRefById((prev) => ({ ...prev, [r.id]: e.target.value }))
+                      }
+                    />
+                    <Button size="sm" variant="outline" onClick={() => handleSubmitCertificate(r.id)}>
+                      Submit Certificate
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
+            {myRequests.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
           </ul>
-        </div>
+        </CardContent>
+      </Card>
+
+      {pendingForMe.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Requests to Decide (Manager)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-3 text-sm">
+              {pendingForMe.map((r) => (
+                <li key={r.id} className="rounded-md border p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">
+                        {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {r.courseName} — {formatCurrency(r.cost)} — {r.duration}
+                      </div>
+                      <div className="text-muted-foreground">Purpose: {r.purpose}</div>
+                      <div className="text-muted-foreground">Impact: {r.organizationalImpact}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="success" onClick={() => handleDecision(r.id, true)}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleDecision(r.id, false)}>
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
       )}
 
       {isSuperAdmin && managerStageVisibility.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Awaiting Manager Approval (not yet actionable)</h2>
-          <ul className="flex flex-col gap-2 text-sm">
-            {managerStageVisibility.map((r) => (
-              <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
-                <span>
-                  {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId} —{' '}
-                  {r.courseName} ({formatCurrency(r.cost)})
-                </span>
-                <Badge variant="outline">Manager review pending</Badge>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Awaiting Manager Approval (not yet actionable)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2 text-sm">
+              {managerStageVisibility.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1">
+                  <span className="flex flex-1 flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">
+                      {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {r.courseName} ({formatCurrency(r.cost)})
+                    </span>
+                  </span>
+                  <Badge variant="outline">Manager review pending</Badge>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
       )}
 
       {isSuperAdmin && pendingFinalApproval.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Pending Final Approval (Super Admin)</h2>
-          <ul className="flex flex-col gap-3 text-sm">
-            {pendingFinalApproval.map((r) => (
-              <li key={r.id} className="rounded-md border p-3">
-                <div className="flex items-center justify-between">
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Final Approval (Super Admin)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-3 text-sm">
+              {pendingFinalApproval.map((r) => (
+                <li key={r.id} className="rounded-md border p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">
+                        {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {r.courseName} — {formatCurrency(r.cost)} — {r.duration}
+                      </div>
+                      <div className="text-muted-foreground">Manager already approved this request.</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="success" onClick={() => handleDecision(r.id, true)}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => handleDecision(r.id, false)}>
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {isSuperAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>All Employees' Spend Limits ({new Date().getFullYear()})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Input
+              placeholder="Search by name or employee code"
+              value={spendLimitSearch}
+              onChange={(e) => setSpendLimitSearch(e.target.value)}
+              className="mb-2 max-w-xs"
+            />
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>CTC (LPA)</TableHead>
+                    <TableHead>Annual Limit</TableHead>
+                    <TableHead>Used</TableHead>
+                    <TableHead>Remaining</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredSpendLimits.map((s) => (
+                    <TableRow key={s.employeeId}>
+                      <TableCell>
+                        {s.firstName} {s.lastName} ({s.employeeCode})
+                      </TableCell>
+                      <TableCell>{s.ctcLpa ?? <span className="text-muted-foreground">Not on file</span>}</TableCell>
+                      <TableCell>
+                        {s.annualLimit != null ? (
+                          formatCurrency(s.annualLimit)
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>{formatCurrency(s.used)}</TableCell>
+                      <TableCell>
+                        {s.remaining != null ? (
+                          formatCurrency(s.remaining)
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredSpendLimits.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                        {allSpendLimits.length === 0 ? 'No employees found.' : 'No employees match your search.'}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isSuperAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>All Learning Requests</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2 text-sm">
+              {allRequests.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 rounded-md border p-3">
                   <div>
                     <div className="font-medium">
                       {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
                     </div>
                     <div className="text-muted-foreground">
-                      {r.courseName} — {formatCurrency(r.cost)} — {r.duration}
+                      {r.courseName} ({formatCurrency(r.cost)})
                     </div>
-                    <div className="text-muted-foreground">Manager already approved this request.</div>
+                    <Badge variant={statusBadgeVariant(r.status)}>{STATUS_LABELS[r.status]}</Badge>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleDecision(r.id, true)}>
-                      Approve
+                  {r.status === 'COMPLETED' && (
+                    <Button size="sm" variant="outline" onClick={() => handleMarkReimbursed(r.id)}>
+                      Mark Reimbursed
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleDecision(r.id, false)}>
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {isSuperAdmin && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">All Employees' Spend Limits ({new Date().getFullYear()})</h2>
-          <Input
-            placeholder="Search by name or employee code"
-            value={spendLimitSearch}
-            onChange={(e) => setSpendLimitSearch(e.target.value)}
-            className="mb-2 max-w-xs"
-          />
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>CTC (LPA)</TableHead>
-                  <TableHead>Annual Limit</TableHead>
-                  <TableHead>Used</TableHead>
-                  <TableHead>Remaining</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSpendLimits.map((s) => (
-                  <TableRow key={s.employeeId}>
-                    <TableCell>
-                      {s.firstName} {s.lastName} ({s.employeeCode})
-                    </TableCell>
-                    <TableCell>{s.ctcLpa ?? <span className="text-muted-foreground">Not on file</span>}</TableCell>
-                    <TableCell>
-                      {s.annualLimit != null ? (
-                        formatCurrency(s.annualLimit)
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatCurrency(s.used)}</TableCell>
-                    <TableCell>
-                      {s.remaining != null ? (
-                        formatCurrency(s.remaining)
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredSpendLimits.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      {allSpendLimits.length === 0 ? 'No employees found.' : 'No employees match your search.'}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      {isSuperAdmin && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">All Learning Requests</h2>
-          <ul className="flex flex-col gap-2 text-sm">
-            {allRequests.map((r) => (
-              <li key={r.id} className="flex items-center justify-between rounded border p-3">
-                <div>
-                  <div className="font-medium">
-                    {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId} —{' '}
-                    {r.courseName} ({formatCurrency(r.cost)})
-                  </div>
-                  <Badge variant={statusBadgeVariant(r.status)}>{STATUS_LABELS[r.status]}</Badge>
-                </div>
-                {r.status === 'COMPLETED' && (
-                  <Button size="sm" variant="outline" onClick={() => handleMarkReimbursed(r.id)}>
-                    Mark Reimbursed
-                  </Button>
-                )}
-              </li>
-            ))}
-            {allRequests.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
-          </ul>
-        </div>
+                  )}
+                </li>
+              ))}
+              {allRequests.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
+            </ul>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

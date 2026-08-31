@@ -242,7 +242,10 @@ export class OffboardingService {
 
   listResignations() {
     return this.prisma.resignation.findMany({
-      include: { clearanceItems: true },
+      include: {
+        clearanceItems: true,
+        employee: { select: { firstName: true, lastName: true, employeeCode: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

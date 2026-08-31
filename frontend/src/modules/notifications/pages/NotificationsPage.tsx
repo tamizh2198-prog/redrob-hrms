@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import {
@@ -106,37 +107,39 @@ export function NotificationsPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-md border p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-medium">
-              Inbox
-              {unreadCount > 0 && <Badge variant="secondary">{unreadCount} unread</Badge>}
-            </h2>
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={unreadOnly}
-                  onChange={(e) => {
-                    setUnreadOnly(e.target.checked)
-                    refreshInbox(e.target.checked)
-                  }}
-                />
-                Unread only
-              </label>
-              <Button size="sm" variant="outline" onClick={handleMarkAllRead}>
-                Mark all read
-              </Button>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                Inbox
+                {unreadCount > 0 && <Badge variant="secondary">{unreadCount} unread</Badge>}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={unreadOnly}
+                    onChange={(e) => {
+                      setUnreadOnly(e.target.checked)
+                      refreshInbox(e.target.checked)
+                    }}
+                  />
+                  Unread only
+                </label>
+                <Button size="sm" variant="outline" onClick={handleMarkAllRead}>
+                  Mark all read
+                </Button>
+              </div>
             </div>
-          </div>
-
+          </CardHeader>
+          <CardContent>
           {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
           <ul className="flex flex-col gap-2 text-sm">
             {items.map((n) => (
               <li key={n.id}>
                 <button
-                  className={`flex w-full flex-col items-start gap-1 rounded border p-2 text-left hover:bg-muted ${
+                  className={`flex w-full flex-col items-start gap-1 rounded-md border p-2 text-left hover:bg-muted ${
                     !n.readAt ? 'bg-muted/50' : ''
                   }`}
                   onClick={() => !n.readAt && handleMarkRead(n.id)}
@@ -156,10 +159,14 @@ export function NotificationsPage() {
               <p className="text-muted-foreground">No notifications yet.</p>
             )}
           </ul>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="rounded-md border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Delivery Preferences</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Delivery Preferences</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
           <p className="mb-3 text-muted-foreground">
             In-app delivery is always on. Email/Slack/SMS are simulated in this build (no
             mailer/SMS/Slack integration is wired up yet), but your preference is still recorded.
@@ -192,12 +199,16 @@ export function NotificationsPage() {
               <p className="text-muted-foreground">No preference categories yet.</p>
             )}
           </ul>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       {isHrAdmin && (
-        <div className="rounded-md border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Delivery Report</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Delivery Report</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
           {report ? (
             <div className="flex flex-col gap-1">
               <p>In-app notifications delivered: {report.inAppCount}</p>
@@ -220,7 +231,8 @@ export function NotificationsPage() {
           ) : (
             <p className="text-muted-foreground">No delivery data yet.</p>
           )}
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

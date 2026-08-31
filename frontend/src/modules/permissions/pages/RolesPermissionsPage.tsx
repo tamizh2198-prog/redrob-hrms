@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Role } from '@/shared/auth/role'
 import {
   getRolePermissions,
@@ -109,8 +110,11 @@ export function RolesPermissionsPage() {
         ) : (
           <div className="flex flex-col gap-4">
             {Array.from(groups.entries()).map(([category, perms]) => (
-              <div key={category} className="rounded-md border p-4">
-                <h3 className="mb-2 font-medium">{category}</h3>
+              <Card key={category}>
+                <CardHeader>
+                  <CardTitle className="text-base">{category}</CardTitle>
+                </CardHeader>
+                <CardContent>
                 <div className="flex flex-col gap-2">
                   {perms.map((p) => (
                     <label key={p.id} className="flex items-start gap-2 text-sm">
@@ -130,7 +134,8 @@ export function RolesPermissionsPage() {
                     </label>
                   ))}
                 </div>
-              </div>
+                </CardContent>
+              </Card>
             ))}
 
             {editable && (

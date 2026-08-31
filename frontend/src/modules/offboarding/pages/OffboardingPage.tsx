@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canAccessHrOperationalModules } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
@@ -177,8 +178,11 @@ export function OffboardingPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Submit Resignation</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Submit Resignation</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex flex-col gap-1">
                 <Label>Notice Period (days)</Label>
@@ -200,14 +204,18 @@ export function OffboardingPage() {
                 Load
               </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {active && (
-            <div className="rounded-md border p-4 text-sm">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="font-medium">Resignation {active.id.slice(0, 8)}</h2>
-                <Badge variant="outline">{active.status}</Badge>
-              </div>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Resignation {active.id.slice(0, 8)}</CardTitle>
+                  <Badge variant="outline">{active.status}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="text-sm">
               <p>Submitted: {active.submittedDate.slice(0, 10)}</p>
               <p>Notice period: {active.noticePeriodDays} days</p>
               <p>Last working day: {active.lastWorkingDay.slice(0, 10)}</p>
@@ -268,35 +276,49 @@ export function OffboardingPage() {
                   Submit Exit Interview
                 </Button>
               </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </div>
 
         {isHrAdmin && (
           <div className="flex flex-col gap-4">
-            <div className="rounded-md border p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="font-medium">All Resignations</h2>
-                <Button size="sm" variant="outline" onClick={refreshAllResignations}>
-                  Refresh
-                </Button>
-              </div>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>All Resignations</CardTitle>
+                  <Button size="sm" variant="outline" onClick={refreshAllResignations}>
+                    Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
               <ul className="flex flex-col gap-2 text-sm">
                 {allResignations.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between rounded border p-2">
-                    <button className="text-left hover:underline" onClick={() => loadActive(r.id)}>
-                      {r.id.slice(0, 8)} — LWD {r.lastWorkingDay.slice(0, 10)}
+                  <li key={r.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+                    <button
+                      className="flex flex-1 flex-wrap items-center justify-between gap-2 text-left hover:underline"
+                      onClick={() => loadActive(r.id)}
+                    >
+                      <span className="font-medium">
+                        {r.employee ? `${r.employee.firstName} ${r.employee.lastName} (${r.employee.employeeCode})` : r.id.slice(0, 8)}
+                      </span>
+                      <span className="text-muted-foreground">LWD {r.lastWorkingDay.slice(0, 10)}</span>
                     </button>
                     <Badge variant="outline">{r.status}</Badge>
                   </li>
                 ))}
                 {allResignations.length === 0 && <p className="text-muted-foreground">No resignations yet.</p>}
               </ul>
-            </div>
+              </CardContent>
+            </Card>
 
             {active && (
-              <div className="rounded-md border p-4">
-                <h2 className="mb-2 font-medium">Full &amp; Final Settlement</h2>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Full &amp; Final Settlement</CardTitle>
+                </CardHeader>
+                <CardContent>
                 <p className="mb-2 text-xs text-muted-foreground">
                   Leave encashment and asset recovery are pulled automatically from the Leave and Asset modules —
                   only the per-day pay rate is supplied here.
@@ -337,7 +359,7 @@ export function OffboardingPage() {
                     </Badge>
                     <div className="mt-2 flex gap-2">
                       {settlement.status === 'PENDING_APPROVAL' && (
-                        <Button size="sm" variant="outline" onClick={handleApproveSettlement}>
+                        <Button size="sm" variant="success" onClick={handleApproveSettlement}>
                           Approve
                         </Button>
                       )}
@@ -367,7 +389,8 @@ export function OffboardingPage() {
                     </p>
                   )}
                 </div>
-              </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         )}

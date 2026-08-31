@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { PerformanceController } from './performance.controller';
 import { PerformanceService } from './performance.service';
-import { PerformanceKpiReleaseService } from './performance-kpi-release.service';
+import { PerformanceScoreReleaseService } from './performance-score-release.service';
 
 @Module({
   controllers: [PerformanceController],
-  providers: [PerformanceService, PerformanceKpiReleaseService],
+  providers: [PerformanceService, PerformanceScoreReleaseService],
 })
 export class PerformanceModule {}

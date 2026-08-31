@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption } from '@/modules/employee/api'
@@ -261,8 +262,11 @@ export function HelpdeskPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Search the Knowledge Base</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Search the Knowledge Base</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-wrap items-end gap-2">
               <Input
                 placeholder="Search FAQs before raising a ticket"
@@ -284,10 +288,14 @@ export function HelpdeskPage() {
                 <p className="text-muted-foreground">No results yet — try a search.</p>
               )}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Raise a Ticket</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Raise a Ticket</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-col gap-2">
               <Label>Category</Label>
               <Select value={category} onValueChange={(v) => setCategory(v as TicketCategory)}>
@@ -323,33 +331,36 @@ export function HelpdeskPage() {
                 Raise Ticket
               </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="font-medium">{isHrAdmin ? 'All Tickets' : 'My Tickets'}</h2>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => {
-                  const next = v as TicketStatus | ''
-                  setStatusFilter(next)
-                  refreshTickets(next)
-                }}
-              >
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Any status">{(v: string) => (v ? label(v) : 'Any status')}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Any status</SelectItem>
-                  {STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {label(s)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>{isHrAdmin ? 'All Tickets' : 'My Tickets'}</CardTitle>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => {
+                    const next = v as TicketStatus | ''
+                    setStatusFilter(next)
+                    refreshTickets(next)
+                  }}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Any status">{(v: string) => (v ? label(v) : 'Any status')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Any status</SelectItem>
+                    {STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {label(s)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
             {loading && <p className="text-sm text-muted-foreground">Loading tickets…</p>}
 
             <ul className="flex flex-col gap-2 text-sm">
@@ -359,11 +370,11 @@ export function HelpdeskPage() {
                     className="flex w-full items-center justify-between rounded border p-2 text-left hover:bg-muted"
                     onClick={() => openTicket(t.id)}
                   >
-                    <div>
-                      <p className="font-medium">{t.subject}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{t.subject}</p>
                       <p className="text-muted-foreground">{label(t.category)}</p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       {t.slaBreachedAt && <Badge variant="destructive">SLA breached</Badge>}
                       <Badge variant={priorityVariant(t.priority)}>{label(t.priority)}</Badge>
                       <Badge variant={statusVariant(t.status)}>{label(t.status)}</Badge>
@@ -375,22 +386,26 @@ export function HelpdeskPage() {
                 <p className="text-muted-foreground">No tickets yet.</p>
               )}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="flex flex-col gap-4">
           {!selected && <p className="text-muted-foreground">Select a ticket to see its details.</p>}
 
           {selected && (
-            <div className="rounded-md border p-4 text-sm">
+            <Card className="text-sm">
+              <CardHeader>
               <div className="flex items-center justify-between">
-                <h2 className="font-medium">{selected.subject}</h2>
+                <CardTitle>{selected.subject}</CardTitle>
                 <div className="flex items-center gap-2">
                   <Badge variant={priorityVariant(selected.priority)}>{label(selected.priority)}</Badge>
                   <Badge variant={statusVariant(selected.status)}>{label(selected.status)}</Badge>
                 </div>
               </div>
-              <p className="mt-1 text-muted-foreground">{label(selected.category)}</p>
+              </CardHeader>
+              <CardContent>
+              <p className="-mt-2 text-muted-foreground">{label(selected.category)}</p>
               <p className="mt-2">{selected.description}</p>
               {selected.slaDueAt && (
                 <p className="mt-2 text-muted-foreground">
@@ -406,10 +421,12 @@ export function HelpdeskPage() {
                 <h3 className="font-medium">Conversation</h3>
                 {selected.messages.map((m) => (
                   <div key={m.id} className={`rounded border p-2 ${m.isInternalNote ? 'bg-muted' : ''}`}>
-                    <p className="text-xs text-muted-foreground">
-                      {personName(m.senderId)} {m.isInternalNote && '(internal note)'} —{' '}
-                      {new Date(m.createdAt).toLocaleString()}
-                    </p>
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate">
+                        {personName(m.senderId)} {m.isInternalNote && '(internal note)'}
+                      </span>
+                      <span className="shrink-0">{new Date(m.createdAt).toLocaleString()}</span>
+                    </div>
                     <p>{m.body}</p>
                   </div>
                 ))}
@@ -509,15 +526,19 @@ export function HelpdeskPage() {
                   </Button>
                 )}
               </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>
 
       {isHrAdmin && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-md border p-4 text-sm">
-            <h2 className="mb-2 font-medium">Dashboard</h2>
+          <Card className="text-sm">
+            <CardHeader>
+              <CardTitle>Dashboard</CardTitle>
+            </CardHeader>
+            <CardContent>
             {dashboard ? (
               <div className="flex flex-col gap-1">
                 <p>SLA compliance: {dashboard.slaCompliancePercent}%</p>
@@ -535,10 +556,14 @@ export function HelpdeskPage() {
             ) : (
               <p className="text-muted-foreground">No data yet.</p>
             )}
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4 text-sm">
-            <h2 className="mb-2 font-medium">SLA Policies</h2>
+          <Card className="text-sm">
+            <CardHeader>
+              <CardTitle>SLA Policies</CardTitle>
+            </CardHeader>
+            <CardContent>
             <ul className="mb-3 flex flex-col gap-1">
               {slaPolicies.map((p) => (
                 <li key={p.id}>
@@ -600,10 +625,14 @@ export function HelpdeskPage() {
                 Save Policy
               </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4 text-sm lg:col-span-2">
-            <h2 className="mb-2 font-medium">Add FAQ Entry</h2>
+          <Card className="text-sm lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Add FAQ Entry</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-col gap-2">
               <Select value={faqCategory} onValueChange={(v) => setFaqCategory(v as TicketCategory)}>
                 <SelectTrigger className="w-56">
@@ -623,7 +652,8 @@ export function HelpdeskPage() {
                 Add FAQ Entry
               </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

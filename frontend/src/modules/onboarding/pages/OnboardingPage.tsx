@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canAccessHrOperationalModules } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
@@ -184,8 +185,11 @@ export function OnboardingPage() {
       )}
 
       {isHrAdmin && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Start Onboarding for a New Hire</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Start Onboarding for a New Hire</CardTitle>
+          </CardHeader>
+          <CardContent>
           <p className="mb-2 text-sm text-muted-foreground">
             Only employees currently in Preboarding status (post-offer-accept, pre-Day-1) can have
             a checklist started — anyone else can never pass the later Activate step.
@@ -236,12 +240,16 @@ export function OnboardingPage() {
               No employees are currently in Preboarding status.
             </p>
           )}
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {isHrAdmin && (
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Active Checklists</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Active Checklists</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="flex flex-col gap-3">
           {checklists.map((c) => {
             const total = c.tasks.length
@@ -297,12 +305,16 @@ export function OnboardingPage() {
             <p className="text-muted-foreground">No onboarding checklists in progress.</p>
           )}
         </div>
-      </div>
+        </CardContent>
+      </Card>
       )}
 
       {isHrAdmin && (
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Onboarding Checklist Templates</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Onboarding Checklist Templates</CardTitle>
+        </CardHeader>
+        <CardContent>
         <ul className="mb-4 flex flex-col gap-1 text-sm">
           {templates.map((t) => (
             <li key={t.id} className="flex items-center gap-2">
@@ -417,12 +429,16 @@ export function OnboardingPage() {
             Create Template
           </Button>
         </div>
-      </div>
+        </CardContent>
+      </Card>
       )}
 
       {isHrAdmin && (
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Probation Feedback</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Probation Feedback</CardTitle>
+        </CardHeader>
+        <CardContent>
         <p className="mb-2 text-sm text-muted-foreground">
           30/60/90-day company and work-culture feedback submitted by employees still in probation.
         </p>
@@ -445,7 +461,8 @@ export function OnboardingPage() {
             <p className="text-muted-foreground">No feedback submitted yet.</p>
           )}
         </ul>
-      </div>
+        </CardContent>
+      </Card>
       )}
     </div>
   )

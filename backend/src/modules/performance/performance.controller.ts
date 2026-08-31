@@ -17,11 +17,8 @@ import { UpdateGoalProgressDto } from './dto/update-goal-progress.dto';
 import { OpenReviewCycleDto } from './dto/open-review-cycle.dto';
 import { SubmitSelfAssessmentDto } from './dto/submit-self-assessment.dto';
 import { SubmitManagerAssessmentDto } from './dto/submit-manager-assessment.dto';
-import { CorrectRatingDto } from './dto/correct-rating.dto';
 import { SubmitMonthlyEvaluationDto } from './dto/submit-monthly-evaluation.dto';
 import { AuditMonthlyEvaluationDto } from './dto/audit-monthly-evaluation.dto';
-import { SubmitQuarterlyKpiDto } from './dto/submit-quarterly-kpi.dto';
-import { AuditQuarterlyKpiDto } from './dto/audit-quarterly-kpi.dto';
 
 @Controller('performance')
 @RequiresModule('PERFORMANCE')
@@ -112,16 +109,6 @@ export class PerformanceController {
     );
   }
 
-  @Post('reviews/:id/correct-rating')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
-  correctRating(
-    @Param('id') id: string,
-    @Body() dto: CorrectRatingDto,
-    @CurrentUser() user: { userId: string },
-  ) {
-    return this.performanceService.correctRating(id, dto, user.userId);
-  }
-
   @Get('reviews/:cycleId/:employeeId')
   getReview(
     @Param('cycleId') cycleId: string,
@@ -170,62 +157,6 @@ export class PerformanceController {
     @CurrentUser() user: { userId: string; role: string },
   ) {
     return this.performanceService.getMonthlyEvaluation(
-      id,
-      user.userId,
-      user.role as Role,
-    );
-  }
-
-  @Get('kpi-rewards/:employeeId/:year')
-  listQuarterlyKpiRewards(
-    @Param('employeeId') employeeId: string,
-    @Param('year') year: string,
-    @CurrentUser() user: { userId: string; role: string },
-  ) {
-    return this.performanceService.listQuarterlyKpiRewards(
-      employeeId,
-      Number(year),
-      user.userId,
-      user.role as Role,
-    );
-  }
-
-  @Post('quarterly-kpis')
-  submitQuarterlyKpi(
-    @Body() dto: SubmitQuarterlyKpiDto,
-    @CurrentUser() user: { userId: string },
-  ) {
-    return this.performanceService.submitQuarterlyKpi(dto, user.userId);
-  }
-
-  @Get('quarterly-kpis')
-  listQuarterlyKpis(
-    @Query('employeeId') employeeId: string,
-    @CurrentUser() user: { userId: string; role: string },
-  ) {
-    return this.performanceService.listQuarterlyKpis(
-      employeeId,
-      user.userId,
-      user.role as Role,
-    );
-  }
-
-  @Post('quarterly-kpis/:id/audit')
-  @Roles(Role.SUPER_ADMIN)
-  auditQuarterlyKpi(
-    @Param('id') id: string,
-    @Body() dto: AuditQuarterlyKpiDto,
-    @CurrentUser() user: { userId: string },
-  ) {
-    return this.performanceService.auditQuarterlyKpi(id, dto, user.userId);
-  }
-
-  @Get('quarterly-kpis/:id')
-  getQuarterlyKpi(
-    @Param('id') id: string,
-    @CurrentUser() user: { userId: string; role: string },
-  ) {
-    return this.performanceService.getQuarterlyKpi(
       id,
       user.userId,
       user.role as Role,

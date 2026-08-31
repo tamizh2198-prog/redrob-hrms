@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption } from '@/modules/employee/api'
@@ -220,48 +221,59 @@ export function ShiftPage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">My Roster (next 30 days)</h2>
-        <ul className="flex flex-wrap gap-2 text-sm">
-          {myRoster.map((r) => (
-            <li key={r.id} className="rounded-md bg-muted px-2 py-1">
-              {r.date.slice(0, 10)}: {r.isWeekOff ? 'Week Off' : r.shift?.name ?? 'Unassigned'}
-              {!r.isWeekOff && (
-                <Badge className="ml-2" variant={r.workMode === 'WORK_FROM_HOME' ? 'outline' : 'default'}>
-                  {r.workMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'}
-                </Badge>
-              )}
-            </li>
-          ))}
-          {myRoster.length === 0 && <p className="text-muted-foreground">No roster entries yet.</p>}
-        </ul>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>My Roster (next 30 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="flex flex-wrap gap-2 text-sm">
+            {myRoster.map((r) => (
+              <li key={r.id} className="rounded-md bg-muted px-2 py-1">
+                {r.date.slice(0, 10)}: {r.isWeekOff ? 'Week Off' : r.shift?.name ?? 'Unassigned'}
+                {!r.isWeekOff && (
+                  <Badge className="ml-2" variant={r.workMode === 'WORK_FROM_HOME' ? 'outline' : 'default'}>
+                    {r.workMode === 'WORK_FROM_HOME' ? 'WFH' : 'Office'}
+                  </Badge>
+                )}
+              </li>
+            ))}
+            {myRoster.length === 0 && <p className="text-muted-foreground">No roster entries yet.</p>}
+          </ul>
+        </CardContent>
+      </Card>
 
-      <div className="rounded-md border p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-medium">WFO/WFH Change Requests</h2>
-          <WfoWfhRequestDialog onSubmitted={refresh} />
-        </div>
-        <ul className="flex flex-col gap-2 text-sm">
-          {myWfoWfh.map((r) => (
-            <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
-              <span>{wfoWfhRequestLabel(r)}</span>
-              <Badge
-                variant={
-                  r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
-                }
-              >
-                {wfoWfhStatusLabel(r.status)}
-              </Badge>
-            </li>
-          ))}
-          {myWfoWfh.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
-        </ul>
-      </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>WFO/WFH Change Requests</CardTitle>
+            <WfoWfhRequestDialog onSubmitted={refresh} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ul className="flex flex-col gap-2 text-sm">
+            {myWfoWfh.map((r) => (
+              <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
+                <span>{wfoWfhRequestLabel(r)}</span>
+                <Badge
+                  variant={
+                    r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
+                  }
+                >
+                  {wfoWfhStatusLabel(r.status)}
+                </Badge>
+              </li>
+            ))}
+            {myWfoWfh.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
+          </ul>
+        </CardContent>
+      </Card>
 
       {pendingWfoWfh.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Pending WFO/WFH Requests to Decide (Manager)</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending WFO/WFH Requests to Decide (Manager)</CardTitle>
+          </CardHeader>
+          <CardContent>
           <ul className="flex flex-col gap-3 text-sm">
             {pendingWfoWfh.map((r) => (
               <li key={r.id} className="rounded-md border p-3">
@@ -274,10 +286,10 @@ export function ShiftPage() {
                     <div className="text-muted-foreground">Reason: {r.reason}</div>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleWfoWfhDecision(r.id, true)}>
+                    <Button size="sm" variant="success" onClick={() => handleWfoWfhDecision(r.id, true)}>
                       Approve
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleWfoWfhDecision(r.id, false)}>
+                    <Button size="sm" variant="destructive" onClick={() => handleWfoWfhDecision(r.id, false)}>
                       Reject
                     </Button>
                   </div>
@@ -302,34 +314,44 @@ export function ShiftPage() {
               </li>
             ))}
           </ul>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Two-step WFO/WFH approval: this is the visibility-only view of
           requests still waiting on the manager — Super Admin/HR Admin were
           notified at submission, but there's nothing to act on here yet. */}
       {isHrAdmin && managerStageVisibility.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Awaiting Manager Approval (not yet actionable)</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Awaiting Manager Approval (not yet actionable)</CardTitle>
+          </CardHeader>
+          <CardContent>
           <ul className="flex flex-col gap-2 text-sm">
             {managerStageVisibility.map((r) => (
-              <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
-                <span>
-                  {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId} —{' '}
-                  {wfoWfhRequestLabel(r)}
+              <li key={r.id} className="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1">
+                <span className="flex flex-wrap items-center justify-between gap-2 flex-1">
+                  <span className="font-medium">
+                    {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
+                  </span>
+                  <span className="text-muted-foreground">{wfoWfhRequestLabel(r)}</span>
                 </span>
                 <Badge variant="outline">Manager review pending</Badge>
               </li>
             ))}
           </ul>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Two-step WFO/WFH approval: final sign-off, actionable by either a
           Super Admin or an HR Admin once the manager has already approved. */}
       {isHrAdmin && pendingFinalApproval.length > 0 && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">Pending Final Approval (Super Admin / HR Admin)</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Final Approval (Super Admin / HR Admin)</CardTitle>
+          </CardHeader>
+          <CardContent>
           <ul className="flex flex-col gap-3 text-sm">
             {pendingFinalApproval.map((r) => (
               <li key={r.id} className="rounded-md border p-3">
@@ -344,10 +366,10 @@ export function ShiftPage() {
                   </div>
                   {canApprove && (
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => handleWfoWfhDecision(r.id, true)}>
+                      <Button size="sm" variant="success" onClick={() => handleWfoWfhDecision(r.id, true)}>
                         Approve
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleWfoWfhDecision(r.id, false)}>
+                      <Button size="sm" variant="destructive" onClick={() => handleWfoWfhDecision(r.id, false)}>
                         Reject
                       </Button>
                     </div>
@@ -356,12 +378,16 @@ export function ShiftPage() {
               </li>
             ))}
           </ul>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {isSuperAdmin && (
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">All WFO/WFH Requests (Super Admin)</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>All WFO/WFH Requests (Super Admin)</CardTitle>
+          </CardHeader>
+          <CardContent>
           <ul className="flex flex-col gap-3 text-sm">
             {allWfoWfh.map((r) => (
               <li key={r.id} className="rounded-md border p-3">
@@ -397,13 +423,17 @@ export function ShiftPage() {
             ))}
             {allWfoWfh.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
           </ul>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {isHrAdmin && (
         <>
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Create Shift Template (HR Admin)</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Create Shift Template (HR Admin)</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex flex-col gap-1">
                 <Label>Name</Label>
@@ -428,10 +458,14 @@ export function ShiftPage() {
                 </li>
               ))}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Assign Roster (HR Admin)</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Assign Roster (HR Admin)</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-wrap items-end gap-2">
               <div className="flex flex-col gap-1">
                 <Label>Employee</Label>
@@ -511,13 +545,17 @@ export function ShiftPage() {
                 Assign
               </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="font-medium">Assign WFO Days (HR Admin)</h2>
-              <BulkWfoUploadDialog onImported={() => refresh()} />
-            </div>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Assign WFO Days (HR Admin)</CardTitle>
+                <BulkWfoUploadDialog onImported={() => refresh()} />
+              </div>
+            </CardHeader>
+            <CardContent>
             <p className="mb-2 text-sm text-muted-foreground">
               Employees follow a hybrid work culture, but office days aren't the same for
               everyone. Assign one employee at a time below, or use "Bulk Upload WFO Days" to set
@@ -576,7 +614,8 @@ export function ShiftPage() {
             >
               Save WFO Days
             </Button>
-          </div>
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

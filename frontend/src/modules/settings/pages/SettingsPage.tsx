@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -206,8 +207,11 @@ export function SettingsPage() {
 
       {/* Personal preference, not a company setting — visible to every
           role, unlike the admin-only cards below. */}
-      <div className="rounded-md border p-4 text-sm">
-        <h2 className="mb-2 font-medium">Preferences</h2>
+      <Card className="text-sm">
+        <CardHeader>
+          <CardTitle>Preferences</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium">Appearance</p>
@@ -225,7 +229,8 @@ export function SettingsPage() {
             )}
           </Button>
         </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {!canViewCompanySettings && (
         <p className="text-sm text-muted-foreground">
@@ -235,8 +240,11 @@ export function SettingsPage() {
 
       {canViewCompanySettings && (
         <>
-      <div className="rounded-md border p-4 text-sm">
-        <h2 className="mb-2 font-medium">Company Profile</h2>
+      <Card className="text-sm">
+        <CardHeader>
+          <CardTitle>Company Profile</CardTitle>
+        </CardHeader>
+        <CardContent>
         {company ? (
           isSuperAdmin ? (
             <div className="flex flex-col gap-2 lg:max-w-md">
@@ -274,10 +282,14 @@ export function SettingsPage() {
         ) : (
           <p className="text-muted-foreground">Loading…</p>
         )}
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="rounded-md border p-4 text-sm">
-        <h2 className="mb-2 font-medium">Org Structure</h2>
+      <Card className="text-sm">
+        <CardHeader>
+          <CardTitle>Org Structure</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {ORG_UNIT_TYPES.map((type) => (
             <div key={type}>
@@ -361,10 +373,14 @@ export function SettingsPage() {
             </Button>
           </div>
         )}
-      </div>
+        </CardContent>
+      </Card>
 
-      <div className="rounded-md border p-4 text-sm">
-        <h2 className="mb-2 font-medium">Integrations</h2>
+      <Card className="text-sm">
+        <CardHeader>
+          <CardTitle>Integrations</CardTitle>
+        </CardHeader>
+        <CardContent>
         <p className="mb-3 text-muted-foreground">
           This build has no OAuth/SMTP/SMS SDK wired up — status and a non-secret note are tracked
           here, never real credentials.
@@ -380,11 +396,15 @@ export function SettingsPage() {
           ))}
           {integrations.length === 0 && <p className="text-muted-foreground">Loading…</p>}
         </ul>
-      </div>
+        </CardContent>
+      </Card>
 
       {isSuperAdmin && (
-        <div className="rounded-md border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Data Backup</h2>
+        <Card className="text-sm">
+          <CardHeader>
+            <CardTitle>Data Backup</CardTitle>
+          </CardHeader>
+          <CardContent>
           <p className="mb-3 text-muted-foreground">
             Downloads a complete export of every table as a JSON file, straight to your browser —
             nothing is stored on the server. The file contains sensitive data (including password
@@ -394,7 +414,8 @@ export function SettingsPage() {
           <Button size="sm" variant="outline" disabled={backupDownloading} onClick={handleDownloadBackup}>
             {backupDownloading ? 'Downloading…' : 'Download Backup Now'}
           </Button>
-        </div>
+          </CardContent>
+        </Card>
       )}
         </>
       )}

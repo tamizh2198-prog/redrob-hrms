@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
@@ -285,8 +286,11 @@ export function AtsPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Requisitions</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Requisitions</CardTitle>
+            </CardHeader>
+            <CardContent>
             <ul className="flex flex-col gap-2 text-sm">
               {requisitions.map((r) => (
                 <li key={r.id} className="flex flex-col gap-1 rounded border p-2">
@@ -304,7 +308,7 @@ export function AtsPage() {
                     Hiring Manager: {personName(r.hiringManagerId)}
                   </span>
                   {canApprove && r.status === 'PENDING_APPROVAL' && (
-                    <Button size="sm" variant="outline" onClick={() => handleApprove(r.id)}>
+                    <Button size="sm" variant="success" onClick={() => handleApprove(r.id)}>
                       Approve
                     </Button>
                   )}
@@ -319,11 +323,15 @@ export function AtsPage() {
                 <p className="text-muted-foreground">No requisitions yet.</p>
               )}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
 
           {canRaiseRequisition && (
-            <div className="rounded-md border p-4">
-              <h2 className="mb-2 font-medium">Raise Requisition</h2>
+            <Card>
+              <CardHeader>
+                <CardTitle>Raise Requisition</CardTitle>
+              </CardHeader>
+              <CardContent>
               <div className="flex flex-col gap-2">
                 <Label>Title</Label>
                 <Input value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} />
@@ -361,7 +369,8 @@ export function AtsPage() {
                   Raise Requisition
                 </Button>
               </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
 
           {isHrAdmin && (
@@ -388,19 +397,26 @@ export function AtsPage() {
               })()}
 
               {analytics && (
-                <div className="rounded-md border p-4 text-sm">
-                  <h2 className="mb-2 font-medium">Pipeline Analytics</h2>
+                <Card className="text-sm">
+                  <CardHeader>
+                    <CardTitle>Pipeline Analytics</CardTitle>
+                  </CardHeader>
+                  <CardContent>
                   <p>Total candidates: {analytics.totalCandidates}</p>
                   <p>Time to fill: {analytics.timeToFillDays ?? '—'} days</p>
                   <p>
                     By stage:{' '}
                     {STAGES.map((s) => `${s}: ${analytics.byStage[s] ?? 0}`).join(', ')}
                   </p>
-                </div>
+                  </CardContent>
+                </Card>
               )}
 
-              <div className="rounded-md border p-4">
-                <h2 className="mb-2 font-medium">Add Candidate</h2>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Add Candidate</CardTitle>
+                </CardHeader>
+                <CardContent>
                 <div className="flex flex-wrap items-end gap-2">
                   <Input placeholder="Name" value={candName} onChange={(e) => setCandName(e.target.value)} />
                   <Input
@@ -422,7 +438,8 @@ export function AtsPage() {
                     Add
                   </Button>
                 </div>
-              </div>
+                </CardContent>
+              </Card>
 
               <div className="flex flex-col gap-3">
                 {candidates.map((c) => (
@@ -571,7 +588,7 @@ export function AtsPage() {
                               {canApprove && offer.status === 'DRAFT' && !offer.hrApprovedAt && (
                                 <Button
                                   size="sm"
-                                  variant="outline"
+                                  variant="success"
                                   onClick={() => handleApproveOffer(offer.id)}
                                 >
                                   Approve

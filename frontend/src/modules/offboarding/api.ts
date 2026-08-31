@@ -30,6 +30,9 @@ export interface LwdAdjustment {
 export interface Resignation {
   id: string
   employeeId: string
+  // Only present on the Super Admin/HR Admin "All Resignations" list —
+  // listResignations() includes it, but per-resignation lookups don't need it.
+  employee?: { firstName: string; lastName: string; employeeCode: string }
   submittedDate: string
   noticePeriodDays: number
   lastWorkingDay: string

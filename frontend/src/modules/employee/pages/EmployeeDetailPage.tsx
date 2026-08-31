@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -344,8 +345,11 @@ export function EmployeeDetailPage() {
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Personal Information</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Personal Information</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">
           Name, date of birth, gender, and address are employee self-service — managed by the
           employee via My Profile.{' '}
@@ -387,10 +391,14 @@ export function EmployeeDetailPage() {
             className="col-span-2"
           />
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Employment Information</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Employment Information</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
         <p className="text-xs text-muted-foreground">
           {isSuperAdmin
             ? 'Super Admin can edit these fields directly.'
@@ -513,7 +521,8 @@ export function EmployeeDetailPage() {
             </>
           )}
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {/* Section 7.1: PAN/Aadhaar/bank details are masked in the API response
           for anyone but a privileged viewer or the employee themselves — so
@@ -521,15 +530,18 @@ export function EmployeeDetailPage() {
           hold the real unmasked values and an editable input is enough. A
           Manager viewing a report's profile is neither, so they get the old
           read-only + Reveal flow instead. */}
-      <section className="rounded-md border p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-medium">Payroll / Identity</h2>
-          {!canEditSelfServiceFields && !isSelf && (
-            <Button variant="outline" size="sm" onClick={handleReveal}>
-              Reveal
-            </Button>
-          )}
-        </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Payroll / Identity</CardTitle>
+            {!canEditSelfServiceFields && !isSelf && (
+              <Button variant="outline" size="sm" onClick={handleReveal}>
+                Reveal
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
         {isSelf && !isHrAdmin && (
           <p className="mb-2 text-xs text-muted-foreground">
             Manage PAN, Aadhaar, bank/IFSC details, and blood group from My Profile.
@@ -580,9 +592,6 @@ export function EmployeeDetailPage() {
                   }))
                 }
               />
-              <p className="text-xs text-muted-foreground">
-                Drives the Performance module's quarterly KPI reward band.
-              </p>
             </div>
           </div>
         ) : (
@@ -613,17 +622,19 @@ export function EmployeeDetailPage() {
             </div>
           </div>
         )}
-      </section>
+        </CardContent>
+      </Card>
 
       {isSuperAdmin && !isSelf && (
-        <section className="flex flex-col gap-3 rounded-md border p-4">
-          <div>
-            <h2 className="font-medium">Module Access</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Module Access</CardTitle>
             <p className="text-xs text-muted-foreground">
               Grant this employee access to a specific module regardless of their role — an
               exception scoped to that module only, not a role change.
             </p>
-          </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
           {moduleActionError && <p className="text-sm text-destructive">{moduleActionError}</p>}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {GRANTABLE_MODULES.map((module) => {
@@ -641,11 +652,15 @@ export function EmployeeDetailPage() {
               )
             })}
           </div>
-        </section>
+          </CardContent>
+        </Card>
       )}
 
-      <section className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">Emergency Contact</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Emergency Contact</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="grid grid-cols-2 gap-4">
           <Field
             label="Emergency contact name"
@@ -660,14 +675,18 @@ export function EmployeeDetailPage() {
             onChange={(v) => setForm((f) => ({ ...f, emergencyContactPhone: v }))}
           />
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {completion && (
-        <section className="flex flex-col gap-2 rounded-md border p-4">
-          <div className="flex items-center justify-between text-sm">
-            <h2 className="font-medium">Profile Completion</h2>
-            <span>{completion.completionPercentage}%</span>
-          </div>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between text-sm">
+              <CardTitle>Profile Completion</CardTitle>
+              <span>{completion.completionPercentage}%</span>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
           <div className="h-2 w-full rounded-full bg-muted">
             <div
               className="h-2 rounded-full bg-primary transition-all"
@@ -700,7 +719,8 @@ export function EmployeeDetailPage() {
               </ul>
             </div>
           </div>
-        </section>
+          </CardContent>
+        </Card>
       )}
 
       {canEditSelfServiceFields && (
@@ -709,8 +729,11 @@ export function EmployeeDetailPage() {
 
       {orgChart && (
         <div className="grid grid-cols-2 gap-6">
-          <div>
-            <h2 className="mb-2 font-medium">Reporting chain</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Reporting chain</CardTitle>
+            </CardHeader>
+            <CardContent>
             <ul className="flex flex-col gap-1 text-sm">
               {orgChart.managers.map((m) => (
                 <li key={m.id}>
@@ -723,9 +746,13 @@ export function EmployeeDetailPage() {
                 <li className="text-muted-foreground">No manager</li>
               )}
             </ul>
-          </div>
-          <div>
-            <h2 className="mb-2 font-medium">Direct reports</h2>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Direct reports</CardTitle>
+            </CardHeader>
+            <CardContent>
             <ul className="flex flex-col gap-1 text-sm">
               {orgChart.directReports.map((r) => (
                 <li key={r.id}>
@@ -736,7 +763,8 @@ export function EmployeeDetailPage() {
               ))}
               {orgChart.directReports.length === 0 && <li className="text-muted-foreground">None</li>}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

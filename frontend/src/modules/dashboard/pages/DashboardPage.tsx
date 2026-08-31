@@ -329,10 +329,12 @@ function MyReportingAndDepartmentCard({ employeeId }: { employeeId: string }) {
           <CardContent>
             <ul className="flex flex-col gap-1 text-sm">
               {colleagues.map((c) => (
-                <li key={c.id} className="flex items-center justify-between">
-                  <span>
+                <li key={c.id} className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 flex-1 truncate font-medium">
                     {c.firstName} {c.lastName}
-                    {c.designation ? ` — ${c.designation.name}` : ''}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {c.designation?.name ?? ''}
                   </span>
                   <Badge variant={c.status === 'TERMINATED' ? 'destructive' : 'outline'}>
                     {c.status}
@@ -469,10 +471,9 @@ function UpcomingHolidays() {
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {upcoming.map((h) => (
-          <div key={h.id} className="flex items-center justify-between text-sm">
-            <span>
-              {formatHolidayDate(h.date)} — {h.name}
-            </span>
+          <div key={h.id} className="flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-20 shrink-0 text-muted-foreground">{formatHolidayDate(h.date)}</span>
+            <span className="min-w-0 flex-1 truncate">{h.name}</span>
             {h.isOptional && <Badge variant="outline">Optional</Badge>}
           </div>
         ))}

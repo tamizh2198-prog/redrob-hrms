@@ -130,11 +130,6 @@ const BLOCKING_EMPLOYEE_REFERENCES: ReadonlyArray<{
     field: 'employeeId',
     label: 'monthly performance evaluation',
   },
-  {
-    model: 'quarterlyKpi',
-    field: 'employeeId',
-    label: 'quarterly KPI evaluation',
-  },
   { model: 'ticket', field: 'employeeId', label: 'helpdesk ticket (raised by this employee)' },
   {
     model: 'jobRequisition',

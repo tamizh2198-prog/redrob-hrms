@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
@@ -204,19 +205,26 @@ export function AnalyticsPage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4 text-sm">
-        <h2 className="mb-2 font-medium">Dashboard</h2>
+      <Card>
+        <CardHeader>
+          <CardTitle>Dashboard</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
         {!dashboard && <p className="text-muted-foreground">Loading dashboard…</p>}
         {dashboard?.role === 'EMPLOYEE' && <EmployeeDashboardView d={dashboard} />}
         {dashboard?.role === 'MANAGER' && <ManagerDashboardView d={dashboard} />}
         {(dashboard?.role === 'HR_ADMIN' || dashboard?.role === 'SUPER_ADMIN') && (
           <HrAdminDashboardView d={dashboard} />
         )}
-      </div>
+        </CardContent>
+      </Card>
 
       {isHrAdmin && (
-        <div className="rounded-md border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Report Builder</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Report Builder</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex flex-col gap-1">
               <Label>Entity</Label>
@@ -392,12 +400,16 @@ export function AnalyticsPage() {
               </div>
             </div>
           )}
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {isHrAdmin && (
-        <div className="rounded-md border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Scheduled Reports</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Scheduled Reports</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">
           <p className="mb-2 text-muted-foreground">
             Save the current Report Builder filters above as a recurring email. Recipients are
             re-checked for HR Admin access each time it sends — anyone who no longer qualifies is
@@ -463,7 +475,8 @@ export function AnalyticsPage() {
               {people.length === 0 && <p className="text-muted-foreground">No people available.</p>}
             </div>
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

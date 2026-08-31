@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { Bell, KeyRound, LayoutDashboard, LogOut, Menu, Settings, User, UserCircle, X } from 'lucide-react'
 import { MODULE_NAV } from '@/app-routes'
@@ -12,7 +12,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ChangePasswordDialog } from '@/shared/auth/ChangePasswordDialog'
+import { ToastProvider, useToast } from '@/shared/notifications/ToastProvider'
+import { listInbox } from '@/modules/notifications/api'
 import logo from '@/assets/logo.jpg'
+
+const INBOX_POLL_MS = 30000
 
 // This task: Profile, Notifications, and Settings move from the sidebar
 // into a top-right header/dropdown — same /my-profile, /notifications, and
@@ -21,14 +25,58 @@ import logo from '@/assets/logo.jpg'
 const HEADER_ONLY_NAV_PATHS = new Set(['/notifications', '/settings'])
 
 export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <ToastProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </ToastProvider>
+  )
+}
+
+function AppShellInner({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { pushToast } = useToast()
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   // Sidebar is a permanent w-56 column on md+ screens, same as before. Below
   // that (phones), it's an off-canvas drawer toggled by the header's hamburger
   // button — previously it was always rendered at full width even on a
   // 375px viewport, squeezing every page's content into a ~150px column.
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  // null until the first poll resolves, so pre-existing unread items at
+  // login don't all fire as toasts at once — only items that appear after.
+  const seenIds = useRef<Set<string> | null>(null)
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+
+    function poll() {
+      listInbox({ unreadOnly: true, pageSize: 5 })
+        .then((res) => {
+          if (cancelled) return
+          setUnreadCount(res.unreadCount)
+          if (seenIds.current === null) {
+            seenIds.current = new Set(res.items.map((i) => i.id))
+            return
+          }
+          for (const item of res.items) {
+            if (!seenIds.current.has(item.id)) {
+              seenIds.current.add(item.id)
+              pushToast({ title: item.title, body: item.body })
+            }
+          }
+        })
+        .catch(() => {})
+    }
+
+    poll()
+    const interval = setInterval(poll, INBOX_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [user, pushToast])
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -127,9 +175,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             to="/notifications"
             aria-label="Notifications"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="relative rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <Bell className="size-5" />
+            {unreadCount > 0 && (
+              <span className="absolute right-1 top-1 size-2 rounded-full bg-destructive" />
+            )}
           </Link>
           {/* This task: the icon no longer navigates directly — it opens a
               dropdown with My Dashboard/My Profile/Settings/Sign Out. Same

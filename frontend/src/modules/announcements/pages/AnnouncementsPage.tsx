@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, type ManagerOption, type ReferenceOption } from '@/modules/employee/api'
@@ -190,8 +191,11 @@ export function AnnouncementsPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
           {canCreateAnnouncement && (
-            <div className="rounded-md border p-4">
-              <h2 className="mb-2 font-medium">Publish an Announcement</h2>
+            <Card>
+              <CardHeader>
+                <CardTitle>Publish an Announcement</CardTitle>
+              </CardHeader>
+              <CardContent>
               <div className="flex flex-col gap-2">
                 <Label>Title</Label>
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -277,15 +281,19 @@ export function AnnouncementsPage() {
                   Publish
                 </Button>
               </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
 
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Announcements</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Announcements</CardTitle>
+            </CardHeader>
+            <CardContent>
             {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
             <ul className="flex flex-col gap-2 text-sm">
               {announcements.map((a) => (
-                <li key={a.id} className="rounded border p-3">
+                <li key={a.id} className="rounded-md border p-3">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">
                       {a.isPinned && '📌 '}
@@ -318,11 +326,15 @@ export function AnnouncementsPage() {
                 <p className="text-muted-foreground">No announcements visible to you yet.</p>
               )}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
 
           {isHrAdmin && selectedId && compliance && (
-            <div className="rounded-md border p-4 text-sm">
-              <h2 className="mb-2 font-medium">Compliance</h2>
+            <Card>
+              <CardHeader>
+                <CardTitle>Compliance</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm">
               <p>Total targeted: {compliance.totalTargeted}</p>
               <p>Acknowledged: {compliance.acknowledged}</p>
               <p>Pending: {compliance.pending}</p>
@@ -339,13 +351,17 @@ export function AnnouncementsPage() {
                   </li>
                 ))}
               </ul>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Send Recognition</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Send Recognition</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="flex flex-col gap-2">
               <Label>Recipient</Label>
               <Select value={recipientId} onValueChange={setRecipientId}>
@@ -394,13 +410,17 @@ export function AnnouncementsPage() {
                 Send Recognition
               </Button>
             </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Recognition Feed</h2>
+          <Card>
+            <CardHeader>
+              <CardTitle>Recognition Feed</CardTitle>
+            </CardHeader>
+            <CardContent>
             <ul className="flex flex-col gap-2 text-sm">
               {recognitions.map((r) => (
-                <li key={r.id} className="rounded border p-3">
+                <li key={r.id} className="rounded-md border p-3">
                   <div className="flex items-center justify-between">
                     <span>
                       {personName(r.senderId)} → {personName(r.recipientId)}
@@ -419,7 +439,8 @@ export function AnnouncementsPage() {
                 <p className="text-muted-foreground">No recognition sent yet.</p>
               )}
             </ul>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

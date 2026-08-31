@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ApiError } from '@/lib/api'
 import {
   createOfferTemplate,
@@ -77,8 +78,11 @@ export function OfferTemplateManager({
   }
 
   return (
-    <div className="rounded-md border p-4">
-      <h2 className="mb-2 font-medium">Offer Letter Templates</h2>
+    <Card>
+      <CardHeader>
+        <CardTitle>Offer Letter Templates</CardTitle>
+      </CardHeader>
+      <CardContent>
       {error && <p className="mb-2 text-sm text-destructive">{error}</p>}
 
       <ul className="mb-3 flex flex-col gap-2 text-sm">
@@ -143,6 +147,7 @@ export function OfferTemplateManager({
           )}
         </div>
       </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }

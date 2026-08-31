@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ApiError } from '@/lib/api'
 import { getReferenceData, getOrgChart, type ManagerOption } from '@/modules/employee/api'
@@ -23,23 +24,17 @@ import {
   listGoals,
   submitSelfAssessment,
   submitManagerAssessment,
-  correctRating,
   getReview,
   submitMonthlyEvaluation,
   listMonthlyEvaluations,
   auditMonthlyEvaluation,
-  listQuarterlyKpiRewards,
-  submitQuarterlyKpi,
-  listQuarterlyKpis,
-  auditQuarterlyKpi,
   type ReviewCycle,
   type ReviewCycleType,
   type Goal,
   type Review,
   type CalibrationView,
   type MonthlyEvaluation,
-  type QuarterlyKpiRewardsResponse,
-  type QuarterlyKpiRating,
+  type PerformanceGrade,
 } from '../api'
 
 const CYCLE_TYPES: ReviewCycleType[] = ['MONTHLY', 'QUARTERLY', 'YEARLY']
@@ -63,12 +58,11 @@ function addMonthsToDateString(dateStr: string, months: number): string {
 export function PerformancePage() {
   const { user } = useAuth()
   // General HR access — mirrors HR_ADMIN except decision authority, which
-  // HR Associate never gets; canApprove (below) gates those call sites
-  // specifically (Correct a Finalized Rating).
+  // HR Associate never gets; isSuperAdmin (below) gates the audit
+  // Approve/Send-Back buttons specifically.
   const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isManager = user?.role === 'MANAGER'
-  const canApprove = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const [people, setPeople] = useState<ManagerOption[]>([])
   const [directReportIds, setDirectReportIds] = useState<Set<string> | null>(null)
@@ -89,28 +83,15 @@ export function PerformancePage() {
   const [managerAssessmentNotes, setManagerAssessmentNotes] = useState('')
   const [managerRating, setManagerRating] = useState('')
 
-  const [correctReviewId, setCorrectReviewId] = useState('')
-  const [correctNewRating, setCorrectNewRating] = useState('')
-  const [correctReason, setCorrectReason] = useState('')
-
   const [calibration, setCalibration] = useState<CalibrationView | null>(null)
   const [myReview, setMyReview] = useState<Review | null>(null)
 
   const [myEvaluations, setMyEvaluations] = useState<MonthlyEvaluation[]>([])
   const [reportEvaluations, setReportEvaluations] = useState<MonthlyEvaluation[]>([])
-  const [myRewards, setMyRewards] = useState<QuarterlyKpiRewardsResponse | null>(null)
-  const [reportRewards, setReportRewards] = useState<QuarterlyKpiRewardsResponse | null>(null)
   const [evalPeriod, setEvalPeriod] = useState('')
   const [evalKpiScore, setEvalKpiScore] = useState('')
   const [evalJustification, setEvalJustification] = useState('')
   const [auditNotesByEval, setAuditNotesByEval] = useState<Record<string, string>>({})
-
-  const [myQuarterlyKpis, setMyQuarterlyKpis] = useState<QuarterlyKpiRating[]>([])
-  const [reportQuarterlyKpis, setReportQuarterlyKpis] = useState<QuarterlyKpiRating[]>([])
-  const [kpiYear, setKpiYear] = useState(String(new Date().getFullYear()))
-  const [kpiQuarter, setKpiQuarter] = useState('1')
-  const [kpiPercent, setKpiPercent] = useState('')
-  const [kpiJustification, setKpiJustification] = useState('')
 
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -123,14 +104,13 @@ export function PerformancePage() {
     refreshMyEvaluations()
   }, [])
 
-  // Scoring (both monthly KPI evaluations and manager assessments) is
-  // restricted server-side to the employee's actual reportingManagerId —
-  // picking someone who isn't really your report just gets a 403 on
-  // submit. Narrowing this picker to real direct reports avoids that
-  // confusing round-trip. HR Admin/HR Associate can also submit here now
-  // (they can be someone's assigned manager too), so they're narrowed the
-  // same way; Super Admin keeps the full company list since it can already
-  // browse/audit anyone's evaluations regardless of reporting line.
+  // Scoring is restricted server-side to the employee's actual
+  // reportingManagerId — picking someone who isn't really your report just
+  // gets a 403 on submit. Narrowing this picker to real direct reports
+  // avoids that confusing round-trip. HR Admin/HR Associate can also submit
+  // here (they can be someone's assigned manager too), so they're narrowed
+  // the same way; Super Admin keeps the full company list since it can
+  // already browse anyone's scoring history regardless of reporting line.
   useEffect(() => {
     if (user?.role !== 'MANAGER' && user?.role !== 'HR_ADMIN' && user?.role !== 'HR_ASSOCIATE') return
     getOrgChart(user.id)
@@ -170,10 +150,6 @@ export function PerformancePage() {
   function refreshMyEvaluations() {
     if (!user) return
     listMonthlyEvaluations(user.id).then(setMyEvaluations).catch(() => setMyEvaluations([]))
-    listQuarterlyKpiRewards(user.id, new Date().getFullYear())
-      .then(setMyRewards)
-      .catch(() => setMyRewards(null))
-    listQuarterlyKpis(user.id).then(setMyQuarterlyKpis).catch(() => setMyQuarterlyKpis([]))
   }
 
   function refreshReportEvaluations() {
@@ -181,12 +157,6 @@ export function PerformancePage() {
     listMonthlyEvaluations(reportEmployeeId)
       .then(setReportEvaluations)
       .catch(() => setReportEvaluations([]))
-    listQuarterlyKpiRewards(reportEmployeeId, new Date().getFullYear())
-      .then(setReportRewards)
-      .catch(() => setReportRewards(null))
-    listQuarterlyKpis(reportEmployeeId)
-      .then(setReportQuarterlyKpis)
-      .catch(() => setReportQuarterlyKpis([]))
   }
 
   function personName(id: string) {
@@ -288,24 +258,6 @@ export function PerformancePage() {
     }
   }
 
-  async function handleCorrectRating() {
-    if (!correctReviewId) return
-    setError(null)
-    setMessage(null)
-    try {
-      await correctRating(correctReviewId, {
-        newRating: Number(correctNewRating),
-        reason: correctReason,
-      })
-      setMessage('Correction recorded — rating updated with an audit trail.')
-      setCorrectReviewId('')
-      setCorrectNewRating('')
-      setCorrectReason('')
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to record correction')
-    }
-  }
-
   async function handleSubmitEvaluation() {
     if (!reportEmployeeId || !evalPeriod) return
     setError(null)
@@ -317,12 +269,12 @@ export function PerformancePage() {
         kpiScore: Number(evalKpiScore),
         justification: evalJustification,
       })
-      setMessage('Monthly evaluation submitted for audit.')
+      setMessage('Monthly score submitted for audit.')
       setEvalKpiScore('')
       setEvalJustification('')
       refreshReportEvaluations()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to submit monthly evaluation')
+      setError(err instanceof ApiError ? err.message : 'Failed to submit monthly score')
     }
   }
 
@@ -331,10 +283,10 @@ export function PerformancePage() {
     setMessage(null)
     try {
       await auditMonthlyEvaluation(evaluationId, { approve: true })
-      setMessage('Evaluation approved.')
+      setMessage('Score approved.')
       refreshReportEvaluations()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to approve evaluation')
+      setError(err instanceof ApiError ? err.message : 'Failed to approve score')
     }
   }
 
@@ -346,58 +298,10 @@ export function PerformancePage() {
         approve: false,
         auditNotes: auditNotesByEval[evaluationId] ?? '',
       })
-      setMessage('Evaluation sent back for clarification.')
+      setMessage('Score sent back for clarification.')
       refreshReportEvaluations()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to send the evaluation back')
-    }
-  }
-
-  async function handleSubmitQuarterlyKpi() {
-    if (!reportEmployeeId) return
-    setError(null)
-    setMessage(null)
-    try {
-      await submitQuarterlyKpi({
-        employeeId: reportEmployeeId,
-        year: Number(kpiYear),
-        quarter: Number(kpiQuarter),
-        kpiPercent: Number(kpiPercent),
-        justification: kpiJustification,
-      })
-      setMessage('Quarterly KPI submitted for audit.')
-      setKpiPercent('')
-      setKpiJustification('')
-      refreshReportEvaluations()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to submit quarterly KPI')
-    }
-  }
-
-  async function handleAuditKpiApprove(kpiId: string) {
-    setError(null)
-    setMessage(null)
-    try {
-      await auditQuarterlyKpi(kpiId, { approve: true })
-      setMessage('Quarterly KPI approved.')
-      refreshReportEvaluations()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to approve quarterly KPI')
-    }
-  }
-
-  async function handleAuditKpiSendBack(kpiId: string) {
-    setError(null)
-    setMessage(null)
-    try {
-      await auditQuarterlyKpi(kpiId, {
-        approve: false,
-        auditNotes: auditNotesByEval[kpiId] ?? '',
-      })
-      setMessage('Quarterly KPI sent back for clarification.')
-      refreshReportEvaluations()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to send the quarterly KPI back')
+      setError(err instanceof ApiError ? err.message : 'Failed to send the score back')
     }
   }
 
@@ -408,375 +312,316 @@ export function PerformancePage() {
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4">
-        <h2 className="mb-2 font-medium">Review Cycle</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <Select value={selectedCycleId} onValueChange={setSelectedCycleId}>
-            <SelectTrigger className="w-64">
-              <SelectValue placeholder="Select a review cycle">
-                {(v: string) => cycles.find((c) => c.id === v)?.name ?? 'Select'}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {cycles.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name} ({c.status} · {c.cycleType})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {isHrAdmin && selectedCycleId && (
-            <>
-              <Button size="sm" variant="outline" onClick={handleCloseCycle}>
-                Close Cycle
+      <Card>
+        <CardHeader>
+          <CardTitle>Review Cycle</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-end gap-2">
+            <Select value={selectedCycleId} onValueChange={setSelectedCycleId}>
+              <SelectTrigger className="w-64">
+                <SelectValue placeholder="Select a review cycle">
+                  {(v: string) => cycles.find((c) => c.id === v)?.name ?? 'Select'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {cycles.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({c.status} · {c.cycleType})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isHrAdmin && selectedCycleId && (
+              <>
+                <Button size="sm" variant="outline" onClick={handleCloseCycle}>
+                  Close Cycle
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleLoadCalibration}>
+                  Load Calibration View
+                </Button>
+              </>
+            )}
+          </div>
+
+          {isHrAdmin && (
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
+              <div className="flex flex-col gap-1">
+                <Label>Cycle Name</Label>
+                <Input value={cycleName} onChange={(e) => setCycleName(e.target.value)} placeholder="e.g. FY26 Q1" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Cycle Type</Label>
+                <Select value={cycleType} onValueChange={(v) => setCycleType(v as ReviewCycleType)}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Cycle type">{(v: string) => v}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CYCLE_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t.charAt(0) + t.slice(1).toLowerCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Period Start</Label>
+                <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label>Period End</Label>
+                <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+              </div>
+              <Button variant="outline" onClick={handleOpenCycle}>
+                Open Cycle
               </Button>
-              <Button size="sm" variant="outline" onClick={handleLoadCalibration}>
-                Load Calibration View
-              </Button>
-            </>
+            </div>
           )}
-        </div>
 
-        {isHrAdmin && (
-          <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">
-            <div className="flex flex-col gap-1">
-              <Label>Cycle Name</Label>
-              <Input value={cycleName} onChange={(e) => setCycleName(e.target.value)} placeholder="e.g. FY26 Q1" />
+          {calibration && (
+            <div className="mt-4 border-t pt-4 text-sm">
+              <p className="font-medium">Calibration — {calibration.totalRated} rated</p>
+              <p className="mt-1 text-muted-foreground">
+                By department:{' '}
+                {Object.entries(calibration.byDepartment)
+                  .map(([k, v]) => `${k}: ${v.average.toFixed(1)} avg (${v.count})`)
+                  .join(', ') || '—'}
+              </p>
+              <p className="text-muted-foreground">
+                By manager:{' '}
+                {Object.entries(calibration.byManager)
+                  .map(([k, v]) => `${personName(k)}: ${v.average.toFixed(1)} avg (${v.count})`)
+                  .join(', ') || '—'}
+              </p>
             </div>
-            <div className="flex flex-col gap-1">
-              <Label>Cycle Type</Label>
-              <Select value={cycleType} onValueChange={(v) => setCycleType(v as ReviewCycleType)}>
-                <SelectTrigger className="w-36">
-                  <SelectValue placeholder="Cycle type">{(v: string) => v}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {CYCLE_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t.charAt(0) + t.slice(1).toLowerCase()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label>Period Start</Label>
-              <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label>Period End</Label>
-              <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
-            </div>
-            <Button variant="outline" onClick={handleOpenCycle}>
-              Open Cycle
-            </Button>
-          </div>
-        )}
-
-        {calibration && (
-          <div className="mt-4 border-t pt-4 text-sm">
-            <p className="font-medium">Calibration — {calibration.totalRated} rated</p>
-            <p className="mt-1 text-muted-foreground">
-              By department:{' '}
-              {Object.entries(calibration.byDepartment)
-                .map(([k, v]) => `${k}: ${v.average.toFixed(1)} avg (${v.count})`)
-                .join(', ') || '—'}
-            </p>
-            <p className="text-muted-foreground">
-              By manager:{' '}
-              {Object.entries(calibration.byManager)
-                .map(([k, v]) => `${personName(k)}: ${v.average.toFixed(1)} avg (${v.count})`)
-                .join(', ') || '—'}
-            </p>
-          </div>
-        )}
-      </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-md border p-4">
-          <h2 className="mb-2 font-medium">My Monthly Evaluations</h2>
-          <MonthlyScoreBarChart evaluations={myEvaluations} />
-          <ul className="flex flex-col gap-2 text-sm">
-            {myEvaluations.map((e) => (
-              <li key={e.id} className="flex items-center justify-between rounded border p-2">
-                <span>{e.period.slice(0, 7)}</span>
-                <div className="flex items-center gap-2">
-                  {e.kpiScore != null ? (
-                    <>
-                      <span className="text-muted-foreground">
-                        {e.kpiScore} ({e.kpiPercent}%)
+        <Card>
+          <CardHeader>
+            <CardTitle>My Monthly Scoring</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MonthlyScoreChart evaluations={myEvaluations} />
+            <ul className="flex flex-col gap-2 text-sm">
+              {myEvaluations.map((e) => (
+                <li key={e.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+                  <span className="font-medium">{e.period.slice(0, 7)}</span>
+                  <div className="flex items-center gap-2">
+                    {e.kpiScore != null ? (
+                      <>
+                        <span className="text-muted-foreground">
+                          {e.kpiScore} ({e.kpiPercent}%)
+                        </span>
+                        <Badge variant="outline">{e.grade}</Badge>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {e.auditStatus === 'APPROVED'
+                          ? `Approved — visible from ${e.releaseDate?.slice(0, 10)}`
+                          : e.auditStatus === 'SENT_BACK'
+                            ? 'Sent back to your manager'
+                            : 'Pending Super Admin approval'}
                       </span>
-                      <Badge variant="outline">{e.grade}</Badge>
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      {e.auditStatus === 'APPROVED'
-                        ? `Approved — visible from ${e.releaseDate?.slice(0, 10)}`
-                        : e.auditStatus === 'SENT_BACK'
-                          ? 'Sent back to your manager'
-                          : 'Pending Super Admin approval'}
-                    </span>
-                  )}
-                  <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
-                </div>
-              </li>
-            ))}
-            {myEvaluations.length === 0 && <p className="text-muted-foreground">No monthly evaluations yet.</p>}
-          </ul>
-          <QuarterlyKpiRewardsPanel rewards={myRewards} />
-          <YourKpisPanel kpis={myQuarterlyKpis} />
-        </div>
+                    )}
+                    <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
+                  </div>
+                </li>
+              ))}
+              {myEvaluations.length === 0 && <p className="text-muted-foreground">No monthly scores yet.</p>}
+            </ul>
+          </CardContent>
+        </Card>
 
         {(isManager || isHrAdmin) && (
-          <div className="rounded-md border p-4">
-            <h2 className="mb-2 font-medium">Monthly KPI Evaluation — Report</h2>
-            <div className="flex flex-col gap-2">
-              <Label>Employee</Label>
-              <Select
-                value={reportEmployeeId}
-                onValueChange={(v) => {
-                  setReportEmployeeId(v)
-                  setReportEvaluations([])
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select employee">{(v: string) => personName(v)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {pickerOptions.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.firstName} {p.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" variant="outline" onClick={refreshReportEvaluations} className="self-start">
-                Load Evaluation History
-              </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle>Team Monthly Scoring</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-2">
+                <Label>Employee</Label>
+                <Select
+                  value={reportEmployeeId}
+                  onValueChange={(v) => {
+                    setReportEmployeeId(v)
+                    setReportEvaluations([])
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select employee">{(v: string) => personName(v)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pickerOptions.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.firstName} {p.lastName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="outline" onClick={refreshReportEvaluations} className="self-start">
+                  Load Scoring History
+                </Button>
 
-              <MonthlyScoreBarChart evaluations={reportEvaluations} />
+                <MonthlyScoreChart evaluations={reportEvaluations} />
 
-              <ul className="flex flex-col gap-2 text-sm">
-                {reportEvaluations.map((e) => (
-                  <li key={e.id} className="rounded border p-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{e.period.slice(0, 7)}</span>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{e.grade}</Badge>
-                        <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
-                      </div>
-                    </div>
-                    {e.kpiScore != null && (
-                      <p className="text-muted-foreground">
-                        Score: {e.kpiScore} ({e.kpiPercent}%) — {e.justification}
-                      </p>
-                    )}
-                    {isSuperAdmin && e.auditStatus === 'PENDING_AUDIT' && (
-                      <div className="mt-2 flex flex-wrap items-end gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleAuditApprove(e.id)}>
-                          Approve
-                        </Button>
-                        <Input
-                          placeholder="Notes for send-back"
-                          value={auditNotesByEval[e.id] ?? ''}
-                          onChange={(ev) =>
-                            setAuditNotesByEval((s) => ({ ...s, [e.id]: ev.target.value }))
-                          }
-                        />
-                        <Button size="sm" variant="outline" onClick={() => handleAuditSendBack(e.id)}>
-                          Send Back
-                        </Button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-
-              <QuarterlyKpiRewardsPanel rewards={reportRewards} />
-
-              {(isManager || isHrAdmin) && (
-                <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
-                  <div className="flex flex-col gap-1">
-                    <Label>Month</Label>
-                    <Input type="date" value={evalPeriod} onChange={(e) => setEvalPeriod(e.target.value)} />
-                  </div>
-                  <Input
-                    placeholder="KPI Score (0-1000)"
-                    type="number"
-                    value={evalKpiScore}
-                    onChange={(e) => setEvalKpiScore(e.target.value)}
-                    className="w-40"
-                  />
-                  <Textarea
-                    placeholder="Justification"
-                    value={evalJustification}
-                    onChange={(e) => setEvalJustification(e.target.value)}
-                  />
-                  <Button size="sm" variant="outline" onClick={handleSubmitEvaluation}>
-                    Submit for Audit
-                  </Button>
-                </div>
-              )}
-
-              <div className="mt-3 border-t pt-3">
-                <h3 className="mb-2 text-sm font-medium">Quarterly KPI %</h3>
                 <ul className="flex flex-col gap-2 text-sm">
-                  {reportQuarterlyKpis.map((k) => (
-                    <li key={k.id} className="rounded border p-2">
+                  {reportEvaluations.map((e) => (
+                    <li key={e.id} className="rounded-md border p-2">
                       <div className="flex items-center justify-between">
-                        <span className="font-medium">
-                          Q{k.quarter} {k.year}
-                        </span>
-                        <Badge variant={k.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{k.auditStatus}</Badge>
+                        <span className="font-medium">{e.period.slice(0, 7)}</span>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{e.grade}</Badge>
+                          <Badge variant={e.auditStatus === 'APPROVED' ? 'default' : 'outline'}>{e.auditStatus}</Badge>
+                        </div>
                       </div>
-                      {k.kpiPercent != null && (
+                      {e.kpiScore != null && (
                         <p className="text-muted-foreground">
-                          {k.kpiPercent}% — {k.justification}
+                          Score: {e.kpiScore} ({e.kpiPercent}%) — {e.justification}
                         </p>
                       )}
-                      {isSuperAdmin && k.auditStatus === 'PENDING_AUDIT' && (
+                      {isSuperAdmin && e.auditStatus === 'PENDING_AUDIT' && (
                         <div className="mt-2 flex flex-wrap items-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => handleAuditKpiApprove(k.id)}>
+                          <Button size="sm" variant="success" onClick={() => handleAuditApprove(e.id)}>
                             Approve
                           </Button>
                           <Input
                             placeholder="Notes for send-back"
-                            value={auditNotesByEval[k.id] ?? ''}
+                            value={auditNotesByEval[e.id] ?? ''}
                             onChange={(ev) =>
-                              setAuditNotesByEval((s) => ({ ...s, [k.id]: ev.target.value }))
+                              setAuditNotesByEval((s) => ({ ...s, [e.id]: ev.target.value }))
                             }
                           />
-                          <Button size="sm" variant="outline" onClick={() => handleAuditKpiSendBack(k.id)}>
+                          <Button size="sm" variant="destructive" onClick={() => handleAuditSendBack(e.id)}>
                             Send Back
                           </Button>
                         </div>
                       )}
                     </li>
                   ))}
-                  {reportQuarterlyKpis.length === 0 && (
-                    <p className="text-muted-foreground">No quarterly KPIs yet.</p>
+                  {reportEvaluations.length === 0 && (
+                    <p className="text-muted-foreground">No scores yet for this employee.</p>
                   )}
                 </ul>
 
                 {(isManager || isHrAdmin) && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
+                    <div className="flex flex-col gap-1">
+                      <Label>Month</Label>
+                      <Input type="date" value={evalPeriod} onChange={(e) => setEvalPeriod(e.target.value)} />
+                    </div>
                     <Input
-                      placeholder="Year"
+                      placeholder="Score (0-1000)"
                       type="number"
-                      value={kpiYear}
-                      onChange={(e) => setKpiYear(e.target.value)}
-                      className="w-24"
-                    />
-                    <Select value={kpiQuarter} onValueChange={setKpiQuarter}>
-                      <SelectTrigger className="w-24">
-                        <SelectValue placeholder="Quarter">{(v: string) => `Q${v}`}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {['1', '2', '3', '4'].map((q) => (
-                          <SelectItem key={q} value={q}>
-                            Q{q}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      placeholder="KPI %"
-                      type="number"
-                      value={kpiPercent}
-                      onChange={(e) => setKpiPercent(e.target.value)}
-                      className="w-24"
+                      value={evalKpiScore}
+                      onChange={(e) => setEvalKpiScore(e.target.value)}
+                      className="w-40"
                     />
                     <Textarea
                       placeholder="Justification"
-                      value={kpiJustification}
-                      onChange={(e) => setKpiJustification(e.target.value)}
+                      value={evalJustification}
+                      onChange={(e) => setEvalJustification(e.target.value)}
                     />
-                    <Button size="sm" variant="outline" onClick={handleSubmitQuarterlyKpi}>
+                    <Button size="sm" variant="outline" onClick={handleSubmitEvaluation}>
                       Submit for Audit
                     </Button>
                   </div>
                 )}
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
       </div>
 
       {selectedCycleId && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="flex flex-col gap-4">
-            <div className="rounded-md border p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="font-medium">My Goals</h2>
-                <Badge variant={Math.abs(weightageTotal - 100) < 0.01 ? 'default' : 'outline'}>
-                  Weightage: {weightageTotal}%
-                </Badge>
-              </div>
-              <ul className="flex flex-col gap-2 text-sm">
-                {myGoals.map((g) => (
-                  <li key={g.id} className="rounded border p-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{g.title}</span>
-                      <span className="text-muted-foreground">{g.weightage}%</span>
-                    </div>
-                    <p className="text-muted-foreground">
-                      Progress: {g.actual}
-                      {g.target != null ? ` / ${g.target}` : ''}
-                    </p>
-                  </li>
-                ))}
-                {myGoals.length === 0 && <p className="text-muted-foreground">No goals yet for this cycle.</p>}
-              </ul>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>My Goals</CardTitle>
+                  <Badge variant={Math.abs(weightageTotal - 100) < 0.01 ? 'default' : 'outline'}>
+                    Weightage: {weightageTotal}%
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ul className="flex flex-col gap-2 text-sm">
+                  {myGoals.map((g) => (
+                    <li key={g.id} className="rounded-md border p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{g.title}</span>
+                        <span className="text-muted-foreground">{g.weightage}%</span>
+                      </div>
+                      <p className="text-muted-foreground">
+                        Progress: {g.actual}
+                        {g.target != null ? ` / ${g.target}` : ''}
+                      </p>
+                    </li>
+                  ))}
+                  {myGoals.length === 0 && <p className="text-muted-foreground">No goals yet for this cycle.</p>}
+                </ul>
 
-              <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
-                <Input placeholder="Goal title" value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} />
-                <Input
-                  placeholder="Target"
-                  type="number"
-                  value={goalTarget}
-                  onChange={(e) => setGoalTarget(e.target.value)}
-                  className="w-24"
-                />
-                <Input
-                  placeholder="Weightage %"
-                  type="number"
-                  value={goalWeightage}
-                  onChange={(e) => setGoalWeightage(e.target.value)}
-                  className="w-28"
-                />
-                <Button size="sm" variant="outline" onClick={handleCreateGoal}>
-                  Add Goal
+                <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
+                  <Input placeholder="Goal title" value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} />
+                  <Input
+                    placeholder="Target"
+                    type="number"
+                    value={goalTarget}
+                    onChange={(e) => setGoalTarget(e.target.value)}
+                    className="w-24"
+                  />
+                  <Input
+                    placeholder="Weightage %"
+                    type="number"
+                    value={goalWeightage}
+                    onChange={(e) => setGoalWeightage(e.target.value)}
+                    className="w-28"
+                  />
+                  <Button size="sm" variant="outline" onClick={handleCreateGoal}>
+                    Add Goal
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>My Assessment</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {myReview && (
+                  <Badge variant="outline" className="mb-2">
+                    {myReview.status}
+                    {myReview.finalRating != null ? ` — rating ${myReview.finalRating}` : ''}
+                  </Badge>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSubmitSelfAssessment}
+                  disabled={Math.abs(weightageTotal - 100) > 0.01}
+                >
+                  Submit Self-Assessment
                 </Button>
-              </div>
-            </div>
-
-            <div className="rounded-md border p-4">
-              <h2 className="mb-2 font-medium">My Assessment</h2>
-              {myReview && (
-                <Badge variant="outline" className="mb-2">
-                  {myReview.status}
-                  {myReview.finalRating != null ? ` — rating ${myReview.finalRating}` : ''}
-                </Badge>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSubmitSelfAssessment}
-                disabled={Math.abs(weightageTotal - 100) > 0.01}
-              >
-                Submit Self-Assessment
-              </Button>
-              {Math.abs(weightageTotal - 100) > 0.01 && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Goal weightages must sum to 100% before submitting.
-                </p>
-              )}
-            </div>
+                {Math.abs(weightageTotal - 100) > 0.01 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Goal weightages must sum to 100% before submitting.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
-          <div className="flex flex-col gap-4">
-            {(isManager || isHrAdmin) && (
-              <div className="rounded-md border p-4">
-                <h2 className="mb-2 font-medium">Assess a Report</h2>
+          {(isManager || isHrAdmin) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Assess a Report</CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div className="flex flex-col gap-2">
                   <Label>Employee</Label>
                   <Select value={reportEmployeeId} onValueChange={setReportEmployeeId}>
@@ -806,64 +651,71 @@ export function PerformancePage() {
                     Submit Manager Assessment
                   </Button>
                 </div>
-              </div>
-            )}
-
-            {canApprove && (
-              <div className="rounded-md border p-4">
-                <h2 className="mb-2 font-medium">Correct a Finalized Rating</h2>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Only applies to reviews in a closed cycle — creates a documented, versioned correction.
-                </p>
-                <div className="flex flex-col gap-2">
-                  <Input
-                    placeholder="Review ID"
-                    value={correctReviewId}
-                    onChange={(e) => setCorrectReviewId(e.target.value)}
-                  />
-                  <Input
-                    placeholder="New rating"
-                    type="number"
-                    value={correctNewRating}
-                    onChange={(e) => setCorrectNewRating(e.target.value)}
-                  />
-                  <Textarea
-                    placeholder="Reason for correction"
-                    value={correctReason}
-                    onChange={(e) => setCorrectReason(e.target.value)}
-                  />
-                  <Button variant="outline" onClick={handleCorrectRating}>
-                    Record Correction
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-// Simple CSS bar chart — monthly KPI score out of 1000. No charting library
-// in this codebase yet, and a single bar-per-month view doesn't need one.
-function MonthlyScoreBarChart({ evaluations }: { evaluations: MonthlyEvaluation[] }) {
-  const withScores = evaluations.filter((e) => e.kpiScore != null)
-  if (withScores.length === 0) return null
+// Grade -> color, used by both the chart bars and the legend below. Chosen
+// to read as a clear "good to concerning" gradient at a glance rather than
+// a single flat color.
+const GRADE_COLORS: Record<PerformanceGrade, string> = {
+  FEE: '#16a34a', // green — Far Exceeds Expectations
+  EE: '#0d9488', // teal — Exceeds Expectations
+  ME: '#2563eb', // blue — Meets Expectations
+  PME: '#d97706', // amber — Partially Meets Expectations
+  DNME: '#dc2626', // red — Does Not Meet Expectations
+}
+
+const GRADE_LABELS: Record<PerformanceGrade, string> = {
+  FEE: 'Far Exceeds',
+  EE: 'Exceeds',
+  ME: 'Meets',
+  PME: 'Partially Meets',
+  DNME: 'Does Not Meet',
+}
+
+// Colourful month-by-month progress chart — each bar is colored by that
+// month's grade (not a flat single color) so a trend of improving/declining
+// performance is readable at a glance, with a legend explaining the colors.
+// A month that's approved-but-not-yet-released, or still pending audit,
+// renders as a muted placeholder bar instead of leaking a color/grade.
+// No charting library in this codebase — a handful of colored divs is
+// simpler than pulling one in for a single bar-per-month view.
+function MonthlyScoreChart({ evaluations }: { evaluations: MonthlyEvaluation[] }) {
+  if (evaluations.length === 0) return null
   // Chronological (oldest first) reads left-to-right like a normal trend line.
-  const ordered = [...withScores].reverse()
+  const ordered = [...evaluations].reverse()
+  const gradesShown = new Set(
+    ordered.filter((e) => e.kpiScore != null && e.grade).map((e) => e.grade as PerformanceGrade),
+  )
+
   return (
-    <div className="mb-3 flex flex-col gap-1">
+    <div className="mb-3 flex flex-col gap-2">
       <div className="flex h-28 items-end gap-1.5">
-        {ordered.map((e) => (
-          <div key={e.id} className="flex flex-1 flex-col items-center gap-1" title={`${e.kpiScore} / 1000`}>
-            <span className="text-[10px] text-muted-foreground">{e.kpiScore}</span>
+        {ordered.map((e) => {
+          const visible = e.kpiScore != null && e.grade != null
+          return (
             <div
-              className="w-full rounded-t bg-primary"
-              style={{ height: `${Math.max(4, ((e.kpiScore ?? 0) / 1000) * 100)}%` }}
-            />
-          </div>
-        ))}
+              key={e.id}
+              className="flex flex-1 flex-col items-center gap-1"
+              title={visible ? `${e.kpiScore} / 1000 (${e.grade})` : 'Not yet visible'}
+            >
+              <span className="text-[10px] text-muted-foreground">{visible ? e.kpiScore : '—'}</span>
+              <div
+                className="w-full rounded-t"
+                style={{
+                  height: `${Math.max(4, ((e.kpiScore ?? 40) / 1000) * 100)}%`,
+                  backgroundColor: visible ? GRADE_COLORS[e.grade as PerformanceGrade] : 'var(--muted)',
+                }}
+              />
+            </div>
+          )
+        })}
       </div>
       <div className="flex gap-1.5">
         {ordered.map((e) => (
@@ -872,83 +724,18 @@ function MonthlyScoreBarChart({ evaluations }: { evaluations: MonthlyEvaluation[
           </span>
         ))}
       </div>
-    </div>
-  )
-}
-
-// Items 5/6: quarterly KPI-linked reward, per P&B effective January 2026,
-// "3a. Member KPI Linked Rewards" — quarterlyLimit * that quarter's average
-// KPI%. Computed server-side; this just renders the breakdown.
-function QuarterlyKpiRewardsPanel({ rewards }: { rewards: QuarterlyKpiRewardsResponse | null }) {
-  if (!rewards) return null
-  return (
-    <div className="mt-3 flex flex-col gap-2 border-t pt-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Quarterly KPI Rewards — {rewards.year}</h3>
-        {rewards.ctcLpa != null && (
-          <span className="text-xs text-muted-foreground">CTC band: {rewards.quarters[0]?.ctcBandLabel}</span>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {rewards.quarters.map((q) => (
-          <div key={q.quarter} className="rounded border p-2 text-xs">
-            <div className="font-medium">Q{q.quarter}</div>
-            {q.complete ? (
-              <>
-                <div className="text-muted-foreground">Avg KPI: {q.avgKpiPercent}%</div>
-                <div className="font-medium text-primary">₹{q.rewardAmount?.toLocaleString('en-IN')}</div>
-              </>
-            ) : (
-              <div className="text-muted-foreground">{q.reason ?? 'Pending'}</div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// The new employee-facing view onto their own standalone quarterly KPI%
-// (see QuarterlyKpiRating) — deliberately separate from
-// QuarterlyKpiRewardsPanel above so a ₹ payout and a KPI% aren't visually
-// conflated. Same confidentiality contract as the monthly evaluations list:
-// kpiPercent is null until approved and past its release date.
-function YourKpisPanel({ kpis }: { kpis: QuarterlyKpiRating[] }) {
-  if (kpis.length === 0) return null
-  const byYear = new Map<number, QuarterlyKpiRating[]>()
-  for (const k of kpis) {
-    byYear.set(k.year, [...(byYear.get(k.year) ?? []), k])
-  }
-  return (
-    <div className="mt-3 flex flex-col gap-2 border-t pt-3">
-      <h3 className="text-sm font-medium">Your KPIs</h3>
-      {[...byYear.entries()]
-        .sort(([a], [b]) => b - a)
-        .map(([year, yearKpis]) => (
-          <div key={year} className="flex flex-col gap-1">
-            <div className="text-xs font-medium text-muted-foreground">{year}</div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[...yearKpis]
-                .sort((a, b) => a.quarter - b.quarter)
-                .map((k) => (
-                  <div key={k.id} className="rounded border p-2 text-xs">
-                    <div className="font-medium">Q{k.quarter}</div>
-                    {k.kpiPercent != null ? (
-                      <div className="font-medium text-primary">{k.kpiPercent}%</div>
-                    ) : (
-                      <div className="text-muted-foreground">
-                        {k.auditStatus === 'APPROVED'
-                          ? `Visible from ${k.releaseDate?.slice(0, 10)}`
-                          : k.auditStatus === 'SENT_BACK'
-                            ? 'Sent back to your manager'
-                            : 'Pending approval'}
-                      </div>
-                    )}
-                  </div>
-                ))}
-            </div>
-          </div>
-        ))}
+      {gradesShown.size > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 border-t pt-2">
+          {(Object.keys(GRADE_COLORS) as PerformanceGrade[])
+            .filter((g) => gradesShown.has(g))
+            .map((g) => (
+              <span key={g} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span className="size-2 rounded-full" style={{ backgroundColor: GRADE_COLORS[g] }} />
+                {GRADE_LABELS[g]}
+              </span>
+            ))}
+        </div>
+      )}
     </div>
   )
 }

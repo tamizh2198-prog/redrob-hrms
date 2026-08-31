@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Card, CardContent } from '@/components/ui/card'
 import { ApiError } from '@/lib/api'
 import {
   listAuditLogs,
@@ -76,7 +77,8 @@ export function AuditPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="rounded-md border p-4 text-sm">
+      <Card className="text-sm">
+        <CardContent>
         <div className="mb-3 flex flex-wrap items-end gap-2">
           <div>
             <Label>Module</Label>
@@ -163,7 +165,8 @@ export function AuditPage() {
             </Button>
           </div>
         </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
