@@ -446,6 +446,14 @@ describe('EmployeeService', () => {
       expect(result.pan).toBe('ABCDE1234F');
     });
 
+    it('shows full values to HR Associate, like HR Admin', () => {
+      const result = service.maskSensitiveFields(employee as never, {
+        userId: 'ha-1',
+        role: Role.HR_ASSOCIATE,
+      });
+      expect(result.pan).toBe('ABCDE1234F');
+    });
+
     it('shows full values to the employee viewing themselves', () => {
       const result = service.maskSensitiveFields(employee as never, {
         userId: 'emp-1',
@@ -1059,6 +1067,22 @@ describe('EmployeeService', () => {
             firstName: 'X',
             lastName: 'Y',
             role: Role.HR_ADMIN,
+          },
+          'actor-1',
+          Role.HR_ADMIN,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('an HR_ADMIN caller CANNOT assign the HR_ASSOCIATE role either — only Super Admin can', async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      await expect(
+        service.inviteEmployee(
+          {
+            email: 'x@co.com',
+            firstName: 'X',
+            lastName: 'Y',
+            role: Role.HR_ASSOCIATE,
           },
           'actor-1',
           Role.HR_ADMIN,

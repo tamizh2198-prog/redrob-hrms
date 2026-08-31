@@ -384,6 +384,25 @@ describe('OnboardingService', () => {
       ).resolves.toEqual({ id: 'task-1', status: 'COMPLETED' });
     });
 
+    it('lets HR Associate complete a manager-owned task on behalf of the manager, like HR Admin', async () => {
+      prisma.checklistTask.findUnique.mockResolvedValue({
+        id: 'task-1',
+        ownerRole: 'MANAGER',
+        status: 'PENDING',
+        checklistId: 'checklist-1',
+        checklist: { employee: { reportingManagerId: 'mgr-assigned' } },
+      });
+      prisma.checklistTask.update.mockResolvedValue({
+        id: 'task-1',
+        status: 'COMPLETED',
+      });
+      prisma.checklistTask.count.mockResolvedValue(1);
+
+      await expect(
+        service.completeTask('task-1', 'ha-1', 'HR_ASSOCIATE'),
+      ).resolves.toEqual({ id: 'task-1', status: 'COMPLETED' });
+    });
+
     it('marks the checklist complete once its last task is done', async () => {
       prisma.checklistTask.findUnique.mockResolvedValue({
         id: 'task-1',

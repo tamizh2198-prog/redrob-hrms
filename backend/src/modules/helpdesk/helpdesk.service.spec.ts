@@ -132,6 +132,17 @@ describe('HelpdeskService', () => {
       );
     });
 
+    it('lets HR Associate apply arbitrary filters too, like HR Admin', async () => {
+      prisma.ticket.findMany.mockResolvedValue([]);
+      prisma.ticket.count.mockResolvedValue(0);
+
+      await service.listTickets({ status: 'OPEN' }, 'ha-1', 'HR_ASSOCIATE');
+
+      expect(prisma.ticket.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { status: 'OPEN' } }),
+      );
+    });
+
     it('rejects a stranger viewing a ticket that is not theirs and not assigned to them', async () => {
       prisma.ticket.findUnique.mockResolvedValue({
         id: 'ticket-1',

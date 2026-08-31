@@ -86,7 +86,11 @@ export function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // Direct-edit-vs-change-request routing, reveal, reset password/MFA —
+  // general HR access, no approve/reject of someone else's pending request
+  // involved (that's the separate ChangeRequestsPage), so HR Associate
+  // mirrors HR_ADMIN here.
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isSelf = user?.id === id
 

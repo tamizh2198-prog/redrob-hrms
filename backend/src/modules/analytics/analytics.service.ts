@@ -42,6 +42,7 @@ export class AnalyticsService {
       case Role.MANAGER:
         return this.getManagerDashboard(actorId);
       case Role.HR_ADMIN:
+      case Role.HR_ASSOCIATE:
         return this.getHrAdminDashboard(actorId);
       case Role.SUPER_ADMIN:
         return this.getLeadershipDashboard(actorId);

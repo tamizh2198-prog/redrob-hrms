@@ -25,7 +25,7 @@ const now = new Date()
 
 export function HolidayPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
 
   const [locations, setLocations] = useState<ReferenceOption[]>([])
   const [locationId, setLocationId] = useState('')

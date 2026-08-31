@@ -83,7 +83,7 @@ export class EmployeeController {
   }
 
   @Post('bulk-import')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   bulkImport(
     @Body('rows') rows: CreateEmployeeDto[],
     @Body('dryRun', new ParseBoolPipe({ optional: true }))
@@ -98,7 +98,7 @@ export class EmployeeController {
   // upload endpoint expects, plus a Reference sheet listing accepted enum
   // values — mirrors RosterController's hybrid-schedule template.
   @Get('bulk-import/template')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   async getBulkImportTemplate() {
     const buffer = await buildEmployeeImportTemplate();
     return new StreamableFile(buffer, {
@@ -111,7 +111,7 @@ export class EmployeeController {
   // commit pipeline (EmployeeService.bulkImport), just parsed from an
   // uploaded .xlsx instead of a hand-pasted JSON array.
   @Post('bulk-import/upload')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
   )
@@ -137,7 +137,7 @@ export class EmployeeController {
   // Auth Phase 2: must be registered before the `:id` route below, or Nest
   // would match "invitations" as an :id param instead.
   @Get('invitations')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listPendingInvitations() {
     return this.employeeService.listPendingInvitations();
   }
@@ -156,7 +156,7 @@ export class EmployeeController {
   }
 
   @Post('invite')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   inviteEmployee(
     @Body() dto: InviteEmployeeDto,
     @CurrentUser() user: { userId: string; role: string },
@@ -169,7 +169,7 @@ export class EmployeeController {
   }
 
   @Post(':id/resend-invitation')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   resendInvitation(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string },
@@ -183,7 +183,7 @@ export class EmployeeController {
   // credentials, so an HR Admin reaching this route for a peer/superior
   // still gets rejected, just by the service rather than the guard.
   @Post(':id/reset-password')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   resetPassword(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string },
@@ -192,7 +192,7 @@ export class EmployeeController {
   }
 
   @Post(':id/reset-mfa')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   resetMfa(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string; role: string },
@@ -242,7 +242,7 @@ export class EmployeeController {
   }
 
   @Post()
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   create(
     @Body() dto: CreateEmployeeDto,
     @CurrentUser() user: { userId: string; role: string },

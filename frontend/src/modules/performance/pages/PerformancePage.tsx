@@ -62,9 +62,13 @@ function addMonthsToDateString(dateStr: string, months: number): string {
 
 export function PerformancePage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // General HR access — mirrors HR_ADMIN except decision authority, which
+  // HR Associate never gets; canApprove (below) gates those call sites
+  // specifically (Correct a Finalized Rating).
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isManager = user?.role === 'MANAGER'
+  const canApprove = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const [people, setPeople] = useState<ManagerOption[]>([])
   const [directReportIds, setDirectReportIds] = useState<Set<string> | null>(null)
@@ -121,13 +125,14 @@ export function PerformancePage() {
 
   // Scoring (both monthly KPI evaluations and manager assessments) is
   // restricted server-side to the employee's actual reportingManagerId —
-  // a Manager picking someone who isn't really their report just gets a
-  // 403 on submit. Narrowing this picker to their real direct reports
-  // avoids that confusing round-trip; HR Admin/Super Admin still get the
-  // full company list since they're only ever browsing/auditing here, not
-  // submitting.
+  // picking someone who isn't really your report just gets a 403 on
+  // submit. Narrowing this picker to real direct reports avoids that
+  // confusing round-trip. HR Admin/HR Associate can also submit here now
+  // (they can be someone's assigned manager too), so they're narrowed the
+  // same way; Super Admin keeps the full company list since it can already
+  // browse/audit anyone's evaluations regardless of reporting line.
   useEffect(() => {
-    if (user?.role !== 'MANAGER') return
+    if (user?.role !== 'MANAGER' && user?.role !== 'HR_ADMIN' && user?.role !== 'HR_ASSOCIATE') return
     getOrgChart(user.id)
       .then((chart) => setDirectReportIds(new Set(chart.directReports.map((r) => r.id))))
       .catch(() => setDirectReportIds(new Set()))
@@ -521,7 +526,7 @@ export function PerformancePage() {
           <YourKpisPanel kpis={myQuarterlyKpis} />
         </div>
 
-        {(isManager || isSuperAdmin) && (
+        {(isManager || isHrAdmin) && (
           <div className="rounded-md border p-4">
             <h2 className="mb-2 font-medium">Monthly KPI Evaluation — Report</h2>
             <div className="flex flex-col gap-2">
@@ -588,7 +593,7 @@ export function PerformancePage() {
 
               <QuarterlyKpiRewardsPanel rewards={reportRewards} />
 
-              {isManager && (
+              {(isManager || isHrAdmin) && (
                 <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
                   <div className="flex flex-col gap-1">
                     <Label>Month</Label>
@@ -652,7 +657,7 @@ export function PerformancePage() {
                   )}
                 </ul>
 
-                {isManager && (
+                {(isManager || isHrAdmin) && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
                     <Input
                       placeholder="Year"
@@ -804,7 +809,7 @@ export function PerformancePage() {
               </div>
             )}
 
-            {isHrAdmin && (
+            {canApprove && (
               <div className="rounded-md border p-4">
                 <h2 className="mb-2 font-medium">Correct a Finalized Rating</h2>
                 <p className="mb-2 text-xs text-muted-foreground">

@@ -57,7 +57,7 @@ const FIELD_LABELS: Record<string, string> = {
   email: 'Work email',
 }
 
-const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
+const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'HR_ASSOCIATE', 'SUPER_ADMIN']
 
 // Task: Reporting Manager dropdown — only these roles are eligible to be
 // assigned as someone's manager. EMPLOYEE is deliberately excluded. This
@@ -65,7 +65,7 @@ const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
 // module (ATS/Onboarding/Performance/Assets/etc.) also consumes unfiltered
 // — only this one picker applies the eligibility filter, so nothing else
 // regresses.
-const ELIGIBLE_MANAGER_ROLES: Role[] = ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']
+const ELIGIBLE_MANAGER_ROLES: Role[] = ['MANAGER', 'HR_ADMIN', 'HR_ASSOCIATE', 'SUPER_ADMIN']
 // Exclude rather than allow-list statuses: a newly-invited Manager is
 // INVITED (not yet ACTIVE) until they accept, but is still the correct
 // person to assign as someone's reporting manager right away — only
@@ -349,7 +349,10 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
                   <SelectItem
                     key={r}
                     value={r}
-                    disabled={(r === 'SUPER_ADMIN' || r === 'HR_ADMIN') && !canAssignPrivilegedRole}
+                    disabled={
+                      (r === 'SUPER_ADMIN' || r === 'HR_ADMIN' || r === 'HR_ASSOCIATE') &&
+                      !canAssignPrivilegedRole
+                    }
                   >
                     {r.replaceAll('_', ' ')}
                   </SelectItem>

@@ -17,19 +17,19 @@ export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}
 
   @Post('templates')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createTemplate(@Body() dto: CreateTemplateDto) {
     return this.onboardingService.createTemplate(dto);
   }
 
   @Get('templates')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listTemplates() {
     return this.onboardingService.listTemplates();
   }
 
   @Get('checklists')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listActiveChecklists() {
     return this.onboardingService.listActiveChecklists();
   }
@@ -55,7 +55,7 @@ export class OnboardingController {
   }
 
   @Get('probation-feedback')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listProbationFeedback() {
     return this.onboardingService.listProbationFeedback();
   }
@@ -100,7 +100,7 @@ export class OnboardingController {
   }
 
   @Post(':employeeId/init')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   init(
     @Param('employeeId') employeeId: string,
     @Body() dto: InitChecklistDto,
@@ -120,7 +120,7 @@ export class OnboardingController {
   }
 
   @Post(':employeeId/activate')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   activate(
     @Param('employeeId') employeeId: string,
     @CurrentUser() user: { userId: string },

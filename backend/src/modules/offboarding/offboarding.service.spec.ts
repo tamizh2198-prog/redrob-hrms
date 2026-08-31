@@ -105,6 +105,24 @@ describe('OffboardingService', () => {
         ),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('lets HR Associate submit a resignation on an employee’s behalf, like HR Admin', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'emp-2',
+        reportingManagerId: 'mgr-1',
+      });
+      prisma.resignation.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'res-1', ...data }),
+      );
+
+      await expect(
+        service.submitResignation(
+          { employeeId: 'emp-2', noticePeriodDays: 30 },
+          'ha-1',
+          Role.HR_ASSOCIATE,
+        ),
+      ).resolves.toBeDefined();
+    });
   });
 
   describe('Acceptance Criteria: the OFFICE_EQUIPMENT checklist item is blocked while unreturned assets exist', () => {
@@ -198,6 +216,24 @@ describe('OffboardingService', () => {
 
       await expect(
         service.signoffClearance('item-1', {}, 'mgr-imposter', Role.MANAGER),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects an HR Associate signing off on behalf of the manager — mirrors HR_ADMIN elsewhere but has no sign-off authority', async () => {
+      prisma.clearanceItem.findUnique.mockResolvedValue({
+        id: 'item-1',
+        status: 'PENDING',
+        key: 'ID_CARD',
+        category: 'LEAD_VERIFICATION',
+        resignationId: 'res-1',
+        resignation: {
+          employeeId: 'emp-1',
+          employee: { reportingManagerId: 'mgr-real' },
+        },
+      });
+
+      await expect(
+        service.signoffClearance('item-1', {}, 'ha-1', Role.HR_ASSOCIATE),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -385,6 +421,23 @@ describe('OffboardingService', () => {
           { newDate: '2027-01-20', reason: 'Early release' },
           'mgr-imposter',
           Role.MANAGER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects an HR Associate adjusting the LWD — mirrors HR_ADMIN elsewhere but has no sign-off authority', async () => {
+      prisma.resignation.findUnique.mockResolvedValue({
+        id: 'res-1',
+        lastWorkingDay: new Date('2027-01-31'),
+        employee: { reportingManagerId: 'mgr-real' },
+      });
+
+      await expect(
+        service.adjustLwd(
+          'res-1',
+          { newDate: '2027-01-20', reason: 'Early release' },
+          'ha-1',
+          Role.HR_ASSOCIATE,
         ),
       ).rejects.toThrow(ForbiddenException);
     });

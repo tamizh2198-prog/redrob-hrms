@@ -10,13 +10,13 @@ export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
   @Get()
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listAuditLogs(@Query() query: ListAuditLogsQueryDto) {
     return this.auditService.listAuditLogs(query);
   }
 
   @Get('export')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   async exportAuditLogs(@Query() query: ListAuditLogsQueryDto) {
     const { rows } = await this.auditService.exportAuditLogs(query);
     const csv = toCsv({ entity: 'AuditLog', total: rows.length, rows });

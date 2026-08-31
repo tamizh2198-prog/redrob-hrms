@@ -30,7 +30,7 @@ export class OffboardingController {
   }
 
   @Get()
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   list() {
     return this.offboardingService.listResignations();
   }
@@ -103,7 +103,7 @@ export class OffboardingController {
   }
 
   @Get(':id/settlement')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   computeSettlement(
     @Param('id') id: string,
     @Query() dto: ComputeSettlementDto,
@@ -131,7 +131,7 @@ export class OffboardingController {
   }
 
   @Post(':id/generate-letters')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   generateLetters(
     @Param('id') id: string,
     @Body() dto: GenerateLettersDto,

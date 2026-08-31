@@ -14,8 +14,16 @@ import { CreateAssetRequestDto } from './dto/create-asset-request.dto';
 import { IssueAssetDto } from './dto/issue-asset.dto';
 import { ReturnAssetDto } from './dto/return-asset.dto';
 
+// Decision authority (decideAssetRequest) — HR_ASSOCIATE deliberately
+// excluded, unlike isHrStaff below.
 function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+}
+
+// General visibility (e.g. listAssetRequests' company-wide scope) — mirrors
+// HR_ADMIN's access without granting decision authority.
+function isHrStaff(role?: Role): boolean {
+  return isPrivileged(role) || role === Role.HR_ASSOCIATE;
 }
 
 @Injectable()
@@ -104,7 +112,7 @@ export class AssetsService {
     filter: { employeeId?: string },
     requester: EmployeeDataRequester,
   ) {
-    const employeeId = isPrivileged(requester.role)
+    const employeeId = isHrStaff(requester.role)
       ? filter.employeeId
       : requester.userId;
     return this.prisma.assetRequest.findMany({

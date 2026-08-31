@@ -19,13 +19,13 @@ export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
   @Post()
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   create(@Body() dto: CreateAssetDto) {
     return this.assetsService.createAsset(dto);
   }
 
   @Get()
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   list(@Query('status') status?: AssetStatus) {
     return this.assetsService.listAssets(status);
   }
@@ -70,7 +70,7 @@ export class AssetsController {
   }
 
   @Post(':id/issue')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   issue(@Param('id') id: string, @Body() dto: IssueAssetDto) {
     return this.assetsService.issueAsset(id, dto);
   }
@@ -84,7 +84,7 @@ export class AssetsController {
   }
 
   @Post(':id/return')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   return_(@Param('id') id: string, @Body() dto: ReturnAssetDto) {
     return this.assetsService.returnAsset(id, dto);
   }

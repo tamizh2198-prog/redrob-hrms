@@ -209,6 +209,26 @@ describe('AtsService', () => {
         service.moveStage('cand-1', 'OFFER', 'actor-1', Role.MANAGER),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('lets HR Associate move any candidate, like HR Admin, even when not the hiring manager', async () => {
+      prisma.candidate.findUnique.mockResolvedValue({
+        id: 'cand-1',
+        requisition: { hiringManagerId: 'other-manager' },
+      });
+      prisma.interviewRound.findFirst.mockResolvedValue({ id: 'round-1' });
+      prisma.candidate.update.mockResolvedValue({
+        id: 'cand-1',
+        currentStage: 'OFFER',
+      });
+
+      const result = await service.moveStage(
+        'cand-1',
+        'OFFER',
+        'ha-1',
+        Role.HR_ASSOCIATE,
+      );
+      expect(result.currentStage).toBe('OFFER');
+    });
   });
 
   describe('Business Rule: offer approval is HR Admin/Super Admin only', () => {
@@ -222,6 +242,12 @@ describe('AtsService', () => {
     it('rejects an approval attempt from an Employee', async () => {
       await expect(
         service.approveOffer('offer-1', 'someone-else', 'EMPLOYEE'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects an approval attempt from HR Associate — mirrors HR_ADMIN elsewhere but has no decision authority', async () => {
+      await expect(
+        service.approveOffer('offer-1', 'ha-1', 'HR_ASSOCIATE'),
       ).rejects.toThrow(ForbiddenException);
     });
 

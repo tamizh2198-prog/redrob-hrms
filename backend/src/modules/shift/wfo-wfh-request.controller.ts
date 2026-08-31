@@ -36,13 +36,13 @@ export class WfoWfhRequestController {
   }
 
   @Get('pending-manager-stage')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listPendingManagerStageForVisibility() {
     return this.wfoWfhRequestService.listPendingManagerStageForVisibility();
   }
 
   @Get('pending-final-approval')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listPendingFinalApproval() {
     return this.wfoWfhRequestService.listPendingFinalApproval();
   }

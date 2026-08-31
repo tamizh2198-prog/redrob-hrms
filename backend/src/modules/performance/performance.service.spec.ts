@@ -434,6 +434,27 @@ describe('PerformanceService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('lets HR Associate create a goal for anyone, like HR Admin, even when not their report', async () => {
+      prisma.reviewCycle.findUnique.mockResolvedValue({
+        id: 'cycle-1',
+        status: 'OPEN',
+      });
+      prisma.goal.create.mockResolvedValue({ id: 'goal-1' });
+
+      await expect(
+        service.createGoal(
+          {
+            employeeId: 'emp-2',
+            cycleId: 'cycle-1',
+            title: 'X',
+            weightage: 50,
+          },
+          'ha-1',
+          Role.HR_ASSOCIATE,
+        ),
+      ).resolves.toBeDefined();
+    });
+
     it('rejects a plain employee creating a goal for anyone else at all', async () => {
       await expect(
         service.createGoal(

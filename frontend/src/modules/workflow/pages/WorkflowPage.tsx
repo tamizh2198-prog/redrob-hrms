@@ -89,7 +89,7 @@ function newStep(): StepFormState {
 
 export function WorkflowPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
 
   const [approvals, setApprovals] = useState<UnifiedApprovalItem[]>([])
   const [definitions, setDefinitions] = useState<WorkflowDefinition[]>([])

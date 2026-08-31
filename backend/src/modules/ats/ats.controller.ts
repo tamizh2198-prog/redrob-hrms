@@ -31,7 +31,7 @@ export class AtsController {
   constructor(private readonly atsService: AtsService) {}
 
   @Post('requisitions')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createRequisition(
     @Body() dto: CreateRequisitionDto,
     @CurrentUser() user: { userId: string },
@@ -40,7 +40,7 @@ export class AtsController {
   }
 
   @Get('requisitions')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listRequisitions(@CurrentUser() user: { userId: string; role: string }) {
     return this.atsService.listRequisitions(user.userId, user.role as Role);
   }
@@ -60,7 +60,7 @@ export class AtsController {
   }
 
   @Post('requisitions/:id/publish')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   publishRequisition(@Param('id') id: string) {
     return this.atsService.publishRequisition(id);
   }
@@ -72,7 +72,7 @@ export class AtsController {
   }
 
   @Get('candidates')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listCandidates(
     @Query('requisitionId') requisitionId: string | undefined,
     @CurrentUser() user: { userId: string; role: string },
@@ -85,7 +85,7 @@ export class AtsController {
   }
 
   @Patch('candidates/:id/stage')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   moveStage(
     @Param('id') id: string,
     @Body() dto: MoveStageDto,
@@ -100,7 +100,7 @@ export class AtsController {
   }
 
   @Post('candidates/:id/interviews')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   scheduleInterview(
     @Param('id') id: string,
     @Body() dto: ScheduleInterviewDto,
@@ -129,25 +129,25 @@ export class AtsController {
   }
 
   @Post('offers')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createOffer(@Body() dto: CreateOfferDto) {
     return this.atsService.createOffer(dto);
   }
 
   @Post('offer-templates')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createOfferTemplate(@Body() dto: CreateOfferTemplateDto) {
     return this.atsService.createOfferTemplate(dto);
   }
 
   @Get('offer-templates')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listOfferTemplates() {
     return this.atsService.listOfferTemplates();
   }
 
   @Patch('offer-templates/:id')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   updateOfferTemplate(
     @Param('id') id: string,
     @Body() dto: UpdateOfferTemplateDto,
@@ -156,7 +156,7 @@ export class AtsController {
   }
 
   @Delete('offer-templates/:id')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   deleteOfferTemplate(@Param('id') id: string) {
     return this.atsService.deleteOfferTemplate(id);
   }
@@ -175,7 +175,7 @@ export class AtsController {
   }
 
   @Post('offers/:id/send')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   sendOffer(@Param('id') id: string, @Body() dto: SendOfferDto) {
     return this.atsService.sendOffer(id, dto.templateId);
   }

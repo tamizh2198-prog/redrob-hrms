@@ -192,6 +192,35 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
     'workflow.manage',
     'assistant.use',
   ],
+  // Mirrors HR_ADMIN's list — this table is purely display-only (see
+  // comment above), and HR_ASSOCIATE's actual restriction (no approve/
+  // reject/decide authority) is enforced in the guards/services, not
+  // representable at this table's view/manage granularity.
+  [Role.HR_ASSOCIATE]: [
+    'employee.view',
+    'employee.create',
+    'employee.update',
+    'employee.delete',
+    'attendance.view',
+    'attendance.manage',
+    'leave.view',
+    'leave.manage',
+    'performance.view',
+    'performance.manage',
+    'assets.view',
+    'assets.manage',
+    'offboarding.view',
+    'offboarding.manage',
+    'helpdesk.view',
+    'helpdesk.manage',
+    'announcements.view',
+    'announcements.manage',
+    'analytics.view',
+    'analytics.manage',
+    'workflow.view',
+    'workflow.manage',
+    'assistant.use',
+  ],
   [Role.MANAGER]: [
     'employee.view',
     'attendance.view',

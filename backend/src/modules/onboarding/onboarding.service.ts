@@ -43,8 +43,11 @@ export const PROBATION_CHECKPOINT_DAYS: Record<ProbationCheckpoint, number> = {
   DAY_90: 90,
 };
 
+// The only call site of this in the file is completeTask's on-behalf
+// override (data entry, not a decision on a request), so HR_ASSOCIATE is
+// safely included here.
 function isPrivileged(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN || role === Role.HR_ASSOCIATE;
 }
 
 function addDays(date: Date, days: number): Date {

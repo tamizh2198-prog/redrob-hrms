@@ -67,7 +67,7 @@ export class PerformanceController {
   }
 
   @Post('reviews/cycle')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   openReviewCycle(@Body() dto: OpenReviewCycleDto) {
     return this.performanceService.openReviewCycle(dto);
   }
@@ -78,7 +78,7 @@ export class PerformanceController {
   }
 
   @Post('reviews/cycle/:id/close')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   closeReviewCycle(
     @Param('id') id: string,
     @CurrentUser() user: { userId: string },
@@ -87,7 +87,7 @@ export class PerformanceController {
   }
 
   @Get('reviews/cycle/:id/calibration')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   getCalibrationView(@Param('id') id: string) {
     return this.performanceService.getCalibrationView(id);
   }

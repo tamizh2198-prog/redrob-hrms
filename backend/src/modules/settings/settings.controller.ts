@@ -13,7 +13,7 @@ export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
   @Get('company')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   getCompanySettings() {
     return this.settingsService.getCompanySettings();
   }
@@ -25,7 +25,7 @@ export class SettingsController {
   }
 
   @Get('org-structure')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listOrgStructure() {
     return this.settingsService.listOrgStructure();
   }
@@ -47,7 +47,7 @@ export class SettingsController {
   }
 
   @Get('integrations')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listIntegrations() {
     return this.settingsService.listIntegrations();
   }

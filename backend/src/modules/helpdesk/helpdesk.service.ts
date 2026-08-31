@@ -54,8 +54,11 @@ const ALLOWED_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
   REOPENED: [TicketStatus.IN_PROGRESS],
 };
 
+// No call site in this file is an approval workflow (ticket status
+// transitions and agent assignment are operational, not decisions on a
+// request), so HR_ASSOCIATE is safely included here.
 function isPrivileged(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN || role === Role.HR_ASSOCIATE;
 }
 
 function addHours(date: Date, hours: number): Date {

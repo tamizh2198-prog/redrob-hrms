@@ -46,8 +46,17 @@ function daysBetween(from: Date, to: Date): number {
   return Math.round((to.getTime() - from.getTime()) / MS_PER_DAY);
 }
 
+// Decision/sign-off authority (adjustLwd, signoffClearance) — HR_ASSOCIATE
+// deliberately excluded, unlike isHrStaff below.
 function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+}
+
+// General visibility/on-behalf-of overrides (submitResignation,
+// submitExitInterview) — mirrors HR_ADMIN's access without granting
+// LWD-adjustment or clearance sign-off authority.
+function isHrStaff(role?: Role): boolean {
+  return isPrivileged(role) || role === Role.HR_ASSOCIATE;
 }
 
 // The company's actual Separation Clearance Checklist: items verified by the
@@ -165,7 +174,7 @@ export class OffboardingService {
     actorRole?: Role,
   ) {
     const employeeId = dto.employeeId ?? actorId;
-    if (employeeId !== actorId && !isPrivileged(actorRole)) {
+    if (employeeId !== actorId && !isHrStaff(actorRole)) {
       throw new ForbiddenException(
         'Only the employee themselves or HR Admin can submit this resignation',
       );
@@ -388,13 +397,13 @@ export class OffboardingService {
       where: { id: resignationId },
     });
     if (!resignation) throw new NotFoundException('Resignation not found');
-    if (resignation.employeeId !== actorId && !isPrivileged(actorRole)) {
+    if (resignation.employeeId !== actorId && !isHrStaff(actorRole)) {
       throw new ForbiddenException(
         'Only the exiting employee or HR Admin can submit this exit interview',
       );
     }
 
-    const conductedBy = isPrivileged(actorRole) ? actorId : null;
+    const conductedBy = isHrStaff(actorRole) ? actorId : null;
     return this.prisma.exitInterview.upsert({
       where: { resignationId },
       update: {

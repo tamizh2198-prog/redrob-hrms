@@ -40,8 +40,12 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function ShiftPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // General HR access — mirrors HR_ADMIN except decision authority, which
+  // HR Associate never gets; canApprove (below) gates the WFO/WFH final
+  // Approve/Reject buttons specifically.
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+  const canApprove = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [myRoster, setMyRoster] = useState<RosterEntry[]>([])
@@ -338,14 +342,16 @@ export function ShiftPage() {
                     <div className="text-muted-foreground">Reason: {r.reason}</div>
                     <div className="text-muted-foreground">Manager already approved this request.</div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => handleWfoWfhDecision(r.id, true)}>
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleWfoWfhDecision(r.id, false)}>
-                      Reject
-                    </Button>
-                  </div>
+                  {canApprove && (
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => handleWfoWfhDecision(r.id, true)}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleWfoWfhDecision(r.id, false)}>
+                        Reject
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </li>
             ))}

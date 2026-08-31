@@ -72,7 +72,7 @@ export const MODULE_NAV = [
     externalHref: ATS_EXTERNAL_URL,
     icon: Briefcase,
     color: 'text-violet-500',
-    roles: ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'],
+    roles: ['MANAGER', 'HR_ADMIN', 'HR_ASSOCIATE', 'SUPER_ADMIN'],
   },
   { path: '/onboarding', label: 'Onboarding', Component: OnboardingPage, icon: UserPlus, color: 'text-teal-500' },
   { path: '/performance', label: 'Performance', Component: PerformancePage, icon: TrendingUp, color: 'text-orange-500' },
@@ -112,7 +112,7 @@ export const MODULE_NAV = [
     Component: AuditPage,
     icon: ShieldCheck,
     color: 'text-red-500',
-    roles: ['HR_ADMIN', 'SUPER_ADMIN'],
+    roles: ['HR_ADMIN', 'HR_ASSOCIATE', 'SUPER_ADMIN'],
   },
   // Auth Phase 5: SUPER_ADMIN only. `roles` is optional on every other
   // entry above (undefined = always visible), so this is additive and
@@ -156,7 +156,7 @@ export function AppRoutes({ profileIncomplete = false }: { profileIncomplete?: b
       <Route
         path="/audit"
         element={
-          <RequireRole roles={['HR_ADMIN', 'SUPER_ADMIN']}>
+          <RequireRole roles={['HR_ADMIN', 'HR_ASSOCIATE', 'SUPER_ADMIN']}>
             <AuditPage />
           </RequireRole>
         }

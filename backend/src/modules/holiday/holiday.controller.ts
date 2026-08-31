@@ -13,7 +13,7 @@ export class HolidayController {
   constructor(private readonly holidayService: HolidayService) {}
 
   @Post('calendar')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createCalendar(@Body() dto: CreateHolidayCalendarDto) {
     return this.holidayService.createCalendar(dto);
   }

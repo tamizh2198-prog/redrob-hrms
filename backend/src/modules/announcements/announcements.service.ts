@@ -13,8 +13,10 @@ import { CreateRecognitionDto } from './dto/create-recognition.dto';
 // Section 7.12 Business Rule: "Mandatory unread reminder → T+2 days."
 const REMINDER_DELAY_DAYS = 2;
 
+// No call site in this file is an approve/reject decision, so HR_ASSOCIATE
+// (mirrors HR_ADMIN except for decision authority) is safely included here.
 function isPrivileged(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN || role === Role.HR_ASSOCIATE;
 }
 
 function addDays(date: Date, days: number): Date {

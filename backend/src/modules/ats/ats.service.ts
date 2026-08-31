@@ -34,8 +34,17 @@ const DUPLICATE_LOOKBACK_MONTHS = 12;
 
 const OFFER_RESPOND_PURPOSE = 'offer-respond';
 
+// Decision authority (approveOffer) — HR_ASSOCIATE deliberately excluded,
+// unlike isHrStaff below.
 function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+}
+
+// General visibility/on-behalf-of overrides (listRequisitions, listCandidates,
+// moveStage, scheduleInterview, submitScorecard) — mirrors HR_ADMIN's access
+// without granting offer-approval authority.
+function isHrStaff(role?: Role): boolean {
+  return isPrivileged(role) || role === Role.HR_ASSOCIATE;
 }
 
 // Built-in copy used whenever no OfferTemplate is selected/configured —
@@ -157,7 +166,7 @@ export class AtsService {
   // the hiring manager, not the whole company's pipeline.
   listRequisitions(actorId: string, actorRole?: Role) {
     return this.prisma.jobRequisition.findMany({
-      where: isPrivileged(actorRole) ? undefined : { hiringManagerId: actorId },
+      where: isHrStaff(actorRole) ? undefined : { hiringManagerId: actorId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -218,7 +227,7 @@ export class AtsService {
     return this.prisma.candidate.findMany({
       where: {
         requisitionId,
-        requisition: isPrivileged(actorRole)
+        requisition: isHrStaff(actorRole)
           ? undefined
           : { hiringManagerId: actorId },
       },
@@ -246,7 +255,7 @@ export class AtsService {
     if (!candidate) throw new NotFoundException('Candidate not found');
 
     if (
-      !isPrivileged(actorRole) &&
+      !isHrStaff(actorRole) &&
       candidate.requisition.hiringManagerId !== actorId
     ) {
       throw new ForbiddenException(
@@ -287,7 +296,7 @@ export class AtsService {
     if (!candidate) throw new NotFoundException('Candidate not found');
 
     if (
-      !isPrivileged(actorRole) &&
+      !isHrStaff(actorRole) &&
       candidate.requisition.hiringManagerId !== actorId
     ) {
       throw new ForbiddenException(
@@ -323,7 +332,7 @@ export class AtsService {
       where: { id: roundId },
     });
     if (!round) throw new NotFoundException('Interview round not found');
-    if (round.interviewerId !== actorId && !isPrivileged(actorRole)) {
+    if (round.interviewerId !== actorId && !isHrStaff(actorRole)) {
       throw new ForbiddenException(
         'Only the assigned interviewer can submit this scorecard',
       );

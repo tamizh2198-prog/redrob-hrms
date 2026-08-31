@@ -69,7 +69,7 @@ export class HelpdeskController {
   }
 
   @Post('tickets/:id/assign')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   assignTicket(
     @Param('id') id: string,
     @Body() dto: AssignTicketDto,
@@ -98,25 +98,25 @@ export class HelpdeskController {
   }
 
   @Post('faq')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createFaq(@Body() dto: CreateFaqDto) {
     return this.helpdeskService.createFaq(dto);
   }
 
   @Get('sla-policies')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listSlaPolicies() {
     return this.helpdeskService.listSlaPolicies();
   }
 
   @Post('sla-policies')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   upsertSlaPolicy(@Body() dto: UpsertSlaPolicyDto) {
     return this.helpdeskService.upsertSlaPolicy(dto);
   }
 
   @Get('dashboard')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   getDashboardSummary() {
     return this.helpdeskService.getDashboardSummary();
   }

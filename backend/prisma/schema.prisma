@@ -21,6 +21,10 @@ enum Role {
   MANAGER
   HR_ADMIN
   SUPER_ADMIN
+  // Mirrors HR_ADMIN's module access everywhere except it has zero
+  // approve/reject/decide/audit/sign-off authority over any request — see
+  // isHrStaff()-style helpers alongside each module's isPrivileged().
+  HR_ASSOCIATE
 }
 
 enum Gender {

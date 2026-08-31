@@ -35,7 +35,7 @@ const MFA_ENROLL_PURPOSE = 'mfa-enroll';
 // two roles, not optional — a password alone is never enough for them.
 // A recognized device (see TrustedDeviceService) is the only way to skip
 // this, not a time-based exemption — see login() below.
-const MFA_REQUIRED_ROLES: Role[] = [Role.HR_ADMIN, Role.SUPER_ADMIN];
+const MFA_REQUIRED_ROLES: Role[] = [Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN];
 
 @Controller('auth')
 export class AuthController {

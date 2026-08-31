@@ -198,8 +198,11 @@ function maskValue(value: string | null): string | null {
   return `****${visible}`;
 }
 
+// Every call site of this in the file is general access/data-entry, never
+// an approve/reject decision, so HR_ASSOCIATE (mirrors HR_ADMIN except for
+// decision authority) is safely included directly here.
 function isPrivilegedRole(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN || role === Role.HR_ASSOCIATE;
 }
 
 // Reassigning any of these on an existing employee is Super Admin-only —
@@ -528,10 +531,12 @@ export class EmployeeService {
     let role: Role | undefined;
     if (dto.role) {
       const isPrivilegedRoleRequested =
-        dto.role === Role.SUPER_ADMIN || dto.role === Role.HR_ADMIN;
+        dto.role === Role.SUPER_ADMIN ||
+        dto.role === Role.HR_ADMIN ||
+        dto.role === Role.HR_ASSOCIATE;
       if (isPrivilegedRoleRequested && actorRole !== Role.SUPER_ADMIN) {
         throw new ForbiddenException(
-          'Only a Super Admin can assign the HR Admin or Super Admin role',
+          'Only a Super Admin can assign the HR Admin, HR Associate, or Super Admin role',
         );
       }
       role = dto.role;
@@ -954,10 +959,12 @@ export class EmployeeService {
     if (!target) throw new NotFoundException('Employee not found');
 
     const targetIsPrivileged =
-      target.role === Role.SUPER_ADMIN || target.role === Role.HR_ADMIN;
+      target.role === Role.SUPER_ADMIN ||
+      target.role === Role.HR_ADMIN ||
+      target.role === Role.HR_ASSOCIATE;
     if (targetIsPrivileged && actorRole !== Role.SUPER_ADMIN) {
       throw new ForbiddenException(
-        'Only a Super Admin can reset credentials for an HR Admin or Super Admin',
+        'Only a Super Admin can reset credentials for an HR Admin, HR Associate, or Super Admin',
       );
     }
     return target;

@@ -33,7 +33,7 @@ export class RosterController {
   constructor(private readonly shiftService: ShiftService) {}
 
   @Post('assign')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   assign(@Body() dto: AssignRosterDto) {
     return this.shiftService.assignRoster(dto);
   }
@@ -56,7 +56,7 @@ export class RosterController {
   }
 
   @Post('hybrid-schedule')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   setHybridSchedule(@Body() dto: SetHybridScheduleDto) {
     return this.shiftService.setEmployeeHybridSchedule(dto);
   }
@@ -64,7 +64,7 @@ export class RosterController {
   // Blank starter workbook (Employee Code / Year / Month / one column per
   // weekday) so HR knows the exact format the bulk-upload endpoint expects.
   @Get('hybrid-schedule/template')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   async getHybridScheduleTemplate() {
     const buffer = await buildHybridScheduleTemplate();
     return new StreamableFile(buffer, {
@@ -77,7 +77,7 @@ export class RosterController {
   // each with its own office-weekday pattern, instead of repeating the
   // single-employee form one person at a time.
   @Post('hybrid-schedule/bulk-upload')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
   )

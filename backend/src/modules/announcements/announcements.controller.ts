@@ -13,7 +13,7 @@ export class AnnouncementsController {
   constructor(private readonly announcementsService: AnnouncementsService) {}
 
   @Post('announcements')
-  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.MANAGER, Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createAnnouncement(
     @Body() dto: CreateAnnouncementDto,
     @CurrentUser() user: { userId: string },
@@ -50,13 +50,13 @@ export class AnnouncementsController {
   }
 
   @Get('announcements/:id/compliance')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   getCompliance(@Param('id') id: string) {
     return this.announcementsService.getCompliance(id);
   }
 
   @Get('announcements/:id/compliance/users')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   getComplianceUsers(@Param('id') id: string) {
     return this.announcementsService.getComplianceUsers(id);
   }

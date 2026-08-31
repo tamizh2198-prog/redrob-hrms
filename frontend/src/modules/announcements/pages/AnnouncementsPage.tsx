@@ -47,7 +47,7 @@ function priorityVariant(p: AnnouncementPriority): 'destructive' | 'secondary' |
 
 export function AnnouncementsPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
   const canCreateAnnouncement = isHrAdmin || user?.role === 'MANAGER'
 
   const [departments, setDepartments] = useState<ReferenceOption[]>([])

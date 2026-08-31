@@ -44,7 +44,9 @@ const STATUS_OPTIONS: EmployeeStatus[] = [
 
 export function EmployeePage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // Bulk-import/create/invitations — general HR access, no approve/reject
+  // authority involved, so HR Associate mirrors HR_ADMIN here.
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   // Section 6 Access Control: the backend already scopes /employees down to
   // just this employee's own record for the EMPLOYEE role — these flags only

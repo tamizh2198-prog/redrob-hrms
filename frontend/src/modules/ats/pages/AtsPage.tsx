@@ -43,7 +43,11 @@ const STAGES: CandidateStage[] = ['APPLIED', 'SCREENING', 'INTERVIEW', 'OFFER', 
 
 export function AtsPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // General HR access — mirrors HR_ADMIN except decision authority, which
+  // HR Associate never gets; canApprove (below) gates the requisition/offer
+  // Approve buttons specifically.
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
+  const canApprove = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
   const canRaiseRequisition = isHrAdmin || user?.role === 'MANAGER'
 
   const [departments, setDepartments] = useState<ReferenceOption[]>([])
@@ -299,7 +303,7 @@ export function AtsPage() {
                   <span className="text-muted-foreground">
                     Hiring Manager: {personName(r.hiringManagerId)}
                   </span>
-                  {isHrAdmin && r.status === 'PENDING_APPROVAL' && (
+                  {canApprove && r.status === 'PENDING_APPROVAL' && (
                     <Button size="sm" variant="outline" onClick={() => handleApprove(r.id)}>
                       Approve
                     </Button>
@@ -564,7 +568,7 @@ export function AtsPage() {
                               )}
                             </ul>
                             <div className="flex flex-wrap gap-2">
-                              {isHrAdmin && offer.status === 'DRAFT' && !offer.hrApprovedAt && (
+                              {canApprove && offer.status === 'DRAFT' && !offer.hrApprovedAt && (
                                 <Button
                                   size="sm"
                                   variant="outline"

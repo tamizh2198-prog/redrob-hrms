@@ -32,13 +32,13 @@ export class AnalyticsController {
   // Section 7.13 Primary Users/Roles assigns the report builder to HR
   // Admin only ("HR Admin — org-wide reports, report builder").
   @Get('reports/entities')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listReportEntities() {
     return this.analyticsService.listReportEntities();
   }
 
   @Post('reports/build')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   async buildReport(@Body() dto: BuildReportDto) {
     const result = await this.analyticsService.buildReport(dto);
     if (!dto.format) return result;
@@ -53,7 +53,7 @@ export class AnalyticsController {
   // Section 7.13 Phase 5: SavedReport is persisted only for scheduled
   // reports — an ad-hoc /reports/build call never creates one.
   @Post('reports/saved')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   createSavedReport(
     @Body() dto: CreateSavedReportDto,
     @CurrentUser() user: { userId: string },
@@ -62,13 +62,13 @@ export class AnalyticsController {
   }
 
   @Get('reports/saved')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   listSavedReports() {
     return this.analyticsService.listSavedReports();
   }
 
   @Delete('reports/saved/:id')
-  @Roles(Role.HR_ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN)
   deleteSavedReport(@Param('id') id: string) {
     return this.analyticsService.deleteSavedReport(id);
   }

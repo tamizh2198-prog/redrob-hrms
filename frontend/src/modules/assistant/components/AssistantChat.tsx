@@ -18,7 +18,7 @@ import {
 // separate assistant implementation.
 export function AssistantChat() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
 
   const [conversationId, setConversationId] = useState<string | undefined>()
   const [messages, setMessages] = useState<AssistantMessage[]>([])

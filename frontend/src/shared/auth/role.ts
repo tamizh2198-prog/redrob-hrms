@@ -1,11 +1,10 @@
-export type Role = 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN' | 'SUPER_ADMIN'
+export type Role = 'EMPLOYEE' | 'MANAGER' | 'HR_ADMIN' | 'SUPER_ADMIN' | 'HR_ASSOCIATE'
 
-// Access to the operational HR modules — Onboarding, Offboarding, Assets —
-// mirroring the backend RolesGuard's ROLE_DEFAULT_MODULES map. Do NOT use
-// this for Employee Directory, CTC, Leave Type management, Settings,
-// Roles & Permissions, or Audit — those stay on the existing
-// HR_ADMIN/SUPER_ADMIN-only checks (`role === 'HR_ADMIN' || role ===
-// 'SUPER_ADMIN'`), unchanged.
+// General HR access — mirrors HR_ADMIN everywhere except approve/reject/
+// decide/audit/sign-off authority over a request, which HR_ASSOCIATE never
+// gets (see each page's own `canApprove`-style boolean for those call
+// sites). Used for Onboarding/Offboarding's general sections and anywhere
+// else that just needs "is this HR staff, broadly."
 export function canAccessHrOperationalModules(role: Role | undefined): boolean {
-  return role === 'HR_ADMIN' || role === 'SUPER_ADMIN'
+  return role === 'HR_ADMIN' || role === 'SUPER_ADMIN' || role === 'HR_ASSOCIATE'
 }

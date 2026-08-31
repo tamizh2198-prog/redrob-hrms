@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { WorkflowService } from './workflow.service';
 import { PrismaService } from '../../shared/database/prisma.service';
 import { NotificationService } from '../../shared/notifications/notification.service';
@@ -301,6 +302,30 @@ describe('WorkflowService (Section 7.15)', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('lets HR Associate view any request, like HR Admin, even when not the requester or an eligible approver', async () => {
+      prisma.approvalRequest.findUnique.mockResolvedValue({
+        id: 'req-view',
+        status: 'PENDING',
+        currentStep: 0,
+        requestedById: 'req-1',
+        decisions: [],
+        workflowDefinition: {
+          companyId: 'co-1',
+          stepsJson: [
+            {
+              sequence: 0,
+              approverRules: [{ type: 'MANAGER' }],
+              requireAll: false,
+            },
+          ],
+        },
+      });
+
+      await expect(
+        service.getRequest('req-view', { userId: 'ha-1', role: Role.HR_ASSOCIATE }),
+      ).resolves.toBeDefined();
+    });
+
     it('rejects a second decision from the same approver on the same step', async () => {
       prisma.approvalRequest.findUnique.mockResolvedValue({
         id: 'req-e',
@@ -430,6 +455,18 @@ describe('WorkflowService (Section 7.15)', () => {
       ]);
 
       const items = await service.listMyApprovals('mgr-1', 'MANAGER');
+
+      expect(items.find((i) => i.source === 'ASSETS')).toBeUndefined();
+      expect(assetsService.listAssetRequests).not.toHaveBeenCalled();
+    });
+
+    it('never includes asset requests for HR Associate either — mirrors HR_ADMIN elsewhere but has no decision authority', async () => {
+      prisma.approvalRequest.findMany.mockResolvedValue([]);
+      assetsService.listAssetRequests.mockResolvedValue([
+        { id: 'asset-1', status: 'PENDING', assetCategory: 'LAPTOP', createdAt: new Date() },
+      ]);
+
+      const items = await service.listMyApprovals('ha-1', 'HR_ASSOCIATE');
 
       expect(items.find((i) => i.source === 'ASSETS')).toBeUndefined();
       expect(assetsService.listAssetRequests).not.toHaveBeenCalled();

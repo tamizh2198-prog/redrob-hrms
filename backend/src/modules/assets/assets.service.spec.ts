@@ -237,6 +237,24 @@ describe('AssetsService', () => {
         service.decideAssetRequest('req-1', false, 'admin-1', Role.SUPER_ADMIN),
       ).resolves.toEqual({ status: 'REJECTED' });
     });
+
+    it('rejects a decision from HR Associate — mirrors HR_ADMIN elsewhere but has no decision authority', async () => {
+      await expect(
+        service.decideAssetRequest('req-1', true, 'ha-1', Role.HR_ASSOCIATE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Asset requests: HR Associate gets HR_ADMIN-equivalent visibility (not decision authority)', () => {
+    it('lets HR Associate see every employee’s asset requests, like HR Admin', () => {
+      service.listAssetRequests(
+        { employeeId: 'emp-9' },
+        { userId: 'ha-1', role: Role.HR_ASSOCIATE },
+      );
+      expect(prisma.assetRequest.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { employeeId: 'emp-9' } }),
+      );
+    });
   });
 
   describe('Asset requests: notifies HR Admin/Super Admin, not the reporting manager', () => {

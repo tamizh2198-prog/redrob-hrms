@@ -70,6 +70,30 @@ describe('RolesGuard (Auth Phase 1: Super Admin authorization)', () => {
     await expect(guard.canActivate(context)).resolves.toBe(false);
   });
 
+  it('allows an HR_ASSOCIATE through a route that lists HR_ASSOCIATE alongside HR_ADMIN', async () => {
+    const { context, reflector } = createMockContext(
+      { userId: 'ha-1', role: 'HR_ASSOCIATE' },
+      [Role.HR_ADMIN, Role.HR_ASSOCIATE, Role.SUPER_ADMIN],
+    );
+    const guard = new RolesGuard(
+      reflector as unknown as Reflector,
+      prisma as unknown as PrismaService,
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('rejects an HR_ASSOCIATE on a route that deliberately excludes it (e.g. an approve/reject action)', async () => {
+    const { context, reflector } = createMockContext(
+      { userId: 'ha-1', role: 'HR_ASSOCIATE' },
+      [Role.HR_ADMIN, Role.SUPER_ADMIN],
+    );
+    const guard = new RolesGuard(
+      reflector as unknown as Reflector,
+      prisma as unknown as PrismaService,
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(false);
+  });
+
   it('rejects when there is no authenticated user at all', async () => {
     const { context, reflector } = createMockContext(undefined, [
       Role.SUPER_ADMIN,

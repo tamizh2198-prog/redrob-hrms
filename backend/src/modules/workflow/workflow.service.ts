@@ -132,8 +132,14 @@ export class WorkflowService {
     });
     if (!request) throw new NotFoundException('Approval request not found');
 
+    // Viewing only — not a decision, so HR_ASSOCIATE is included here
+    // (unlike listMyApprovals below and the approver-resolution functions,
+    // which stay HR_ADMIN/SUPER_ADMIN-only so HR_ASSOCIATE never becomes an
+    // eligible decider).
     const isPrivileged =
-      requester.role === Role.HR_ADMIN || requester.role === Role.SUPER_ADMIN;
+      requester.role === Role.HR_ADMIN ||
+      requester.role === Role.SUPER_ADMIN ||
+      requester.role === Role.HR_ASSOCIATE;
     const isRequester = requester.userId === request.requestedById;
     if (!isPrivileged && !isRequester) {
       const steps = request.workflowDefinition

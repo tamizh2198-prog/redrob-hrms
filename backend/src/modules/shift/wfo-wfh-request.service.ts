@@ -23,8 +23,16 @@ function startOfDay(date: Date): Date {
   return d;
 }
 
+// Decision authority (decideManagerStage/decideFinalStage) — HR_ASSOCIATE
+// deliberately excluded, unlike isHrStaff below.
 function isPrivileged(role?: Role): boolean {
   return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+}
+
+// General visibility (listComments) — mirrors HR_ADMIN's access without
+// granting decision authority.
+function isHrStaff(role?: Role): boolean {
+  return isPrivileged(role) || role === Role.HR_ASSOCIATE;
 }
 
 function oppositeWorkMode(mode: WorkMode): WorkMode {
@@ -423,7 +431,7 @@ export class WfoWfhRequestService {
       where: { id: requestId },
     });
     if (!request) throw new NotFoundException('WFO/WFH request not found');
-    if (request.approverId !== actorId && !isPrivileged(actorRole)) {
+    if (request.approverId !== actorId && !isHrStaff(actorRole)) {
       throw new ForbiddenException(
         'Only the assigned approver or an HR Admin/Super Admin can view these comments',
       );

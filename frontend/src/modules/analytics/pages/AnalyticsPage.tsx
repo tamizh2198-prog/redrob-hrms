@@ -66,7 +66,7 @@ function HrAdminDashboardView({ d }: { d: Dashboard & { role: 'HR_ADMIN' | 'SUPE
 
 export function AnalyticsPage() {
   const { user } = useAuth()
-  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isHrAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'HR_ASSOCIATE'
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [entities, setEntities] = useState<ReportEntity[]>([])

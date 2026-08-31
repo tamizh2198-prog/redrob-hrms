@@ -176,6 +176,20 @@ describe('AnnouncementsService', () => {
       );
     });
 
+    it('lets HR Associate see every announcement too, like HR Admin', async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: 'ha-1',
+        companyId: 'co-1',
+      });
+      prisma.announcement.findMany.mockResolvedValue([]);
+
+      await service.listAnnouncements('ha-1', 'HR_ASSOCIATE');
+
+      expect(prisma.announcement.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { companyId: 'co-1' } }),
+      );
+    });
+
     it('rejects viewing a DEPARTMENT-scoped announcement from outside that department', async () => {
       prisma.announcement.findUnique.mockResolvedValue({
         id: 'ann-1',

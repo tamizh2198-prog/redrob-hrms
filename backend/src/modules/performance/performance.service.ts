@@ -32,8 +32,13 @@ import { AuditQuarterlyKpiDto } from './dto/audit-quarterly-kpi.dto';
 
 const WEIGHTAGE_TOLERANCE = 0.01;
 
+// Every call site of this in the file is a data-entry-on-behalf-of override
+// (createGoal/updateGoalProgress/submitManagerAssessment), never an
+// approve/reject decision (the audit endpoints are already SUPER_ADMIN-only
+// via @Roles, and correct-rating stays HR_ADMIN/SUPER_ADMIN-only via
+// @Roles), so HR_ASSOCIATE is safely included directly here.
 function isPrivileged(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN;
+  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN || role === Role.HR_ASSOCIATE;
 }
 
 // Performance Evaluation Policy 2026, Section 4 "KPI Score Mapping".

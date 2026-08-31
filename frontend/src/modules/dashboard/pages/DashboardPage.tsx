@@ -51,6 +51,7 @@ const ROLE_MESSAGE: Record<Role, string> = {
   EMPLOYEE: 'Use the sidebar to get started — Shift & Roster, Holiday Calendar, and more.',
   MANAGER: 'Review your team’s pending approvals from the Shift & Roster and Helpdesk sections.',
   HR_ADMIN: 'Manage company-wide HR operations from the modules in the sidebar.',
+  HR_ASSOCIATE: 'Manage company-wide HR operations from the modules in the sidebar.',
   SUPER_ADMIN: 'You have full access to every module, including Roles & Permissions.',
 }
 
