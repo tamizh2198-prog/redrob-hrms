@@ -1,0 +1,198 @@
+import type { PrismaClient } from "@prisma/client";
+import * as shiftService from "./service";
+
+function createMockPrisma() {
+  return {
+    shift: { findUnique: jest.fn(), create: jest.fn(), findMany: jest.fn() },
+    rosterEntry: { upsert: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+    employeeHybridSchedule: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn() },
+    employee: { findUnique: jest.fn() },
+    $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+  };
+}
+
+jest.mock("../../lib/notify");
+jest.mock("../../lib/default-company", () => ({ getOrCreateDefaultCompanyId: jest.fn().mockResolvedValue("company-1") }));
+
+describe("shift service", () => {
+  let prisma: ReturnType<typeof createMockPrisma>;
+  let db: PrismaClient;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma = createMockPrisma();
+    db = prisma as unknown as PrismaClient;
+  });
+
+  describe("Business Rule: one active shift per date", () => {
+    it("upserts the roster entry rather than creating duplicates", async () => {
+      prisma.shift.findUnique.mockResolvedValue({ id: "shift-1" });
+      prisma.rosterEntry.upsert.mockResolvedValue({ id: "roster-1" });
+
+      const result = await shiftService.assignRoster(db, {
+        employeeIds: ["emp-1"],
+        dates: ["2026-03-01"],
+        shiftId: "shift-1",
+      } as never);
+
+      expect(prisma.rosterEntry.upsert).toHaveBeenCalledTimes(1);
+      expect(result.successCount).toBe(1);
+    });
+  });
+
+  describe("assignRoster: workMode is never assumed from a shared policy", () => {
+    it("defaults a brand-new roster entry to OFFICE when workMode is not given", async () => {
+      prisma.rosterEntry.upsert.mockResolvedValue({ id: "roster-1" });
+
+      await shiftService.assignRoster(db, { employeeIds: ["emp-1"], dates: ["2026-08-04"], shiftId: undefined } as never);
+
+      expect(prisma.rosterEntry.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: expect.objectContaining({ workMode: "OFFICE" }) }),
+      );
+    });
+
+    it("does not touch workMode on update when none is given, so reassigning a shift never clobbers an existing WFO/WFH day", async () => {
+      prisma.shift.findUnique.mockResolvedValue({ id: "shift-1" });
+      prisma.rosterEntry.upsert.mockResolvedValue({ id: "roster-1" });
+
+      await shiftService.assignRoster(db, { employeeIds: ["emp-1"], dates: ["2026-08-04"], shiftId: "shift-1" } as never);
+
+      const call = prisma.rosterEntry.upsert.mock.calls[0][0];
+      expect(call.update).not.toHaveProperty("workMode");
+    });
+
+    it("lets an explicit workMode be set on both create and update", async () => {
+      prisma.rosterEntry.upsert.mockResolvedValue({ id: "roster-1" });
+
+      await shiftService.assignRoster(db, { employeeIds: ["emp-1"], dates: ["2026-08-04"], workMode: "WORK_FROM_HOME" } as never);
+
+      const call = prisma.rosterEntry.upsert.mock.calls[0][0];
+      expect(call.create.workMode).toBe("WORK_FROM_HOME");
+      expect(call.update.workMode).toBe("WORK_FROM_HOME");
+    });
+  });
+
+  describe("Hybrid work culture: HR assigns each employee their own WFO weekdays", () => {
+    it("stores the schedule and marks every day of the month accordingly", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1" });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await shiftService.setEmployeeHybridSchedule(db, { employeeId: "emp-1", year: 2026, month: 8, officeWeekdays: [2, 4] });
+
+      expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { officeWeekdays: [2, 4] } }));
+      expect(result.daysUpdated).toBe(31);
+
+      const calls = prisma.rosterEntry.upsert.mock.calls;
+      const aug4 = calls.find((c) => c[0].create.date.toISOString().slice(0, 10) === "2026-08-04");
+      const aug5 = calls.find((c) => c[0].create.date.toISOString().slice(0, 10) === "2026-08-05");
+      expect(aug4[0].update.workMode).toBe("OFFICE");
+      expect(aug5[0].update.workMode).toBe("WORK_FROM_HOME");
+    });
+
+    it("gives two employees different office weekdays for the same month", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp" });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      await shiftService.setEmployeeHybridSchedule(db, { employeeId: "emp-1", year: 2026, month: 8, officeWeekdays: [1, 3] });
+      const emp1Aug4 = prisma.rosterEntry.upsert.mock.calls.find((c) => c[0].create.date.toISOString().slice(0, 10) === "2026-08-04");
+
+      prisma.rosterEntry.upsert.mockClear();
+      await shiftService.setEmployeeHybridSchedule(db, { employeeId: "emp-2", year: 2026, month: 8, officeWeekdays: [2, 4] });
+      const emp2Aug4 = prisma.rosterEntry.upsert.mock.calls.find((c) => c[0].create.date.toISOString().slice(0, 10) === "2026-08-04");
+
+      expect(emp1Aug4[0].update.workMode).toBe("WORK_FROM_HOME");
+      expect(emp2Aug4[0].update.workMode).toBe("OFFICE");
+    });
+
+    it("dedupes office weekdays before storing", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1" });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await shiftService.setEmployeeHybridSchedule(db, { employeeId: "emp-1", year: 2026, month: 8, officeWeekdays: [2, 4, 2] });
+
+      expect(result.officeWeekdays).toEqual([2, 4]);
+    });
+
+    it("rejects a schedule for an employee who does not exist", async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+
+      await expect(
+        shiftService.setEmployeeHybridSchedule(db, { employeeId: "ghost", year: 2026, month: 8, officeWeekdays: [2, 4] }),
+      ).rejects.toThrow("Employee not found");
+    });
+
+    it("returns the stored office weekdays for an employee/month", async () => {
+      prisma.employeeHybridSchedule.findUnique.mockResolvedValue({ officeWeekdays: [1, 5] });
+
+      await expect(shiftService.getEmployeeHybridSchedule(db, "emp-1", 2026, 8, { userId: "emp-1", role: "EMPLOYEE" })).resolves.toEqual({
+        officeWeekdays: [1, 5],
+      });
+    });
+
+    it("returns an empty schedule when none has been set yet", async () => {
+      prisma.employeeHybridSchedule.findUnique.mockResolvedValue(null);
+
+      await expect(shiftService.getEmployeeHybridSchedule(db, "emp-1", 2026, 8, { userId: "emp-1", role: "EMPLOYEE" })).resolves.toEqual({
+        officeWeekdays: [],
+      });
+    });
+  });
+
+  describe("Hybrid work culture: bulk WFO upload gives every row its own employee/pattern", () => {
+    it("applies a different office-weekday pattern per employee in the same batch", async () => {
+      prisma.employee.findUnique
+        .mockResolvedValueOnce({ id: "emp-1", employeeCode: "EMP-0001" })
+        .mockResolvedValueOnce({ id: "emp-2", employeeCode: "EMP-0002" });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await shiftService.bulkSetHybridSchedule(
+        db,
+        [
+          { employeeCode: "EMP-0001", year: 2026, month: 8, officeWeekdays: [1, 3] },
+          { employeeCode: "EMP-0002", year: 2026, month: 8, officeWeekdays: [2, 4] },
+        ],
+        false,
+      );
+
+      expect(result).toMatchObject({ totalRows: 2, successCount: 2, failureCount: 0 });
+      expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { officeWeekdays: [1, 3] } }));
+      expect(prisma.employeeHybridSchedule.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { officeWeekdays: [2, 4] } }));
+    });
+
+    it("reports a row-level error for an unknown employee code without failing the rest of the batch", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "emp-2", employeeCode: "EMP-0002" });
+      prisma.rosterEntry.upsert.mockResolvedValue({});
+
+      const result = await shiftService.bulkSetHybridSchedule(
+        db,
+        [
+          { employeeCode: "GHOST", year: 2026, month: 8, officeWeekdays: [1] },
+          { employeeCode: "EMP-0002", year: 2026, month: 8, officeWeekdays: [2] },
+        ],
+        false,
+      );
+
+      expect(result.successCount).toBe(1);
+      expect(result.failureCount).toBe(1);
+      expect(result.results[0]).toMatchObject({ row: 0, success: false, errors: [expect.stringContaining("GHOST")] });
+    });
+
+    it("rejects a row with no office weekdays selected, without a database lookup", async () => {
+      const result = await shiftService.bulkSetHybridSchedule(db, [{ employeeCode: "EMP-0001", year: 2026, month: 8, officeWeekdays: [] }], false);
+
+      expect(result.failureCount).toBe(1);
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("validates every row but writes nothing when dryRun is true", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", employeeCode: "EMP-0001" });
+
+      const result = await shiftService.bulkSetHybridSchedule(db, [{ employeeCode: "EMP-0001", year: 2026, month: 8, officeWeekdays: [1] }], true);
+
+      expect(result.successCount).toBe(1);
+      expect(result.dryRun).toBe(true);
+      expect(prisma.employeeHybridSchedule.upsert).not.toHaveBeenCalled();
+      expect(prisma.rosterEntry.upsert).not.toHaveBeenCalled();
+    });
+  });
+});

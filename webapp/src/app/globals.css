@@ -1,0 +1,207 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Brand palette: blue accent inspired by redrob.io's product gradient
+   (rgb(59,130,246) -> rgb(64,106,228)), on a clean neutral base — replaces
+   the previous all-grayscale shadcn defaults so the app reads as "Redrob"
+   rather than a generic admin theme. */
+:root {
+  --radius: 0.625rem;
+  /* A soft blue-tinted off-white, not pure white — --card stays pure white
+     below, so every card visibly "floats" above the page instead of
+     blending into it (the actual cause of the app looking flat/all-white). */
+  --background: #f2f6fc;
+  --foreground: oklch(0.145 0 0);
+  --card: #ffffff;
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #eff6ff;
+  --secondary-foreground: #1e3a8a;
+  --muted: #f1f5f9;
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: #e0e7ff;
+  --accent-foreground: #312e81;
+  --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.6 0.16 145);
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #93c5fd;
+}
+
+.dark {
+  --background: #0b1220;
+  --foreground: #f1f5f9;
+  --card: #111827;
+  --card-foreground: #f1f5f9;
+  --popover: #111827;
+  --popover-foreground: #f1f5f9;
+  --primary: #60a5fa;
+  --primary-foreground: #0b1220;
+  --secondary: #1e293b;
+  --secondary-foreground: #dbeafe;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e3a8a;
+  --accent-foreground: #dbeafe;
+  --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.72 0.18 145);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #3b82f6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Plays once when the logo mounts fresh after a successful login — Gate in
+   App.tsx swaps LoginPage for AppShell on that transition, so a plain mount
+   animation IS the "just logged in" moment, no extra state needed. */
+@keyframes logo-welcome-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-15deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes logo-welcome-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(37, 99, 235, 0.55);
+  }
+}
+
+.animate-logo-welcome {
+  animation:
+    logo-welcome-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    logo-welcome-glow 1.4s ease-in-out 2;
+  animation-delay: 0s, 0.6s;
+}
+
+/* AI assistant bubble: a gentle continuous bob plus a soft pulsing ring
+   behind it, so it draws the eye without being an actual pop-up/toast that
+   interrupts the page. Both stop once the panel is open (see
+   FloatingAssistant.tsx), since the goal is to attract a first click, not to
+   keep distracting someone mid-conversation. */
+@keyframes bubble-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes bubble-ring-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+
+.animate-bubble-bob {
+  animation: bubble-bob 2.4s ease-in-out infinite;
+}
+
+.animate-bubble-ring {
+  animation: bubble-ring-pulse 2s ease-out infinite;
+}
+
+/* Dashboard welcome banner: a one-time rise-and-fade entrance, plus two
+   slow-drifting ambient glow blobs behind the text (echoes redrob.io's
+   hero — dark gradient with a soft blue glow) that keep the banner feeling
+   alive without ever competing with the text for attention. */
+@keyframes welcome-banner-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes welcome-glow-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(30px, -15px) scale(1.15);
+  }
+}
+
+@keyframes welcome-glow-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-25px, 20px) scale(1.1);
+  }
+}
+
+.animate-welcome-banner-in {
+  animation: welcome-banner-in 0.5s ease-out both;
+}
+
+.animate-welcome-glow-a {
+  animation: welcome-glow-drift-a 9s ease-in-out infinite;
+}
+
+.animate-welcome-glow-b {
+  animation: welcome-glow-drift-b 11s ease-in-out infinite;
+}

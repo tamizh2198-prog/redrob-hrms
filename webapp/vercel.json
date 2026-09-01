@@ -1,0 +1,10 @@
+{
+  "crons": [
+    { "path": "/api/cron/announcements-reminders", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/assistant-anomaly-digest", "schedule": "0 0 * * 0" },
+    { "path": "/api/cron/document-expiry", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/optional-holiday-reminders", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/performance-score-release", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/backup-reminder", "schedule": "0 0 * * 0" }
+  ]
+}
