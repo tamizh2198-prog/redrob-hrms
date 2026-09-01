@@ -539,4 +539,73 @@ describe("performance service", () => {
       });
     });
   });
+
+  describe("listQuarterlyKpiRewards: P&B '3a. Member KPI Linked Rewards'", () => {
+    it("computes the correct reward when all 3 months of the quarter are approved and CTC is set", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", reportingManagerId: "mgr-1", ctcLpa: 20 });
+      // 15-25 LPA band -> yearlyLimit 116600 -> quarterlyLimit 29150.
+      // Scores 900/900/900 -> kpiPercent 90 each -> avg 90% -> reward = round(29150 * 0.9) = 26235.
+      prisma.monthlyEvaluation.findMany.mockImplementation(({ where }: { where: { period: { in: Date[] } } }) => {
+        const isQ1 = where.period.in[0].getUTCMonth() === 0;
+        if (!isQ1) return Promise.resolve([]);
+        return Promise.resolve(
+          where.period.in.map((period: Date) => ({
+            employeeId: "emp-1",
+            period,
+            kpiScore: 900,
+            auditStatus: "APPROVED",
+          })),
+        );
+      });
+
+      const result = await performanceService.listQuarterlyKpiRewards(db, "emp-1", 2026, "emp-1");
+
+      const q1 = result.quarters.find((q) => q.quarter === 1)!;
+      expect(q1.complete).toBe(true);
+      expect(q1.ctcBandLabel).toBe("15-25 LPA");
+      expect(q1.avgKpiPercent).toBe(90);
+      expect(q1.rewardAmount).toBe(26235);
+    });
+
+    it("reports incomplete with a reason when CTC is not set", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", reportingManagerId: "mgr-1", ctcLpa: null });
+      prisma.monthlyEvaluation.findMany.mockResolvedValue([]);
+
+      const result = await performanceService.listQuarterlyKpiRewards(db, "emp-1", 2026, "emp-1");
+
+      for (const q of result.quarters) {
+        expect(q.complete).toBe(false);
+        expect(q.rewardAmount).toBeNull();
+        expect(q.reason).toBe("CTC is not set for this employee yet");
+      }
+    });
+
+    it("reports incomplete with a reason when not all three months of the quarter are approved", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", reportingManagerId: "mgr-1", ctcLpa: 10 });
+      prisma.monthlyEvaluation.findMany.mockImplementation(({ where }: { where: { period: { in: Date[] } } }) => {
+        const isQ1 = where.period.in[0].getUTCMonth() === 0;
+        if (!isQ1) return Promise.resolve([]);
+        // Only 2 of the 3 months have an approved evaluation.
+        return Promise.resolve([
+          { employeeId: "emp-1", period: where.period.in[0], kpiScore: 800, auditStatus: "APPROVED" },
+          { employeeId: "emp-1", period: where.period.in[1], kpiScore: 800, auditStatus: "PENDING_AUDIT" },
+        ]);
+      });
+
+      const result = await performanceService.listQuarterlyKpiRewards(db, "emp-1", 2026, "emp-1");
+
+      const q1 = result.quarters.find((q) => q.quarter === 1)!;
+      expect(q1.complete).toBe(false);
+      expect(q1.rewardAmount).toBeNull();
+      expect(q1.reason).toBe("Not all three months of this quarter have an approved evaluation yet");
+    });
+
+    it("rejects an unrelated actor, reusing the same view-authorization gate as monthly evaluations", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", reportingManagerId: "mgr-1" });
+
+      await expect(
+        performanceService.listQuarterlyKpiRewards(db, "emp-1", 2026, "emp-2", "EMPLOYEE" as never),
+      ).rejects.toThrow("Not authorized to view this employee's evaluations");
+    });
+  });
 });

@@ -30,6 +30,7 @@ import {
   submitMonthlyEvaluation,
   listMonthlyEvaluations,
   auditMonthlyEvaluation,
+  listQuarterlyKpiRewards,
   type ReviewCycle,
   type ReviewCycleType,
   type Goal,
@@ -37,6 +38,7 @@ import {
   type CalibrationView,
   type MonthlyEvaluation,
   type PerformanceGrade,
+  type QuarterlyKpiRewardsResponse,
 } from '../api'
 
 const CYCLE_TYPES: ReviewCycleType[] = ['MONTHLY', 'QUARTERLY', 'YEARLY']
@@ -90,6 +92,8 @@ export function PerformancePage() {
 
   const [myEvaluations, setMyEvaluations] = useState<MonthlyEvaluation[]>([])
   const [reportEvaluations, setReportEvaluations] = useState<MonthlyEvaluation[]>([])
+  const [myRewards, setMyRewards] = useState<QuarterlyKpiRewardsResponse | null>(null)
+  const [reportRewards, setReportRewards] = useState<QuarterlyKpiRewardsResponse | null>(null)
   const [evalPeriod, setEvalPeriod] = useState('')
   const [evalKpiScore, setEvalKpiScore] = useState('')
   const [evalJustification, setEvalJustification] = useState('')
@@ -165,6 +169,9 @@ export function PerformancePage() {
   function refreshMyEvaluations() {
     if (!user) return
     listMonthlyEvaluations(user.id).then(setMyEvaluations).catch(() => setMyEvaluations([]))
+    listQuarterlyKpiRewards(user.id, new Date().getFullYear())
+      .then(setMyRewards)
+      .catch(() => setMyRewards(null))
   }
 
   function refreshReportEvaluations() {
@@ -172,6 +179,9 @@ export function PerformancePage() {
     listMonthlyEvaluations(reportEmployeeId)
       .then(setReportEvaluations)
       .catch(() => setReportEvaluations([]))
+    listQuarterlyKpiRewards(reportEmployeeId, new Date().getFullYear())
+      .then(setReportRewards)
+      .catch(() => setReportRewards(null))
   }
 
   function personName(id: string) {
@@ -478,6 +488,7 @@ export function PerformancePage() {
               ))}
               {myEvaluations.length === 0 && <p className="text-muted-foreground">No monthly scores yet.</p>}
             </ul>
+            <QuarterlyKpiRewardsPanel rewards={myRewards} />
           </CardContent>
         </Card>
 
@@ -561,6 +572,7 @@ export function PerformancePage() {
                     <p className="text-muted-foreground">No scores yet for this employee.</p>
                   )}
                 </ul>
+                <QuarterlyKpiRewardsPanel rewards={reportRewards} />
 
                 {(isManager || isHrAdmin) && (
                   <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-3">
@@ -791,6 +803,38 @@ function MonthlyScoreChart({ evaluations }: { evaluations: MonthlyEvaluation[] }
             ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// P&B effective January 2026, "3a. Member KPI Linked Rewards" — quarterlyLimit
+// * that quarter's average KPI%. Computed server-side; this just renders the
+// breakdown.
+function QuarterlyKpiRewardsPanel({ rewards }: { rewards: QuarterlyKpiRewardsResponse | null }) {
+  if (!rewards) return null
+  return (
+    <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium">Quarterly KPI Rewards — {rewards.year}</h3>
+        {rewards.ctcLpa != null && (
+          <span className="text-xs text-muted-foreground">CTC band: {rewards.quarters[0]?.ctcBandLabel}</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {rewards.quarters.map((q) => (
+          <div key={q.quarter} className="rounded-md border p-2 text-xs">
+            <div className="font-medium">Q{q.quarter}</div>
+            {q.complete ? (
+              <>
+                <div className="text-muted-foreground">Avg KPI: {q.avgKpiPercent}%</div>
+                <div className="font-medium text-primary">₹{q.rewardAmount?.toLocaleString('en-IN')}</div>
+              </>
+            ) : (
+              <div className="text-muted-foreground">{q.reason ?? 'Pending'}</div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

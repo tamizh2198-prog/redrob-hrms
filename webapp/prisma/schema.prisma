@@ -237,9 +237,9 @@ model Employee {
 
   // Performance Evaluation Policy 2026 / P&B: current annual CTC in Lakhs —
   // determines which CTC band's "Member KPI Linked Rewards" yearly limit
-  // (PerformanceService.CTC_BANDS) applies when computing a quarter's KPI
-  // reward payout. Nullable — HR sets this after hire; a quarterly reward
-  // can't be computed until it is.
+  // (KPI_REWARD_CTC_BANDS in the performance service) applies when computing
+  // a quarter's KPI reward payout. Nullable — HR sets this after hire; a
+  // quarterly reward can't be computed until it is.
   ctcLpa Float?
 
   bloodGroup BloodGroup?

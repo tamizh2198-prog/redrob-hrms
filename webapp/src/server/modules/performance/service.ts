@@ -514,3 +514,119 @@ export async function getMonthlyEvaluation(prisma: PrismaClient, id: string, act
   await assertCanViewEvaluations(prisma, evaluation.employeeId, actorId, actorRole);
   return evaluation.employeeId === actorId ? redactForSubject(evaluation) : withKpiPercent(evaluation);
 }
+
+// P&B effective January 2026, "3a. Member KPI Linked Rewards" — the yearly
+// reward ceiling for the CTC band the employee's current ctcLpa falls into.
+// Paid quarterly (yearlyLimit / 4), scaled by that quarter's average KPI%.
+const KPI_REWARD_CTC_BANDS: { maxLpa: number | null; label: string; yearlyLimit: number }[] = [
+  { maxLpa: 15, label: "0-15 LPA", yearlyLimit: 86400 },
+  { maxLpa: 25, label: "15-25 LPA", yearlyLimit: 116600 },
+  { maxLpa: 35, label: "25-35 LPA", yearlyLimit: 140000 },
+  { maxLpa: null, label: "35+ LPA", yearlyLimit: 156400 },
+];
+
+function resolveKpiRewardBand(ctcLpa: number) {
+  return (
+    KPI_REWARD_CTC_BANDS.find((b) => b.maxLpa !== null && ctcLpa <= b.maxLpa) ??
+    KPI_REWARD_CTC_BANDS[KPI_REWARD_CTC_BANDS.length - 1]
+  );
+}
+
+// Quarter 1 = Jan-Mar, Quarter 2 = Apr-Jun, etc. — calendar-year quarters.
+function quarterMonthStarts(year: number, quarter: number): Date[] {
+  const startMonth = (quarter - 1) * 3;
+  return [0, 1, 2].map((i) => new Date(Date.UTC(year, startMonth + i, 1)));
+}
+
+// Performance Evaluation Policy 2026 Section 6 "Incentives & Recognition" +
+// P&B "3a. Member KPI Linked Rewards": one quarter's payout, computed fresh
+// from whatever's currently APPROVED rather than persisted anywhere — it
+// can only ever move in step with the audited monthly scores it's built
+// from, never drift out of sync with a correction made after the fact.
+async function computeQuarterlyKpiReward(
+  prisma: PrismaClient,
+  employeeId: string,
+  ctcLpa: number | null,
+  year: number,
+  quarter: number,
+) {
+  const periods = quarterMonthStarts(year, quarter);
+  const evaluations = await prisma.monthlyEvaluation.findMany({
+    where: { employeeId, period: { in: periods } },
+  });
+  const byPeriod = new Map(evaluations.map((e) => [e.period.getTime(), e]));
+
+  const months = periods.map((period) => {
+    const evaluation = byPeriod.get(period.getTime());
+    const approved = evaluation?.auditStatus === EvaluationAuditStatus.APPROVED;
+    return {
+      period,
+      kpiScore: approved ? evaluation!.kpiScore : null,
+      kpiPercent: approved ? kpiScoreToPercent(evaluation!.kpiScore) : null,
+      auditStatus: evaluation?.auditStatus ?? null,
+    };
+  });
+
+  const allApproved = months.every((m) => m.kpiScore !== null);
+  const band = ctcLpa != null ? resolveKpiRewardBand(ctcLpa) : null;
+  const quarterlyLimit = band ? band.yearlyLimit / 4 : null;
+
+  if (!allApproved || !band) {
+    return {
+      employeeId,
+      year,
+      quarter,
+      months,
+      avgKpiPercent: null,
+      ctcBandLabel: band?.label ?? null,
+      yearlyLimit: band?.yearlyLimit ?? null,
+      quarterlyLimit,
+      rewardAmount: null,
+      complete: false,
+      reason:
+        ctcLpa == null
+          ? "CTC is not set for this employee yet"
+          : "Not all three months of this quarter have an approved evaluation yet",
+    };
+  }
+
+  // Average the raw scores once, then convert to a percentage — averaging
+  // three already-rounded percentages compounds rounding error for no
+  // reason.
+  const avgKpiScore = months.reduce((sum, m) => sum + (m.kpiScore ?? 0), 0) / months.length;
+  const avgKpiPercent = kpiScoreToPercent(avgKpiScore);
+  const rewardAmount = Math.round((quarterlyLimit as number) * (avgKpiPercent / 100));
+
+  return {
+    employeeId,
+    year,
+    quarter,
+    months,
+    avgKpiPercent,
+    ctcBandLabel: band.label,
+    yearlyLimit: band.yearlyLimit,
+    quarterlyLimit,
+    rewardAmount,
+    complete: true,
+    reason: null,
+  };
+}
+
+// One year's worth of quarters at once — the shape the Performance page's
+// rewards panel actually wants, rather than four round trips.
+export async function listQuarterlyKpiRewards(
+  prisma: PrismaClient,
+  employeeId: string,
+  year: number,
+  actorId: string,
+  actorRole?: Role,
+) {
+  await assertCanViewEvaluations(prisma, employeeId, actorId, actorRole);
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) throw new NotFoundError("Employee not found");
+
+  const quarters = await Promise.all(
+    [1, 2, 3, 4].map((q) => computeQuarterlyKpiReward(prisma, employeeId, employee.ctcLpa, year, q)),
+  );
+  return { employeeId, year, ctcLpa: employee.ctcLpa, quarters };
+}
