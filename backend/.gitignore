@@ -1,9 +1,0 @@
-node_modules
-# Keep environment variables out of version control
-.env
-
-/generated/prisma
-
-# Local-only record of what seed-demo-data.ts created, so seed:demo:wipe
-# knows exactly what to remove. Never meant to be shared/committed.
-/prisma/demo-data-manifest.json
