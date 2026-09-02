@@ -16,7 +16,7 @@ interface ModuleNavItem {
 // straight out to the separately-built Asset Management and ATS platforms,
 // mirroring frontend/src/app-routes.tsx exactly (AtsPage/OfferTemplateManager
 // exist in frontend/src/modules/ats but are unrouted dead code there too).
-const ATS_EXTERNAL_URL = 'https://ats.redrob.io/'
+const ATS_EXTERNAL_URL = 'https://redrob-ats.vercel.app/login?next=%2F'
 const ASSETS_EXTERNAL_URL = 'https://policyassistant.redrob.io/'
 
 // Mirrors the original frontend/src/app-routes.tsx's MODULE_NAV — this is
