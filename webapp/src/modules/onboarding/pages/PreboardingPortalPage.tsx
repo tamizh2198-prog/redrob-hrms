@@ -14,9 +14,15 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { ApiError } from '@/lib/api'
-import { getPortalProgress, completeTaskViaPortal, submitPreboarding, type OnboardingProgress } from '../api'
+import {
+  getPortalProgress,
+  completeTaskViaPortal,
+  submitPreboarding,
+  MANDATORY_FIELD_LABELS,
+  type OnboardingProgress,
+} from '../api'
 
-const MANDATORY_FIELDS = ['ID_PROOF', 'EDUCATION_CERTIFICATE', 'BANK_DETAILS', 'BACKGROUND_CHECK_CONSENT']
+const MANDATORY_FIELDS = Object.keys(MANDATORY_FIELD_LABELS)
 
 // Public preboarding portal (Section 7.7): the new hire's own pre-Day-1
 // checklist and document submission, reached via the magic-link token from
@@ -66,7 +72,7 @@ export function PreboardingPortalPage() {
     setSubmitting(true)
     try {
       await submitPreboarding(token, fieldType, valueRef)
-      setMessage(`${fieldType.replaceAll('_', ' ')} submitted.`)
+      setMessage(`${MANDATORY_FIELD_LABELS[fieldType] ?? fieldType} submitted.`)
       setValueRef('')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to submit document')
@@ -115,6 +121,30 @@ export function PreboardingPortalPage() {
         </div>
       )}
 
+      {progress && (
+        <div className="rounded-md border p-4 text-sm">
+          <h2 className="mb-2 font-medium">
+            Documents ({MANDATORY_FIELDS.length - progress.missingMandatoryFields.length} of{' '}
+            {MANDATORY_FIELDS.length} submitted)
+          </h2>
+          <ul className="flex flex-col gap-1">
+            {MANDATORY_FIELDS.map((f) => {
+              const isMissing = progress.missingMandatoryFields.includes(f)
+              return (
+                <li key={f} className="flex items-center justify-between">
+                  <span>{MANDATORY_FIELD_LABELS[f]}</span>
+                  {isMissing ? (
+                    <span className="text-muted-foreground">Not yet submitted</span>
+                  ) : (
+                    <Badge>Submitted</Badge>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
       <div className="rounded-md border p-4">
         <h2 className="mb-2 font-medium">Submit a Document</h2>
         <div className="flex flex-col gap-2">
@@ -122,13 +152,13 @@ export function PreboardingPortalPage() {
           <Select value={fieldType} onValueChange={(v) => setFieldType(v ?? MANDATORY_FIELDS[0])}>
             <SelectTrigger>
               <SelectValue placeholder="Select type">
-                {(v: string) => v.replaceAll('_', ' ')}
+                {(v: string) => MANDATORY_FIELD_LABELS[v] ?? v}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {MANDATORY_FIELDS.map((f) => (
                 <SelectItem key={f} value={f}>
-                  {f.replaceAll('_', ' ')}
+                  {MANDATORY_FIELD_LABELS[f]}
                 </SelectItem>
               ))}
             </SelectContent>

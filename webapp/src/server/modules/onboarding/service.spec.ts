@@ -47,6 +47,7 @@ function createMockPrisma() {
 }
 
 jest.mock("../../lib/notify");
+jest.mock("../../lib/email");
 jest.mock("../../lib/default-company", () => ({ getOrCreateDefaultCompanyId: jest.fn() }));
 jest.mock("../../lib/auth", () => ({
   signMagicLink: jest.fn().mockReturnValue("signed-token"),
@@ -61,6 +62,7 @@ describe("onboarding service", () => {
     jest.clearAllMocks();
     prisma = createMockPrisma();
     db = prisma as unknown as PrismaClient;
+    jest.requireMock("../../lib/email").sendEmail.mockResolvedValue({ sent: true });
   });
 
   describe("Key Feature: checklists are auto-assigned on hire from a role/department template", () => {
@@ -450,6 +452,109 @@ describe("onboarding service", () => {
       await expect(onboardingService.activateEmployee(db, "emp-1", "hr-1")).rejects.toThrow(
         "This employee is not in Preboarding status",
       );
+    });
+  });
+
+  describe("Active checklists list: no passwordHash leak, missing-document status attached", () => {
+    it("scopes the employee include instead of pulling the full row (passwordHash included)", async () => {
+      prisma.onboardingChecklist.findMany.mockResolvedValue([]);
+
+      await onboardingService.listActiveChecklists(db);
+
+      expect(prisma.onboardingChecklist.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+          }),
+        }),
+      );
+    });
+
+    it("attaches missingMandatoryFields per checklist", async () => {
+      prisma.onboardingChecklist.findMany.mockResolvedValue([
+        { id: "checklist-1", employeeId: "emp-1", employee: {}, tasks: [] },
+      ]);
+      prisma.preboardingSubmission.findMany.mockResolvedValue([{ fieldType: "ID_PROOF" }]);
+
+      const result = await onboardingService.listActiveChecklists(db);
+
+      expect(result[0].missingMandatoryFields).toEqual([
+        "EDUCATION_CERTIFICATE",
+        "BANK_DETAILS",
+        "BACKGROUND_CHECK_CONSENT",
+      ]);
+    });
+  });
+
+  describe("Progress views surface missing-document status", () => {
+    it("includes missingMandatoryFields in getProgressViaPortal's response", async () => {
+      (verifyMagicLink as jest.Mock).mockReturnValue({ sub: "emp-1" });
+      prisma.onboardingChecklist.findUnique.mockResolvedValue({ id: "checklist-1", tasks: [] });
+      prisma.preboardingSubmission.findMany.mockResolvedValue([
+        { fieldType: "ID_PROOF" },
+        { fieldType: "EDUCATION_CERTIFICATE" },
+        { fieldType: "BANK_DETAILS" },
+        { fieldType: "BACKGROUND_CHECK_CONSENT" },
+      ]);
+
+      const result = await onboardingService.getProgressViaPortal(db, "token");
+      expect(result.missingMandatoryFields).toEqual([]);
+    });
+  });
+
+  describe("Resending the preboarding portal link", () => {
+    it("rejects an employee who is not in Preboarding status", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", status: "ACTIVE_PROBATION" });
+
+      await expect(onboardingService.resendPreboardingLink(db, "emp-1")).rejects.toThrow(
+        "This employee is not in Preboarding status",
+      );
+    });
+
+    it("rejects an employee with no email on file", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: "emp-1",
+        status: "PREBOARDING",
+        personalEmail: null,
+        workEmail: null,
+      });
+
+      await expect(onboardingService.resendPreboardingLink(db, "emp-1")).rejects.toThrow(
+        "no email on file",
+      );
+    });
+
+    it("emails the link and reports emailSent when delivery succeeds", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: "emp-1",
+        firstName: "Gaurav",
+        status: "PREBOARDING",
+        personalEmail: "gaurav@example.com",
+        workEmail: null,
+      });
+
+      const result = await onboardingService.resendPreboardingLink(db, "emp-1");
+
+      expect(result).toEqual({ emailSent: true, preboardingUrl: undefined });
+      expect(jest.requireMock("../../lib/email").sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "gaurav@example.com" }),
+      );
+    });
+
+    it("hands back the raw URL when email delivery isn't configured", async () => {
+      prisma.employee.findUnique.mockResolvedValue({
+        id: "emp-1",
+        firstName: "Gaurav",
+        status: "PREBOARDING",
+        personalEmail: "gaurav@example.com",
+        workEmail: null,
+      });
+      jest.requireMock("../../lib/email").sendEmail.mockResolvedValue({ sent: false });
+
+      const result = await onboardingService.resendPreboardingLink(db, "emp-1");
+
+      expect(result.emailSent).toBe(false);
+      expect(result.preboardingUrl).toContain("/preboard?token=");
     });
   });
 });

@@ -24,9 +24,11 @@ import {
   initChecklist,
   activateEmployee,
   completeTask,
+  resendPreboardingLink,
   listProbationFeedback,
   ONBOARDING_PHASES,
   ONBOARDING_PHASE_LABELS,
+  MANDATORY_FIELD_LABELS,
   type ChecklistWithEmployee,
   type OnboardingTemplate,
   type ChecklistOwnerRole,
@@ -67,14 +69,30 @@ export function OnboardingPage() {
   const [taskRows, setTaskRows] = useState<TaskRow[]>([
     { ownerRole: 'NEW_HIRE', phase: 'DAY_ONE', description: '', dueOffsetDays: '0' },
   ])
+  const canCreateTemplate =
+    templateName.trim().length > 0 &&
+    taskRows.length > 0 &&
+    taskRows.every((t) => t.description.trim().length > 0)
 
   const [initEmployeeId, setInitEmployeeId] = useState('')
   const [initTemplateId, setInitTemplateId] = useState(AUTO_DETECT_TEMPLATE)
 
   const preboardingPeople = people.filter((p) => p.status === 'PREBOARDING')
 
+  const [checklistSearch, setChecklistSearch] = useState('')
+  const checklistQuery = checklistSearch.trim().toLowerCase()
+  const filteredChecklists = checklistQuery
+    ? checklists.filter((c) =>
+        `${c.employee.firstName} ${c.employee.lastName} ${c.employee.employeeCode}`
+          .toLowerCase()
+          .includes(checklistQuery),
+      )
+    : checklists
+
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [portalLinkUrl, setPortalLinkUrl] = useState<string | null>(null)
+  const [portalLinkCopied, setPortalLinkCopied] = useState(false)
 
   // Each guards a single in-flight mutation so a slow response can't be
   // double-fired by a second click.
@@ -82,6 +100,7 @@ export function OnboardingPage() {
   const [initializingChecklist, setInitializingChecklist] = useState(false)
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null)
   const [activatingId, setActivatingId] = useState<string | null>(null)
+  const [sendingLinkId, setSendingLinkId] = useState<string | null>(null)
 
   useEffect(() => {
     getReferenceData().then((r) => {
@@ -100,11 +119,8 @@ export function OnboardingPage() {
     }
   }
 
-  function addTaskRow() {
-    setTaskRows((rows) => [
-      ...rows,
-      { ownerRole: 'HR', phase: 'DAY_ONE', description: '', dueOffsetDays: '0' },
-    ])
+  function addTaskRow(phase: OnboardingPhase = 'DAY_ONE') {
+    setTaskRows((rows) => [...rows, { ownerRole: 'HR', phase, description: '', dueOffsetDays: '0' }])
   }
 
   function removeTaskRow(index: number) {
@@ -116,19 +132,19 @@ export function OnboardingPage() {
   }
 
   async function handleCreateTemplate() {
-    if (creatingTemplate) return
+    if (creatingTemplate || !canCreateTemplate) return
     setError(null)
     setMessage(null)
     setCreatingTemplate(true)
     try {
       await createTemplate({
-        name: templateName,
+        name: templateName.trim(),
         departmentId: templateDepartmentId || undefined,
         isDefault: templateIsDefault,
         tasks: taskRows.map((t) => ({
           ownerRole: t.ownerRole,
           phase: t.phase,
-          description: t.description,
+          description: t.description.trim(),
           dueOffsetDays: Number(t.dueOffsetDays) || 0,
         })),
       })
@@ -195,12 +211,50 @@ export function OnboardingPage() {
     }
   }
 
+  async function handleSendPortalLink(employeeId: string) {
+    if (sendingLinkId) return
+    setError(null)
+    setMessage(null)
+    setPortalLinkUrl(null)
+    setSendingLinkId(employeeId)
+    try {
+      const result = await resendPreboardingLink(employeeId)
+      setMessage(
+        result.emailSent
+          ? 'Preboarding portal link emailed.'
+          : "Email delivery isn't configured — copy the portal link below and send it to them directly.",
+      )
+      setPortalLinkUrl(result.preboardingUrl ?? null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to send portal link')
+    } finally {
+      setSendingLinkId(null)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">Onboarding</h1>
 
       {message && <p className="text-sm text-primary">{message}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {portalLinkUrl && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-2">
+          <Input readOnly value={portalLinkUrl} className="text-xs" onFocus={(e) => e.target.select()} />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              await navigator.clipboard.writeText(portalLinkUrl)
+              setPortalLinkCopied(true)
+              setTimeout(() => setPortalLinkCopied(false), 2000)
+            }}
+          >
+            {portalLinkCopied ? 'Copied!' : 'Copy'}
+          </Button>
+        </div>
+      )}
 
       {!isHrAdmin && (
         <p className="text-sm text-muted-foreground">
@@ -275,11 +329,18 @@ export function OnboardingPage() {
           <CardTitle>Active Checklists</CardTitle>
         </CardHeader>
         <CardContent>
+        <Input
+          placeholder="Search by name or employee code"
+          value={checklistSearch}
+          onChange={(e) => setChecklistSearch(e.target.value)}
+          className="mb-3 max-w-xs"
+        />
         <div className="flex flex-col gap-3">
-          {checklists.map((c) => {
+          {filteredChecklists.map((c) => {
             const total = c.tasks.length
             const done = c.tasks.filter((t) => t.status === 'COMPLETED').length
             const percent = total === 0 ? 0 : Math.round((done / total) * 100)
+            const missing = c.missingMandatoryFields
             return (
               <div key={c.id} className="rounded border p-3 text-sm">
                 <div className="flex items-center justify-between">
@@ -291,6 +352,11 @@ export function OnboardingPage() {
                     <Badge variant="outline">{c.status}</Badge>
                   </div>
                 </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {missing.length === 0
+                    ? 'All preboarding documents submitted.'
+                    : `Documents missing: ${missing.map((f) => MANDATORY_FIELD_LABELS[f] ?? f).join(', ')}`}
+                </p>
                 <div className="mt-2 flex flex-col gap-3">
                   {groupByPhase(c.tasks).map(([phase, tasks]) => (
                     <div key={phase}>
@@ -323,21 +389,37 @@ export function OnboardingPage() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-2">
+                <div className="mt-2 flex items-center gap-2">
+                  {missing.length === 0 ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={activatingId !== null}
+                      onClick={() => handleActivate(c.employee.id)}
+                    >
+                      {activatingId === c.employee.id ? 'Activating…' : 'Activate (end Preboarding)'}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      Can&apos;t activate until all documents are submitted.
+                    </span>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={activatingId !== null}
-                    onClick={() => handleActivate(c.employee.id)}
+                    disabled={sendingLinkId !== null}
+                    onClick={() => handleSendPortalLink(c.employee.id)}
                   >
-                    {activatingId === c.employee.id ? 'Activating…' : 'Activate (end Preboarding)'}
+                    {sendingLinkId === c.employee.id ? 'Sending…' : 'Resend Portal Link'}
                   </Button>
                 </div>
               </div>
             )
           })}
-          {checklists.length === 0 && (
-            <p className="text-muted-foreground">No onboarding checklists in progress.</p>
+          {filteredChecklists.length === 0 && (
+            <p className="text-muted-foreground">
+              {checklists.length === 0 ? 'No onboarding checklists in progress.' : 'No checklists match your search.'}
+            </p>
           )}
         </div>
         </CardContent>
@@ -404,65 +486,72 @@ export function OnboardingPage() {
             </>
           )}
 
-          <div className="mt-2 flex flex-col gap-2">
-            {taskRows.map((row, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={row.ownerRole}
-                  onValueChange={(v) => updateTaskRow(i, { ownerRole: v as ChecklistOwnerRole })}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="Owner">{(v: string) => v}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {OWNER_ROLES.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
+          <div className="mt-2 flex flex-col gap-4">
+            {ONBOARDING_PHASES.map((phase) => {
+              const rowsInPhase = taskRows
+                .map((row, i) => ({ row, i }))
+                .filter(({ row }) => row.phase === phase)
+              return (
+                <div key={phase} className="rounded-md border p-2">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    {ONBOARDING_PHASE_LABELS[phase]}
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {rowsInPhase.map(({ row, i }) => (
+                      <div key={i} className="flex flex-wrap items-center gap-2">
+                        <Select
+                          value={row.ownerRole}
+                          onValueChange={(v) => updateTaskRow(i, { ownerRole: v as ChecklistOwnerRole })}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue placeholder="Owner">{(v: string) => v}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {OWNER_ROLES.map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {r}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          placeholder="Task description"
+                          className="flex-1"
+                          value={row.description}
+                          onChange={(e) => updateTaskRow(i, { description: e.target.value })}
+                        />
+                        <Input
+                          type="number"
+                          className="w-24"
+                          placeholder="Due +days"
+                          value={row.dueOffsetDays}
+                          onChange={(e) => updateTaskRow(i, { dueOffsetDays: e.target.value })}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => removeTaskRow(i)}>
+                          Remove
+                        </Button>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={row.phase}
-                  onValueChange={(v) => updateTaskRow(i, { phase: v as OnboardingPhase })}
-                >
-                  <SelectTrigger className="w-40">
-                    <SelectValue>{(v: string) => ONBOARDING_PHASE_LABELS[v as OnboardingPhase]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ONBOARDING_PHASES.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {ONBOARDING_PHASE_LABELS[p]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Task description"
-                  className="flex-1"
-                  value={row.description}
-                  onChange={(e) => updateTaskRow(i, { description: e.target.value })}
-                />
-                <Input
-                  type="number"
-                  className="w-24"
-                  placeholder="Due +days"
-                  value={row.dueOffsetDays}
-                  onChange={(e) => updateTaskRow(i, { dueOffsetDays: e.target.value })}
-                />
-                <Button size="sm" variant="outline" onClick={() => removeTaskRow(i)}>
-                  Remove
-                </Button>
-              </div>
-            ))}
-            <Button size="sm" variant="outline" onClick={addTaskRow}>
-              Add Task
-            </Button>
+                    {rowsInPhase.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No tasks in this phase yet.</p>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => addTaskRow(phase)}>
+                      Add Task to {ONBOARDING_PHASE_LABELS[phase]}
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
-          <Button variant="outline" disabled={creatingTemplate} onClick={handleCreateTemplate}>
+          <Button variant="outline" disabled={creatingTemplate || !canCreateTemplate} onClick={handleCreateTemplate}>
             {creatingTemplate ? 'Creating…' : 'Create Template'}
           </Button>
+          {!canCreateTemplate && (
+            <p className="text-xs text-muted-foreground">
+              Give the template a name and fill in a description for every task before creating it.
+            </p>
+          )}
         </div>
         </CardContent>
       </Card>

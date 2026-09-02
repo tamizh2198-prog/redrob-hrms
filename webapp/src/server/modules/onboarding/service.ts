@@ -2,6 +2,7 @@ import type { PrismaClient, Role } from "@prisma/client";
 import { ChecklistOwnerRole, ChecklistStatus, ChecklistTaskStatus, ProbationCheckpoint } from "@prisma/client";
 import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
 import { notify } from "../../lib/notify";
+import { sendEmail } from "../../lib/email";
 import { signMagicLink, verifyMagicLink } from "../../lib/auth";
 import { assertCanAccessEmployeeData, type EmployeeDataRequester } from "../../lib/reporting-hierarchy";
 import { BadRequestError, NotFoundError } from "../../lib/errors";
@@ -217,6 +218,46 @@ export function issuePreboardingLink(employeeId: string): string {
   return signMagicLink({ sub: employeeId, purpose: PREBOARDING_PORTAL_PURPOSE }, "30d");
 }
 
+// HR-facing "resend the portal link" action — the link itself is a stateless
+// JWT (see issuePreboardingLink), so there's no prior token to invalidate;
+// resending is just minting a fresh one and emailing it again. Modeled on
+// ats/service.ts's respondOffer, which sends this same link via sendEmail()
+// directly rather than notify()/dispatch() — a Preboarding-status employee
+// usually has no workEmail yet, which is what dispatch()'s critical-email
+// path requires.
+export async function resendPreboardingLink(prisma: PrismaClient, employeeId: string) {
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) throw new NotFoundError("Employee not found");
+  if (employee.status !== "PREBOARDING") {
+    throw new BadRequestError("This employee is not in Preboarding status");
+  }
+  const recipient = employee.personalEmail ?? employee.workEmail;
+  if (!recipient) {
+    throw new BadRequestError("This employee has no email on file to send the link to");
+  }
+
+  const token = issuePreboardingLink(employeeId);
+  const baseUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const preboardingUrl = `${baseUrl}/preboard?token=${token}`;
+  const result = await sendEmail({
+    to: recipient,
+    subject: "Your Redrob HRMS preboarding portal link",
+    text: [
+      `Hi ${employee.firstName},`,
+      "",
+      "Here is your preboarding portal link:",
+      preboardingUrl,
+      "",
+      "This link expires in 30 days.",
+    ].join("\n"),
+  });
+
+  // Same "hand back the raw URL only when email didn't actually send" idiom
+  // as employee/service.ts's resendInvitation — drives the same copy-link
+  // fallback UI already used there.
+  return { emailSent: result.sent, preboardingUrl: result.sent ? undefined : preboardingUrl };
+}
+
 export function getProgressViaPortal(prisma: PrismaClient, token: string) {
   const { sub: employeeId } = verifyMagicLink(token, PREBOARDING_PORTAL_PURPOSE);
   // The magic link is already scoped to this one employeeId — that's the
@@ -238,6 +279,7 @@ export async function getProgress(prisma: PrismaClient, employeeId: string, requ
   return {
     checklist,
     completionPercent: total === 0 ? 0 : Math.round((completed / total) * 100),
+    missingMandatoryFields: await getMissingMandatoryFields(prisma, employeeId),
   };
 }
 
@@ -464,10 +506,22 @@ export function listProbationFeedback(prisma: PrismaClient) {
   });
 }
 
-export function listActiveChecklists(prisma: PrismaClient) {
-  return prisma.onboardingChecklist.findMany({
+export async function listActiveChecklists(prisma: PrismaClient) {
+  const checklists = await prisma.onboardingChecklist.findMany({
     where: { status: { in: [ChecklistStatus.NOT_STARTED, ChecklistStatus.IN_PROGRESS] } },
-    include: { employee: true, tasks: true },
+    include: {
+      // Scoped select, not `employee: true` — this list is HR-facing and was
+      // previously leaking every employee's passwordHash to the client.
+      employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+      tasks: true,
+    },
     orderBy: { createdAt: "desc" },
   });
+
+  return Promise.all(
+    checklists.map(async (c) => ({
+      ...c,
+      missingMandatoryFields: await getMissingMandatoryFields(prisma, c.employeeId),
+    })),
+  );
 }

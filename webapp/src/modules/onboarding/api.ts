@@ -43,10 +43,19 @@ export interface OnboardingChecklist {
 export interface OnboardingProgress {
   checklist: OnboardingChecklist
   completionPercent: number
+  missingMandatoryFields: string[]
 }
 
 export interface ChecklistWithEmployee extends OnboardingChecklist {
   employee: { id: string; firstName: string; lastName: string; employeeCode: string }
+  missingMandatoryFields: string[]
+}
+
+export const MANDATORY_FIELD_LABELS: Record<string, string> = {
+  ID_PROOF: 'Photo ID Proof',
+  EDUCATION_CERTIFICATE: 'Education Certificate',
+  BANK_DETAILS: 'Bank Details',
+  BACKGROUND_CHECK_CONSENT: 'Background Check Consent',
 }
 
 export interface OnboardingTemplate {
@@ -100,6 +109,13 @@ export function getProgress(employeeId: string) {
 
 export function activateEmployee(employeeId: string) {
   return api<{ status: string }>(`/onboarding/${employeeId}/activate`, { method: 'POST' })
+}
+
+export function resendPreboardingLink(employeeId: string) {
+  return api<{ emailSent: boolean; preboardingUrl?: string }>(
+    `/onboarding/${employeeId}/preboarding-link`,
+    { method: 'POST' },
+  )
 }
 
 export function completeTask(taskId: string) {

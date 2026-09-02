@@ -567,6 +567,12 @@ export async function deleteEmployee(prisma: PrismaClient, id: string): Promise<
     );
   }
 
+  // ~30 sequential round-trips below (NULLABLE_EMPLOYEE_REFERENCES +
+  // EMPLOYEE_OWNED_MODELS loops, plus the grandchild lookups) can exceed
+  // Prisma's 5s default interactive-transaction timeout over Supabase's
+  // pooled connection, aborting mid-transaction with a "Transaction not
+  // found... old closed transaction" (P2028) error — hence the explicit,
+  // more generous timeout/maxWait below.
   await prisma.$transaction(async (tx) => {
     // Grandchild cleanup: several employee-owned models have their own
     // child rows that reference THEM — not the employee directly — so they
@@ -599,7 +605,7 @@ export async function deleteEmployee(prisma: PrismaClient, id: string): Promise<
       await txAny[model].deleteMany({ where: { employeeId: id } });
     }
     await tx.employee.delete({ where: { id } });
-  });
+  }, { timeout: 20_000, maxWait: 10_000 });
 
   return { deleted: true, employeeCode: employee.employeeCode };
 }

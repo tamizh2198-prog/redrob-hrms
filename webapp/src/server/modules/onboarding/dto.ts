@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -21,6 +22,7 @@ export class ChecklistTaskTemplateDto {
   phase: OnboardingPhase;
 
   @IsString()
+  @IsNotEmpty()
   description: string;
 
   @IsOptional()
@@ -35,6 +37,7 @@ export class CreateTemplateDto {
   companyId?: string;
 
   @IsString()
+  @IsNotEmpty()
   name: string;
 
   @IsOptional()
