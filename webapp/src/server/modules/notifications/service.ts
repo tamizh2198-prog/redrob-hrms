@@ -1,6 +1,7 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { NotificationChannel, NotificationDeliveryStatus } from "@prisma/client";
 import { ForbiddenError, NotFoundError } from "../../lib/errors";
+import { sendEmail } from "../../lib/email";
 import type { ListInboxQueryDto, UpdatePreferencesDto } from "./dto";
 
 // Section 7.16 Business Rule: "security/compliance-critical events always
@@ -65,9 +66,14 @@ export interface NotificationPayload {
 
 // The real implementation behind the shared notify() entry point every
 // other module calls (see ../../lib/notify.ts). Persists a real in-app
-// Notification row for the IN_APP channel; EMAIL/SLACK/SMS are simulated
-// via a NotificationLog entry each, since no mailer/SMS/Slack SDK exists in
-// this stack — one channel's (simulated) failure never blocks another.
+// Notification row for the IN_APP channel. EMAIL is real for the three
+// CRITICAL_TEMPLATE_PREFIXES (Section 7.16: "security/compliance-critical
+// events always deliver via email regardless of preference") via the same
+// Resend-backed sendEmail() the invitation/activation/offer flows already
+// use; every other category's EMAIL, plus SLACK/SMS entirely, are still
+// simulated via a NotificationLog entry, since no Slack/SMS SDK exists in
+// this stack and non-critical email isn't wired up yet — one channel's
+// failure never blocks another.
 export async function dispatch(prisma: PrismaClient, payload: NotificationPayload): Promise<void> {
   const employee = await prisma.employee.findUnique({ where: { id: payload.recipientId } });
   // Some call sites still pass a placeholder like "hr-admin" when no real
@@ -81,7 +87,8 @@ export async function dispatch(prisma: PrismaClient, payload: NotificationPayloa
   });
   // No row = every channel enabled by default (opt-out, not opt-in).
   const enabledChannels = preference?.channelsEnabled ?? ALL_CHANNELS;
-  const channelsToDispatch = isCritical(payload.template)
+  const critical = isCritical(payload.template);
+  const channelsToDispatch = critical
     ? Array.from(new Set([...enabledChannels, NotificationChannel.EMAIL]))
     : enabledChannels;
 
@@ -98,16 +105,40 @@ export async function dispatch(prisma: PrismaClient, payload: NotificationPayloa
     });
   }
 
-  const simulatedChannels = channelsToDispatch.filter((channel) => channel !== NotificationChannel.IN_APP);
-  if (simulatedChannels.length) {
-    await prisma.notificationLog.createMany({
-      data: simulatedChannels.map((channel) => ({
-        employeeId: employee.id,
-        template: payload.template,
-        channel,
-        status: NotificationDeliveryStatus.SENT,
-      })),
-    });
+  const otherChannels = channelsToDispatch.filter((channel) => channel !== NotificationChannel.IN_APP);
+  if (otherChannels.length) {
+    const logs = await Promise.all(
+      otherChannels.map(async (channel) => {
+        if (channel === NotificationChannel.EMAIL && critical) {
+          if (!employee.workEmail) {
+            return {
+              employeeId: employee.id,
+              template: payload.template,
+              channel,
+              status: NotificationDeliveryStatus.SKIPPED,
+            };
+          }
+          const result = await sendEmail({
+            to: employee.workEmail,
+            subject: `Redrob HRMS: ${humanize(payload.template)}`,
+            text: payload.body,
+          });
+          return {
+            employeeId: employee.id,
+            template: payload.template,
+            channel,
+            status: result.sent ? NotificationDeliveryStatus.SENT : NotificationDeliveryStatus.FAILED,
+          };
+        }
+        return {
+          employeeId: employee.id,
+          template: payload.template,
+          channel,
+          status: NotificationDeliveryStatus.SENT,
+        };
+      }),
+    );
+    await prisma.notificationLog.createMany({ data: logs });
   }
 }
 

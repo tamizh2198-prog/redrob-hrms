@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import * as notificationsService from "./service";
 
+jest.mock("../../lib/email");
+
 function createMockPrisma() {
   return {
     employee: { findUnique: jest.fn() },
@@ -25,6 +27,7 @@ describe("notifications service", () => {
     jest.clearAllMocks();
     prisma = createMockPrisma();
     db = prisma as unknown as PrismaClient;
+    jest.requireMock("../../lib/email").sendEmail.mockResolvedValue({ sent: true });
   });
 
   describe("the real implementation behind notify()", () => {
@@ -41,8 +44,8 @@ describe("notifications service", () => {
       expect(prisma.notificationLog.createMany).not.toHaveBeenCalled();
     });
 
-    it("creates an in-app notification and simulated logs for the other default-enabled channels", async () => {
-      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1" });
+    it("creates an in-app notification and simulated logs for the other default-enabled channels on a non-critical template", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: "emp1@co.com" });
       prisma.notificationPreference.findUnique.mockResolvedValue(null);
 
       await notificationsService.dispatch(db, {
@@ -58,12 +61,14 @@ describe("notifications service", () => {
       expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.arrayContaining([
-            expect.objectContaining({ channel: "EMAIL" }),
+            expect.objectContaining({ channel: "EMAIL", status: "SENT" }),
             expect.objectContaining({ channel: "SLACK" }),
             expect.objectContaining({ channel: "SMS" }),
           ]),
         }),
       );
+      // Non-critical template — EMAIL stays simulated, no real send attempted.
+      expect(jest.requireMock("../../lib/email").sendEmail).not.toHaveBeenCalled();
     });
 
     it("respects a per-employee channel opt-out and skips the in-app row when IN_APP is disabled", async () => {
@@ -83,7 +88,7 @@ describe("notifications service", () => {
     });
 
     it("always forces EMAIL for a critical template even if the employee opted out of every channel", async () => {
-      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1" });
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: "emp1@co.com" });
       prisma.notificationPreference.findUnique.mockResolvedValue({ channelsEnabled: ["IN_APP"] });
 
       await notificationsService.dispatch(db, {
@@ -93,8 +98,70 @@ describe("notifications service", () => {
       });
 
       expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: [expect.objectContaining({ channel: "EMAIL" })] }),
+        expect.objectContaining({ data: [expect.objectContaining({ channel: "EMAIL", status: "SENT" })] }),
       );
+    });
+
+    describe("real email delivery for the 3 critical categories", () => {
+      it("sends a real email via sendEmail for a critical template and logs SENT on success", async () => {
+        prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: "emp1@co.com" });
+        prisma.notificationPreference.findUnique.mockResolvedValue(null);
+
+        await notificationsService.dispatch(db, {
+          recipientId: "emp-1",
+          template: "auth.mfa-reset",
+          body: "Your MFA was reset by an HR Admin/Super Admin.",
+        });
+
+        expect(jest.requireMock("../../lib/email").sendEmail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: "emp1@co.com",
+            subject: "Redrob HRMS: auth mfa reset",
+            text: "Your MFA was reset by an HR Admin/Super Admin.",
+          }),
+        );
+        expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.arrayContaining([expect.objectContaining({ channel: "EMAIL", status: "SENT" })]),
+          }),
+        );
+      });
+
+      it("logs FAILED when sendEmail reports it could not send", async () => {
+        prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: "emp1@co.com" });
+        prisma.notificationPreference.findUnique.mockResolvedValue(null);
+        jest.requireMock("../../lib/email").sendEmail.mockResolvedValue({ sent: false });
+
+        await notificationsService.dispatch(db, {
+          recipientId: "emp-1",
+          template: "auth.permission-changed",
+          body: "Your role was changed.",
+        });
+
+        expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.arrayContaining([expect.objectContaining({ channel: "EMAIL", status: "FAILED" })]),
+          }),
+        );
+      });
+
+      it("skips sending and logs SKIPPED when the employee has no work email on file", async () => {
+        prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: null });
+        prisma.notificationPreference.findUnique.mockResolvedValue(null);
+
+        await notificationsService.dispatch(db, {
+          recipientId: "emp-1",
+          template: "auth.password-reset",
+          body: "A password reset was requested for your account.",
+        });
+
+        expect(jest.requireMock("../../lib/email").sendEmail).not.toHaveBeenCalled();
+        expect(prisma.notificationLog.createMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.arrayContaining([expect.objectContaining({ channel: "EMAIL", status: "SKIPPED" })]),
+          }),
+        );
+      });
     });
   });
 
