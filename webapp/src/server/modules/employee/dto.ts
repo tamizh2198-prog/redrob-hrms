@@ -211,6 +211,12 @@ export class UpdateEmployeeDto {
   @IsNumber()
   @IsPositive()
   ctcLpa?: number;
+
+  // Super Admin only (see SUPER_ADMIN_ONLY_FIELDS in service.ts) — changes
+  // system access/permissions, not just a profile detail.
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
 }
 
 export class ListEmployeesQueryDto {

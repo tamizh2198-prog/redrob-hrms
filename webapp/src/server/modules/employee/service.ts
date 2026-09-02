@@ -160,6 +160,7 @@ const SUPER_ADMIN_ONLY_FIELDS = [
   "employmentType",
   "dateOfJoining",
   "status",
+  "role",
 ] as const satisfies readonly (keyof UpdateEmployeeDto)[];
 
 function stripPasswordHash(employee: Employee): SafeEmployee {
@@ -1063,6 +1064,7 @@ function diffForHistory(
     "reportingManagerId",
     "employmentType",
     "status",
+    "role",
   ] as const;
 
   for (const field of trackedFields) {
@@ -1122,11 +1124,11 @@ export async function update(prisma: PrismaClient, id: string, dto: UpdateEmploy
     return createChangeRequestsFromDto(prisma, id, dto);
   }
 
-  // These 8 fields are Super Admin-only.
+  // These 9 fields are Super Admin-only.
   const superAdminOnlyFieldsTouched = SUPER_ADMIN_ONLY_FIELDS.some((field) => dto[field] !== undefined);
   if (superAdminOnlyFieldsTouched && requester.role !== Role.SUPER_ADMIN) {
     throw new ForbiddenError(
-      "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, or status",
+      "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, status, or role",
     );
   }
 
@@ -1161,6 +1163,7 @@ export async function update(prisma: PrismaClient, id: string, dto: UpdateEmploy
       dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : undefined,
       employmentType: dto.employmentType,
       status: dto.status,
+      role: dto.role,
       pan: dto.pan,
       aadhaar: dto.aadhaar,
       bankAccountNumber: dto.bankAccountNumber,

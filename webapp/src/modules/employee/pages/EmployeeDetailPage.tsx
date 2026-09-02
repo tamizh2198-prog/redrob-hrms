@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAuth } from '@/shared/auth/AuthContext'
+import type { Role } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
 import {
   getEmployee,
@@ -61,6 +62,8 @@ const EMPLOYMENT_TYPES: NonNullable<Employee['employmentType']>[] = [
   'CONTRACT',
   'INTERN',
 ]
+
+const ROLES: Role[] = ['EMPLOYEE', 'MANAGER', 'HR_ASSOCIATE', 'HR_ADMIN', 'SUPER_ADMIN']
 
 // ARCHIVED is deliberately excluded — it's only ever set automatically once
 // Full & Final settlement is marked paid (see Offboarding), not something a
@@ -416,7 +419,28 @@ export function EmployeeDetailPage() {
         </p>
         <div className="grid grid-cols-2 gap-4">
           <ReadOnlyField label="Employee code" value={employee.employeeCode} />
-          <ReadOnlyField label="Role" value={employee.role} />
+          {isSuperAdmin && !isSelf ? (
+            <div className="flex flex-col gap-1">
+              <Label>Role</Label>
+              <Select
+                value={form.role ?? employee.role}
+                onValueChange={(v) => setForm((f) => ({ ...f, role: v as Role }))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r.replaceAll('_', ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <ReadOnlyField label="Role" value={employee.role} />
+          )}
           {isSuperAdmin ? (
             <>
               <ReferenceSelect

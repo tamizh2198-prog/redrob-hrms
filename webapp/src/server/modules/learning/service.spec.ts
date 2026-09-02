@@ -348,4 +348,51 @@ describe("learning service", () => {
       );
     });
   });
+
+  describe("Manager/approver names surfaced on listed requests", () => {
+    it("attaches the manager and decision-maker's names for the employee's own request list", async () => {
+      prisma.learningRequest.findMany.mockResolvedValue([
+        {
+          id: "req-1",
+          approverId: "mgr-1",
+          managerApproverId: "mgr-1",
+          finalApproverId: "sa-1",
+        },
+      ]);
+      prisma.employee.findMany.mockResolvedValue([
+        { id: "mgr-1", firstName: "Priya", lastName: "Rao" },
+        { id: "sa-1", firstName: "Aditi", lastName: "Rao" },
+      ]);
+
+      const [result] = await learningService.listMine(db, "emp-1");
+
+      expect(result.approver).toEqual({ firstName: "Priya", lastName: "Rao" });
+      expect(result.managerApprover).toEqual({ firstName: "Priya", lastName: "Rao" });
+      expect(result.finalApprover).toEqual({ firstName: "Aditi", lastName: "Rao" });
+    });
+
+    it("returns null approver fields (not a crash) when nobody has been assigned/decided yet", async () => {
+      prisma.learningRequest.findMany.mockResolvedValue([
+        { id: "req-1", approverId: null, managerApproverId: null, finalApproverId: null },
+      ]);
+
+      const [result] = await learningService.listMine(db, "emp-1");
+
+      expect(result.approver).toBeNull();
+      expect(result.managerApprover).toBeNull();
+      expect(result.finalApprover).toBeNull();
+      expect(prisma.employee.findMany).not.toHaveBeenCalled();
+    });
+
+    it("also attaches names for the Super Admin's full request list", async () => {
+      prisma.learningRequest.findMany.mockResolvedValue([
+        { id: "req-1", employee: {}, approverId: "mgr-1", managerApproverId: null, finalApproverId: null },
+      ]);
+      prisma.employee.findMany.mockResolvedValue([{ id: "mgr-1", firstName: "Priya", lastName: "Rao" }]);
+
+      const [result] = await learningService.listAll(db);
+
+      expect(result.approver).toEqual({ firstName: "Priya", lastName: "Rao" });
+    });
+  });
 });

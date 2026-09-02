@@ -248,9 +248,29 @@ describe("employee service", () => {
       await expect(
         employeeService.update(db, "emp-1", { departmentId: "dept-2" } as never, { userId: "hr-1", role: Role.HR_ADMIN }),
       ).rejects.toThrow(
-        "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, or status",
+        "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, status, or role",
       );
       expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects an HR Admin trying to change an employee's role", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.INACTIVE });
+
+      await expect(
+        employeeService.update(db, "emp-1", { role: Role.MANAGER } as never, { userId: "hr-1", role: Role.HR_ADMIN }),
+      ).rejects.toThrow("Only a Super Admin can change");
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    it("lets a Super Admin change an employee's role", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.ACTIVE, role: Role.EMPLOYEE });
+      prisma.employee.update.mockResolvedValue({ id: "emp-1", role: Role.MANAGER });
+
+      await employeeService.update(db, "emp-1", { role: Role.MANAGER } as never, { userId: "sa-1", role: Role.SUPER_ADMIN });
+
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ role: Role.MANAGER }) }),
+      );
     });
 
     it("lets a Super Admin change those same fields", async () => {

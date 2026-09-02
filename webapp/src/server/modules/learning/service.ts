@@ -38,6 +38,42 @@ function stripPasswordHash<T extends { employee?: Record<string, unknown> | null
   return { ...request, employee: safeEmployee };
 }
 
+interface ApproverIdFields {
+  approverId: string | null;
+  managerApproverId: string | null;
+  finalApproverId: string | null;
+}
+
+// approverId/managerApproverId/finalApproverId are loose strings, not
+// Prisma relations (same convention as WfoWfhChangeRequest.approverId) — so
+// showing the manager/approver's name means a manual batch lookup rather
+// than a Prisma `include`. One query for every distinct id across the whole
+// result set, not one query per request.
+async function withApproverNames<T extends ApproverIdFields>(prisma: PrismaClient, requests: T[]) {
+  const ids = new Set<string>();
+  for (const r of requests) {
+    if (r.approverId) ids.add(r.approverId);
+    if (r.managerApproverId) ids.add(r.managerApproverId);
+    if (r.finalApproverId) ids.add(r.finalApproverId);
+  }
+  if (ids.size === 0) {
+    return requests.map((r) => ({ ...r, approver: null, managerApprover: null, finalApprover: null }));
+  }
+
+  const employees = await prisma.employee.findMany({
+    where: { id: { in: [...ids] } },
+    select: { id: true, firstName: true, lastName: true },
+  });
+  const byId = new Map(employees.map((e) => [e.id, { firstName: e.firstName, lastName: e.lastName }]));
+
+  return requests.map((r) => ({
+    ...r,
+    approver: r.approverId ? (byId.get(r.approverId) ?? null) : null,
+    managerApprover: r.managerApproverId ? (byId.get(r.managerApproverId) ?? null) : null,
+    finalApprover: r.finalApproverId ? (byId.get(r.finalApproverId) ?? null) : null,
+  }));
+}
+
 async function computeSpendLimit(prisma: PrismaClient, employeeId: string) {
   const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
   if (!employee) throw new NotFoundError("Employee not found");
@@ -357,11 +393,12 @@ export async function markReimbursed(prisma: PrismaClient, requestId: string, ac
   return updated;
 }
 
-export function listMine(prisma: PrismaClient, employeeId: string) {
-  return prisma.learningRequest.findMany({
+export async function listMine(prisma: PrismaClient, employeeId: string) {
+  const requests = await prisma.learningRequest.findMany({
     where: { employeeId },
     orderBy: { createdAt: "desc" },
   });
+  return withApproverNames(prisma, requests);
 }
 
 export async function listPendingForApprover(prisma: PrismaClient, approverId: string) {
@@ -370,7 +407,7 @@ export async function listPendingForApprover(prisma: PrismaClient, approverId: s
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return withApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 export async function listPendingManagerStageForVisibility(prisma: PrismaClient) {
@@ -379,7 +416,7 @@ export async function listPendingManagerStageForVisibility(prisma: PrismaClient)
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return withApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 export async function listPendingFinalApproval(prisma: PrismaClient) {
@@ -388,7 +425,7 @@ export async function listPendingFinalApproval(prisma: PrismaClient) {
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return withApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 export async function listAll(prisma: PrismaClient, status?: LearningRequestStatus) {
@@ -397,5 +434,5 @@ export async function listAll(prisma: PrismaClient, status?: LearningRequestStat
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return withApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }

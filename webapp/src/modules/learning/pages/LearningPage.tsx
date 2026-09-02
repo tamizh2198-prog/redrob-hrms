@@ -53,6 +53,23 @@ function formatCurrency(amount: number) {
   return `₹${amount.toLocaleString('en-IN')}`
 }
 
+function personName(p?: { firstName: string; lastName: string } | null) {
+  return p ? `${p.firstName} ${p.lastName}` : null
+}
+
+// Manager is the assigned stage-1 approver (visible as soon as it's
+// raised); the actual decision-maker is whoever most recently acted —
+// finalApprover (Super Admin sign-off) if the request got that far,
+// otherwise managerApprover (e.g. rejected at the manager stage).
+function approverSummary(r: LearningRequest): string | null {
+  const manager = personName(r.approver)
+  const decidedBy = personName(r.finalApprover) ?? personName(r.managerApprover)
+  const parts: string[] = []
+  if (manager) parts.push(`Manager: ${manager}`)
+  if (decidedBy) parts.push(`Decided by: ${decidedBy}`)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 export function LearningPage() {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
@@ -286,6 +303,9 @@ export function LearningPage() {
                   </span>
                   <Badge variant={statusBadgeVariant(r.status)}>{STATUS_LABELS[r.status]}</Badge>
                 </div>
+                {approverSummary(r) && (
+                  <p className="mt-1 text-xs text-muted-foreground">{approverSummary(r)}</p>
+                )}
                 {r.status === 'APPROVED' && (
                   <div className="mt-2 flex gap-2">
                     <Input
@@ -506,6 +526,9 @@ export function LearningPage() {
                     <div className="text-muted-foreground">
                       {r.courseName} ({formatCurrency(r.cost)})
                     </div>
+                    {approverSummary(r) && (
+                      <p className="text-xs text-muted-foreground">{approverSummary(r)}</p>
+                    )}
                     <Badge variant={statusBadgeVariant(r.status)}>{STATUS_LABELS[r.status]}</Badge>
                   </div>
                   {r.status === 'COMPLETED' && (

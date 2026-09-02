@@ -21,9 +21,12 @@ export interface LearningRequest {
   requestYear: number
   status: LearningRequestStatus
   approverId: string | null
+  approver?: { firstName: string; lastName: string } | null
   managerApproverId: string | null
+  managerApprover?: { firstName: string; lastName: string } | null
   managerDecidedAt: string | null
   finalApproverId: string | null
+  finalApprover?: { firstName: string; lastName: string } | null
   decidedAt: string | null
   certificateRef: string | null
   completedAt: string | null
