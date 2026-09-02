@@ -395,6 +395,9 @@ export function LearningPage() {
                     <span className="text-muted-foreground">
                       {r.courseName} ({formatCurrency(r.cost)})
                     </span>
+                    {approverSummary(r) && (
+                      <span className="text-xs text-muted-foreground">{approverSummary(r)}</span>
+                    )}
                   </span>
                   <Badge variant="outline">Manager review pending</Badge>
                 </li>
@@ -421,7 +424,9 @@ export function LearningPage() {
                       <div className="text-muted-foreground">
                         {r.courseName} — {formatCurrency(r.cost)} — {r.duration}
                       </div>
-                      <div className="text-muted-foreground">Manager already approved this request.</div>
+                      <div className="text-muted-foreground">
+                        {approverSummary(r) ?? 'Manager already approved this request.'}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <Button
