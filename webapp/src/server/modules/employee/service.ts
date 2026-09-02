@@ -73,6 +73,7 @@ const EMPLOYEE_OWNED_MODELS = [
   "employeeInvitation",
   "passwordResetToken",
   "refreshToken",
+  "trustedDevice",
   "employeeDocument",
   "employeeHistory",
   "profileChangeRequest",

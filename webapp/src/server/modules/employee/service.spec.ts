@@ -20,6 +20,7 @@ const mockSendEmail = jest.mocked(sendEmail);
 // gets all three methods stubbed regardless of which it actually needs.
 const EMPLOYEE_OWNED_MODEL_NAMES = [
   "refreshToken",
+  "trustedDevice",
   "passwordResetToken",
   "employeeDocument",
   "rosterEntry",
@@ -1075,6 +1076,18 @@ describe("employee service", () => {
       expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { employeeId: "emp-1" } });
       expect(prisma.employee.delete).toHaveBeenCalledWith({ where: { id: "emp-1" } });
       expect(result).toEqual({ deleted: true, employeeCode: "EMP-2026-0010" });
+    });
+
+    // Regression test: TrustedDevice was missing from EMPLOYEE_OWNED_MODELS,
+    // so deleteEmployee() threw a P2003 foreign key violation on
+    // TrustedDevice_employeeId_fkey for any employee who'd ever logged in
+    // with "remember this device" checked.
+    it("clears TrustedDevice rows before deleting the employee", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", employeeCode: "EMP-2026-0010" });
+
+      await employeeService.deleteEmployee(db, "emp-1");
+
+      expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { employeeId: "emp-1" } });
     });
 
     it("clears grandchild rows (ClearanceItem/LwdAdjustment via Resignation, ChecklistTask via OnboardingChecklist, AssistantMessage via AssistantConversation) before deleting their parents", async () => {
