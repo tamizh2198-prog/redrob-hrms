@@ -8,6 +8,8 @@
     { "path": "/api/cron/backup-reminder", "schedule": "0 0 * * 0" },
     { "path": "/api/cron/offboarding-lwd-reminders", "schedule": "0 0 * * *" },
     { "path": "/api/cron/new-joiner-tracker-reminders", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/rate-limit-cleanup", "schedule": "0 0 * * *" }
+    { "path": "/api/cron/rate-limit-cleanup", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/analytics-scheduled-reports", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/probation-feedback-reminders", "schedule": "0 0 * * *" }
   ]
 }

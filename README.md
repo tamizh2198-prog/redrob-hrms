@@ -28,9 +28,13 @@ setup.
 
 - **App + API**: Next.js (App Router), deployed on Vercel.
 - **Database**: Postgres on Supabase.
-- **Scheduled jobs**: Vercel Cron for daily/weekly jobs; hourly jobs run via Supabase's
-  `pg_cron`/`pg_net` calling the same `api/cron/*` routes (Vercel's free tier only allows
-  daily-or-coarser cron schedules).
+- **Scheduled jobs**: Vercel Cron (`webapp/vercel.json`) for daily/weekly jobs; hourly jobs
+  run via Supabase's `pg_cron`/`pg_net` calling the same `api/cron/*` routes (Vercel's free
+  tier only allows daily-or-coarser cron schedules) — set up once per environment by running
+  `webapp/supabase/cron-jobs.sql` against that Supabase project's SQL editor. Every route
+  under `webapp/src/app/api/cron/` must be wired up in exactly one of these two places —
+  see HRMS-22 in the security audit history, where 5 routes existed in code with no
+  schedule anywhere, silently never running.
 - **Auth**: custom JWT access/refresh tokens with MFA, stored in `localStorage` — not a
   third-party auth provider.
 
