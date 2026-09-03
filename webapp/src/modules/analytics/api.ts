@@ -86,13 +86,10 @@ export type ExportFormat = 'csv' | 'excel' | 'pdf'
 // exports come back as a file, so this needs the raw Response to read a Blob.
 // Relative URL now that frontend+backend are one Next.js app.
 export async function exportReport(data: BuildReportParams, format: ExportFormat) {
-  const token = localStorage.getItem('accessToken')
   const res = await fetch('/api/v1/analytics/reports/build', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...data, format }),
   })
   if (!res.ok) {

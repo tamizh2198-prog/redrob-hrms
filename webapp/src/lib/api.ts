@@ -12,21 +12,10 @@ export class ApiError extends Error {
   }
 }
 
-function getAccessToken(): string | null {
-  return localStorage.getItem('accessToken');
-}
-
-function getRefreshToken(): string | null {
-  return localStorage.getItem('refreshToken');
-}
-
 function clearSession() {
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('authUser');
-  // AuthContext can't see this module's localStorage writes on its own —
-  // it listens for this to clear its in-memory user when a refresh fails
-  // out from under it (e.g. the refresh token itself expired/was revoked).
+  // Cookies are httpOnly — nothing for this module to remove itself. This
+  // just tells AuthContext (which can't see this module's fetch calls
+  // directly) that the session is gone.
   window.dispatchEvent(new Event('auth:logout'));
 }
 
@@ -35,31 +24,21 @@ function clearSession() {
 // (instead of each firing its own /auth/refresh, which would race the
 // one-time-use rotation and revoke each other's token) so only the
 // request that first hits 401 refreshes; the rest just await the result.
-let refreshPromise: Promise<string | null> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return null;
-
+async function refreshAccessToken(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
         const res = await fetch(`${API_PREFIX}/auth/refresh`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
+          credentials: 'same-origin',
         });
         if (!res.ok) throw new Error('refresh failed');
-        const body = (await res.json()) as {
-          accessToken: string;
-          refreshToken: string;
-        };
-        localStorage.setItem('accessToken', body.accessToken);
-        localStorage.setItem('refreshToken', body.refreshToken);
-        return body.accessToken;
+        return true;
       } catch {
         clearSession();
-        return null;
+        return false;
       } finally {
         refreshPromise = null;
       }
@@ -67,6 +46,13 @@ async function refreshAccessToken(): Promise<string | null> {
   }
   return refreshPromise;
 }
+
+// These never warrant a refresh-and-retry on a bare 401: /auth/login's 401
+// just means wrong credentials, /auth/refresh's own 401 means the refresh
+// token itself is dead (retrying would loop), and /auth/me's 401 on an
+// unauthenticated page load is the expected "not logged in" signal, not an
+// expired session.
+const NO_RETRY_PATHS = new Set(['/auth/login', '/auth/refresh', '/auth/me']);
 
 export async function api<T>(
   path: string,
@@ -79,28 +65,25 @@ export async function api<T>(
     }
   }
 
-  async function send(token: string | null): Promise<Response> {
+  async function send(): Promise<Response> {
     return fetch(url.toString(), {
       method: options.method ?? 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
   }
 
-  const originalToken = getAccessToken();
-  let res = await send(originalToken);
+  let res = await send();
 
-  // Only worth a refresh-and-retry if this request actually carried an
-  // (expired) access token — a 401 with no token at all just means the
-  // request itself was rejected (e.g. a wrong-password /auth/login call),
-  // not an expired session.
-  if (res.status === 401 && originalToken && path !== '/auth/refresh') {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      res = await send(newToken);
+  // Cookies attach automatically, so unlike the old localStorage-based
+  // client we can no longer tell "this request carried a token" from the
+  // request itself — a 401 on any non-auth endpoint means the access token
+  // is missing/expired, which is exactly the refresh-worthy case.
+  if (res.status === 401 && !NO_RETRY_PATHS.has(path)) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      res = await send();
     }
   }
 

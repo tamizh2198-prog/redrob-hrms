@@ -224,12 +224,11 @@ export function bulkImportEmployees(rows: Partial<Employee>[], dryRun: boolean) 
 // bulkUploadWfoSchedule(). Relative URL now that frontend+backend are one
 // Next.js app.
 export async function bulkImportEmployeesFromFile(file: File, dryRun: boolean) {
-  const token = localStorage.getItem('accessToken')
   const form = new FormData()
   form.append('file', file)
   const res = await fetch(`/api/v1/employees/bulk-import/upload?dryRun=${dryRun}`, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'same-origin',
     body: form,
   })
   if (!res.ok) {
@@ -240,10 +239,7 @@ export async function bulkImportEmployeesFromFile(file: File, dryRun: boolean) {
 }
 
 export async function downloadEmployeeBulkImportTemplate() {
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch('/api/v1/employees/bulk-import/template', {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  const res = await fetch('/api/v1/employees/bulk-import/template', { credentials: 'same-origin' })
   if (!res.ok) throw new ApiError('Failed to download template', res.status)
 
   const blob = await res.blob()
@@ -259,10 +255,7 @@ export async function downloadEmployeeBulkImportTemplate() {
 
 // Super Admin-only: Excel export of the active roster (Employee Directory).
 export async function downloadActiveEmployees() {
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch('/api/v1/employees/export/active', {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  const res = await fetch('/api/v1/employees/export/active', { credentials: 'same-origin' })
   if (!res.ok) throw new ApiError('Failed to download active employees', res.status)
 
   const blob = await res.blob()

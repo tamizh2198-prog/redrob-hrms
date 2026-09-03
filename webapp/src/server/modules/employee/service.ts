@@ -9,6 +9,7 @@ import { getFrontendUrl } from "../../lib/frontend-url";
 import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
 import { getReportingHierarchyIds } from "../../lib/reporting-hierarchy";
 import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
+import { encryptPiiNullable, decryptPiiNullable } from "../../lib/pii-crypto";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import {
   CreateEmployeeDto,
@@ -60,6 +61,31 @@ export const ACTIVE_STATUSES: EmployeeStatus[] = [
 ];
 
 const SENSITIVE_FIELDS = ["pan", "aadhaar", "bankAccountNumber"] as const;
+
+// HRMS-11: these four are encrypted at rest (AES-256-GCM, see pii-crypto.ts)
+// — every write path must encrypt on the way in, every read path that
+// returns real (non-masked) values must decrypt on the way out.
+const ENCRYPTED_FIELDS = ["pan", "aadhaar", "bankAccountNumber", "ifscCode"] as const;
+
+function encryptSensitiveInput<T extends Partial<Record<(typeof ENCRYPTED_FIELDS)[number], string | null | undefined>>>(
+  data: T,
+): T {
+  const out = { ...data };
+  for (const field of ENCRYPTED_FIELDS) {
+    if (field in out) {
+      (out as Record<string, string | null | undefined>)[field] = encryptPiiNullable(out[field]);
+    }
+  }
+  return out;
+}
+
+function decryptSensitiveEmployee<T extends Pick<Employee, (typeof ENCRYPTED_FIELDS)[number]>>(employee: T): T {
+  const out = { ...employee };
+  for (const field of ENCRYPTED_FIELDS) {
+    (out as Record<string, string | null | undefined>)[field] = decryptPiiNullable(employee[field]);
+  }
+  return out;
+}
 
 // Every workEmail write goes through this so lookups (login, the
 // invite/create uniqueness check) can rely on a consistent stored casing
@@ -330,10 +356,12 @@ function toCreateData(
     dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : undefined,
     employmentType: dto.employmentType,
     status,
-    pan: dto.pan,
-    aadhaar: dto.aadhaar,
-    bankAccountNumber: dto.bankAccountNumber,
-    ifscCode: dto.ifscCode,
+    ...encryptSensitiveInput({
+      pan: dto.pan,
+      aadhaar: dto.aadhaar,
+      bankAccountNumber: dto.bankAccountNumber,
+      ifscCode: dto.ifscCode,
+    }),
     bloodGroup: dto.bloodGroup,
     emergencyContactName: dto.emergencyContactName,
     emergencyContactPhone: dto.emergencyContactPhone,
@@ -398,7 +426,7 @@ export async function create(prisma: PrismaClient, dto: CreateEmployeeDto, actor
     data: { createdBy: actorId },
   });
 
-  return stripPasswordHash(employee);
+  return stripPasswordHash(decryptSensitiveEmployee(employee));
 }
 
 // ---------------------------------------------------------------------
@@ -567,7 +595,7 @@ export async function dismissEmployee(prisma: PrismaClient, id: string, actorId:
     data: { terminatedBy: actorId },
   });
 
-  return stripPasswordHash(updated);
+  return stripPasswordHash(decryptSensitiveEmployee(updated));
 }
 
 // Ends probation — the only code path that can ever move ACTIVE_PROBATION ->
@@ -601,7 +629,7 @@ export async function confirmEmployee(prisma: PrismaClient, id: string, actorId:
     data: { confirmedBy: actorId },
   });
 
-  return stripPasswordHash(updated);
+  return stripPasswordHash(decryptSensitiveEmployee(updated));
 }
 
 // placeOnPip / startCurePeriod: same shape as confirmEmployee — a
@@ -630,7 +658,7 @@ export async function placeOnPip(prisma: PrismaClient, id: string, actorId: stri
     data: { startedBy: actorId, reason },
   });
 
-  return stripPasswordHash(updated);
+  return stripPasswordHash(decryptSensitiveEmployee(updated));
 }
 
 export async function startCurePeriod(prisma: PrismaClient, id: string, actorId: string, reason?: string): Promise<SafeEmployee> {
@@ -654,7 +682,7 @@ export async function startCurePeriod(prisma: PrismaClient, id: string, actorId:
     data: { startedBy: actorId, reason },
   });
 
-  return stripPasswordHash(updated);
+  return stripPasswordHash(decryptSensitiveEmployee(updated));
 }
 
 // Super Admin-only permanent removal, for test/development cleanup only —
@@ -995,10 +1023,12 @@ export async function updateMyProfile(prisma: PrismaClient, employeeId: string, 
       state: dto.state,
       country: dto.country,
       postalCode: dto.postalCode,
-      pan: dto.pan,
-      aadhaar: dto.aadhaar,
-      bankAccountNumber: dto.bankAccountNumber,
-      ifscCode: dto.ifscCode,
+      ...encryptSensitiveInput({
+        pan: dto.pan,
+        aadhaar: dto.aadhaar,
+        bankAccountNumber: dto.bankAccountNumber,
+        ifscCode: dto.ifscCode,
+      }),
       bloodGroup: dto.bloodGroup,
       emergencyContactName: dto.emergencyContactName,
       emergencyContactPhone: dto.emergencyContactPhone,
@@ -1006,7 +1036,11 @@ export async function updateMyProfile(prisma: PrismaClient, employeeId: string, 
     },
   });
 
-  return { employee: stripPasswordHash(updated), ...computeProfileCompletion(updated) };
+  // computeProfileCompletion only checks presence (null/undefined/"") on
+  // these fields, which a ciphertext string satisfies identically to
+  // plaintext — safe to run against either the encrypted or decrypted row.
+  const decrypted = decryptSensitiveEmployee(updated);
+  return { employee: stripPasswordHash(decrypted), ...computeProfileCompletion(decrypted) };
 }
 
 export async function changeMyPassword(prisma: PrismaClient, employeeId: string, dto: ChangePasswordDto) {
@@ -1104,7 +1138,7 @@ export async function findAll(prisma: PrismaClient, query: ListEmployeesQueryDto
 
   if (requester.role === Role.EMPLOYEE && requester.userId) {
     const self = await prisma.employee.findUnique({ where: { id: requester.userId } });
-    const items = self ? [maskSensitiveFields(self, requester)] : [];
+    const items = self ? [maskSensitiveFields(decryptSensitiveEmployee(self), requester)] : [];
     return { items, total: items.length, page: 1, pageSize };
   }
 
@@ -1139,7 +1173,7 @@ export async function findAll(prisma: PrismaClient, query: ListEmployeesQueryDto
     prisma.employee.count({ where }),
   ]);
 
-  return { items: items.map((e) => maskSensitiveFields(e, requester)), total, page, pageSize };
+  return { items: items.map((e) => maskSensitiveFields(decryptSensitiveEmployee(e), requester)), total, page, pageSize };
 }
 
 // Section 6 Access Control Rule: "a Manager can only fetch records where
@@ -1173,7 +1207,7 @@ export async function findOne(prisma: PrismaClient, id: string, requester: Reque
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) throw new NotFoundError("Employee not found");
   await assertReadScope(prisma, id, requester);
-  return maskSensitiveFields(employee, requester);
+  return maskSensitiveFields(decryptSensitiveEmployee(employee), requester);
 }
 
 export async function getProfileCompletionForEmployee(prisma: PrismaClient, id: string, requester: RequesterContext) {
@@ -1190,7 +1224,8 @@ export async function revealSensitiveFields(prisma: PrismaClient, id: string, re
   }
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) throw new NotFoundError("Employee not found");
-  return { pan: employee.pan, aadhaar: employee.aadhaar, bankAccountNumber: employee.bankAccountNumber };
+  const decrypted = decryptSensitiveEmployee(employee);
+  return { pan: decrypted.pan, aadhaar: decrypted.aadhaar, bankAccountNumber: decrypted.bankAccountNumber };
 }
 
 function diffForHistory(
@@ -1236,11 +1271,27 @@ async function createChangeRequestsFromDto(prisma: PrismaClient, employeeId: str
     const newValue = dto[field];
     if (newValue === undefined) continue;
     const rawOldValue = employee[field];
+    // HRMS-11: pan/aadhaar/bankAccountNumber/ifscCode are stored encrypted
+    // — decrypt the stored value before comparing against the DTO's
+    // plaintext, then re-encrypt both sides before persisting so this
+    // pending-approval row never holds plaintext.
+    const isEncryptedField = (ENCRYPTED_FIELDS as readonly string[]).includes(field);
     // dob is a Date on the record but a plain "YYYY-MM-DD" string on the
     // DTO — normalize before comparing/storing.
-    const oldValue = rawOldValue instanceof Date ? rawOldValue.toISOString().slice(0, 10) : rawOldValue;
+    const oldValue = rawOldValue instanceof Date
+      ? rawOldValue.toISOString().slice(0, 10)
+      : isEncryptedField
+        ? decryptPiiNullable(rawOldValue as string | null)
+        : rawOldValue;
     if (String(oldValue ?? "") === String(newValue ?? "")) continue;
-    toCreate.push({ employeeId, fieldName: field, oldValue: oldValue != null ? String(oldValue) : null, newValue: String(newValue) });
+    const oldValueString = oldValue != null ? String(oldValue) : null;
+    const newValueString = String(newValue);
+    toCreate.push({
+      employeeId,
+      fieldName: field,
+      oldValue: isEncryptedField ? encryptPiiNullable(oldValueString) ?? null : oldValueString,
+      newValue: isEncryptedField ? encryptPiiNullable(newValueString) ?? newValueString : newValueString,
+    });
   }
 
   if (toCreate.length === 0) {
@@ -1309,10 +1360,12 @@ export async function update(prisma: PrismaClient, id: string, dto: UpdateEmploy
       employmentType: dto.employmentType,
       status: dto.status,
       role: dto.role,
-      pan: dto.pan,
-      aadhaar: dto.aadhaar,
-      bankAccountNumber: dto.bankAccountNumber,
-      ifscCode: dto.ifscCode,
+      ...encryptSensitiveInput({
+        pan: dto.pan,
+        aadhaar: dto.aadhaar,
+        bankAccountNumber: dto.bankAccountNumber,
+        ifscCode: dto.ifscCode,
+      }),
       bloodGroup: dto.bloodGroup,
       emergencyContactName: dto.emergencyContactName,
       emergencyContactPhone: dto.emergencyContactPhone,
@@ -1324,7 +1377,7 @@ export async function update(prisma: PrismaClient, id: string, dto: UpdateEmploy
     await prisma.employeeHistory.createMany({ data: historyData });
   }
 
-  return maskSensitiveFields(updated, requester);
+  return maskSensitiveFields(decryptSensitiveEmployee(updated), requester);
 }
 
 export async function approveChangeRequest(prisma: PrismaClient, requestId: string, reviewerId: string) {
@@ -1385,12 +1438,25 @@ export async function rejectChangeRequest(prisma: PrismaClient, requestId: strin
   });
 }
 
-export function listChangeRequests(prisma: PrismaClient, status?: "PENDING" | "APPROVED" | "REJECTED") {
-  return prisma.profileChangeRequest.findMany({
+export async function listChangeRequests(prisma: PrismaClient, status?: "PENDING" | "APPROVED" | "REJECTED") {
+  const requests = await prisma.profileChangeRequest.findMany({
     where: status ? { status } : undefined,
     include: { employee: true },
     orderBy: { requestedAt: "desc" },
   });
+
+  // HRMS-11: both the request's own old/new value (when it's for one of the
+  // encrypted fields) and the included employee's four fields come back as
+  // ciphertext — decrypt before returning to the HR-Admin review UI.
+  const isEncryptedField = (field: string) => (ENCRYPTED_FIELDS as readonly string[]).includes(field);
+  return requests.map((request) => ({
+    ...request,
+    oldValue: isEncryptedField(request.fieldName) ? decryptPiiNullable(request.oldValue) ?? null : request.oldValue,
+    newValue: isEncryptedField(request.fieldName)
+      ? decryptPiiNullable(request.newValue) ?? request.newValue
+      : request.newValue,
+    employee: decryptSensitiveEmployee(request.employee),
+  }));
 }
 
 export async function getOrgChart(prisma: PrismaClient, id: string, requester: RequesterContext) {

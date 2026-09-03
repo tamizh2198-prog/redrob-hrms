@@ -6,6 +6,7 @@ import { hashPassword } from "../../lib/auth";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
+import { encryptPii, decryptPii, isEncryptedPiiValue } from "../../lib/pii-crypto";
 
 jest.mock("../../lib/notify");
 jest.mock("../../lib/email");
@@ -395,12 +396,19 @@ describe("employee service", () => {
       );
 
       expect(prisma.employee.update).not.toHaveBeenCalled();
-      expect(prisma.profileChangeRequest.createMany).toHaveBeenCalledWith({
-        data: expect.arrayContaining([
-          expect.objectContaining({ fieldName: "pan", newValue: "ABCDE1234F" }),
-          expect.objectContaining({ fieldName: "bloodGroup", newValue: "O_POSITIVE" }),
-        ]),
-      });
+      const { data } = prisma.profileChangeRequest.createMany.mock.calls[0][0] as {
+        data: Array<{ fieldName: string; newValue: string | null }>;
+      };
+      // HRMS-11: pan/bankAccountNumber/ifscCode must never be persisted as
+      // plaintext here, even in a pending-approval row — bloodGroup isn't
+      // one of the encrypted fields and stays plaintext.
+      const pan = data.find((d) => d.fieldName === "pan")!;
+      expect(pan.newValue).not.toBe("ABCDE1234F");
+      expect(isEncryptedPiiValue(pan.newValue)).toBe(true);
+      expect(decryptPii(pan.newValue!)).toBe("ABCDE1234F");
+      expect(data.find((d) => d.fieldName === "bloodGroup")).toEqual(
+        expect.objectContaining({ fieldName: "bloodGroup", newValue: "O_POSITIVE" }),
+      );
     });
 
     it("lets a new hire submit their own date of birth as a self-service change request", async () => {
@@ -1411,6 +1419,131 @@ describe("employee service", () => {
         where: { id: "company-1" },
         data: { bootstrappedAt: expect.any(Date) },
       });
+    });
+  });
+
+  describe("HRMS-11: field-level encryption at rest (PAN/Aadhaar/bank/IFSC)", () => {
+    it("create() never persists plaintext pan/bankAccountNumber, and decrypts the returned row", async () => {
+      prisma.employee.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "emp-1",
+        employeeCode: "MNR-2026-0001",
+        pan: data.pan,
+        bankAccountNumber: data.bankAccountNumber,
+        aadhaar: data.aadhaar ?? null,
+        ifscCode: data.ifscCode ?? null,
+      }));
+
+      const result = await employeeService.create(db, VALID_ACTIVE_FIELDS as never, "actor-1");
+
+      const createArgs = prisma.employee.create.mock.calls[0][0];
+      expect(createArgs.data.pan).not.toBe("ABCDE1234F");
+      expect(isEncryptedPiiValue(createArgs.data.pan)).toBe(true);
+      expect(createArgs.data.bankAccountNumber).not.toBe("123456789");
+      expect(isEncryptedPiiValue(createArgs.data.bankAccountNumber)).toBe(true);
+      // The service decrypts the row it just wrote before returning it.
+      expect(result.pan).toBe("ABCDE1234F");
+      expect(result.bankAccountNumber).toBe("123456789");
+    });
+
+    it("update() (HR-admin path) encrypts on write and returns decrypted plaintext to a privileged requester", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.ACTIVE });
+      prisma.employee.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "emp-1",
+        pan: data.pan,
+        aadhaar: null,
+        bankAccountNumber: null,
+        ifscCode: data.ifscCode,
+      }));
+
+      const result = (await employeeService.update(
+        db,
+        "emp-1",
+        { pan: "ZZZZZ9999Z", ifscCode: "HDFC0001234" } as never,
+        { userId: "hr-1", role: Role.HR_ADMIN },
+      )) as { pan: string; ifscCode: string };
+
+      const updateArgs = prisma.employee.update.mock.calls[0][0];
+      expect(isEncryptedPiiValue(updateArgs.data.pan)).toBe(true);
+      expect(isEncryptedPiiValue(updateArgs.data.ifscCode)).toBe(true);
+      expect(result.pan).toBe("ZZZZZ9999Z");
+      expect(result.ifscCode).toBe("HDFC0001234");
+    });
+
+    it("findOne() masks a decrypted value correctly for a non-privileged, non-self reader", async () => {
+      // MANAGER, not the record's own owner — assertReadScope requires the
+      // requester to be somewhere in the target's management chain, so the
+      // mocked isReportOf() walk (a second findUnique, select-only) must
+      // also be satisfied.
+      prisma.employee.findUnique
+        .mockResolvedValueOnce({
+          id: "emp-2",
+          pan: encryptPii("ABCDE1234F"),
+          aadhaar: null,
+          bankAccountNumber: encryptPii("123456789012"),
+          ifscCode: null,
+          ctcLpa: 12,
+        })
+        .mockResolvedValueOnce({ reportingManagerId: "emp-1" });
+
+      const result = await employeeService.findOne(db, "emp-2", { userId: "emp-1", role: Role.MANAGER });
+
+      // Masked to the real last 4 characters of the decrypted plaintext —
+      // proves masking ran against plaintext, not the ciphertext blob.
+      expect(result.pan).toBe("****234F");
+      expect(result.bankAccountNumber).toBe("****9012");
+    });
+
+    it("findOne() returns full decrypted plaintext to the record's own owner", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: "emp-1",
+        pan: encryptPii("ABCDE1234F"),
+        aadhaar: null,
+        bankAccountNumber: encryptPii("123456789012"),
+        ifscCode: null,
+        ctcLpa: 12,
+      });
+
+      const result = await employeeService.findOne(db, "emp-1", { userId: "emp-1", role: Role.EMPLOYEE });
+
+      expect(result.pan).toBe("ABCDE1234F");
+      expect(result.bankAccountNumber).toBe("123456789012");
+    });
+
+    it("revealSensitiveFields() decrypts before returning", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({
+        id: "emp-1",
+        pan: encryptPii("ABCDE1234F"),
+        aadhaar: encryptPii("123412341234"),
+        bankAccountNumber: encryptPii("123456789012"),
+      });
+
+      const result = await employeeService.revealSensitiveFields(db, "emp-1", { userId: "emp-1", role: Role.EMPLOYEE });
+
+      expect(result).toEqual({ pan: "ABCDE1234F", aadhaar: "123412341234", bankAccountNumber: "123456789012" });
+    });
+
+    it("listChangeRequests() decrypts both the request's own value and the included employee's fields", async () => {
+      prisma.profileChangeRequest.findMany.mockResolvedValueOnce([
+        {
+          id: "req-1",
+          fieldName: "pan",
+          oldValue: null,
+          newValue: encryptPii("ABCDE1234F"),
+          employee: {
+            id: "emp-1",
+            pan: encryptPii("ABCDE1234F"),
+            aadhaar: null,
+            bankAccountNumber: encryptPii("123456789012"),
+            ifscCode: null,
+          },
+        },
+      ]);
+
+      const [result] = await employeeService.listChangeRequests(db);
+
+      expect(result.newValue).toBe("ABCDE1234F");
+      expect(result.employee.pan).toBe("ABCDE1234F");
+      expect(result.employee.bankAccountNumber).toBe("123456789012");
     });
   });
 });

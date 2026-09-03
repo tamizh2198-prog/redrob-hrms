@@ -128,10 +128,7 @@ export function markSettlementPaid(id: string, rehireEligible?: boolean) {
 // authenticated-blob pattern as downloadActiveEmployees() in the employee
 // module, since a plain <a href> can't carry the Bearer token.
 export async function previewRelievingLetter(id: string) {
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch(`/api/v1/offboarding/${id}/letters/preview`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  const res = await fetch(`/api/v1/offboarding/${id}/letters/preview`, { credentials: 'same-origin' })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: 'Failed to load the letter preview' }))
     throw new ApiError(body.message, res.status)

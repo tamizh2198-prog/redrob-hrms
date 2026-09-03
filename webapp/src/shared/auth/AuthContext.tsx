@@ -18,13 +18,6 @@ export interface AuthUser {
 
 interface SessionResponse {
   status: 'OK'
-  accessToken: string
-  refreshToken: string
-  // Only present on a response that just cleared an MFA challenge — lets
-  // this same machine skip MFA on future logins. Absent when logging in
-  // from an already-trusted device (nothing new to remember) or for a
-  // role that never required MFA to begin with.
-  deviceToken?: string
   user: AuthUser
 }
 
@@ -40,60 +33,41 @@ export type LoginResponse =
 
 interface AuthContextValue {
   user: AuthUser | null
+  // True until the initial /auth/me check (see below) resolves. The session
+  // now lives in an httpOnly cookie this code can't read directly, so "am I
+  // logged in" is an async question — callers that redirect on `!user` must
+  // also wait for `loading` to go false, or they'll bounce a genuinely
+  // logged-in user before the check has had a chance to come back.
+  loading: boolean
   loginWithPassword: (email: string, password: string) => Promise<LoginResponse>
   verifyMfa: (mfaToken: string, code: string) => Promise<void>
   confirmMfaEnrollment: (mfaToken: string, code: string) => Promise<void>
   logout: () => Promise<void>
-  // The cached `user` here (and its localStorage mirror) is only ever set
-  // at login — it never re-syncs on its own. Without this, editing your
-  // own name via My Profile updates the database fine, but the header/
-  // dashboard/profile menu keep showing whatever name was cached at your
-  // last login until you log out and back in. Called by My Profile after
-  // a successful save.
   updateUserName: (name: string) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-// Deliberately NOT read as a useState lazy initializer — that function runs
-// on the client's first render too (not just the server's), and `window`
-// already exists by then, so reading localStorage there would return the
-// real cached user while the server-rendered HTML has none: a hydration
-// mismatch, not just a cosmetic flash. Only ever called from inside an
-// effect (i.e. after hydration has already completed).
-function readCachedUser(): AuthUser | null {
-  const raw = localStorage.getItem('authUser')
-  return raw ? (JSON.parse(raw) as AuthUser) : null
-}
-
-function persistSession(res: SessionResponse) {
-  localStorage.setItem('accessToken', res.accessToken)
-  localStorage.setItem('refreshToken', res.refreshToken)
-  localStorage.setItem('authUser', JSON.stringify(res.user))
-  if (res.deviceToken) {
-    localStorage.setItem('deviceToken', res.deviceToken)
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Always starts null, matching the server-rendered HTML exactly — the
-  // real cached session (if any) is synced in immediately after via the
-  // effect below, once hydration has already completed.
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // One-time hydration-safe sync of localStorage into React state — the
-    // standard pattern for this (e.g. next-themes) intentionally triggers a
-    // second render on mount, which is what these two rules are warning
-    // about; there's no external-store subscription needed here since
-    // login()/logout() already call setUser directly.
-    setUser(readCachedUser())
+    // The only way to learn "am I logged in" now that tokens are httpOnly
+    // cookies — replaces the old synchronous localStorage read. A 401 here
+    // just means "not logged in," not an error.
+    let cancelled = false
+    api<AuthUser>('/auth/me')
+      .then((u) => { if (!cancelled) setUser(u) })
+      .catch(() => { if (!cancelled) setUser(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
     // Fired by lib/api.ts when a refresh-token round-trip fails (expired
-    // or revoked) — the local session is already cleared by then, this
-    // just syncs React state to match.
+    // or revoked) — the cookies are already cleared server-side by then,
+    // this just syncs React state to match.
     function handleForcedLogout() {
       setUser(null)
     }
@@ -105,13 +79,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Admin don't get a session back directly — the caller (LoginPage) has
   // to branch on `status` and walk through MFA verify/enroll first.
   async function loginWithPassword(email: string, password: string) {
-    const deviceToken = localStorage.getItem('deviceToken') ?? undefined
     const res = await api<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: { email, password, deviceToken },
+      body: { email, password },
     })
     if (res.status === 'OK') {
-      persistSession(res)
       setUser(res.user)
     }
     return res
@@ -122,7 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: 'POST',
       body: { mfaToken, code },
     })
-    persistSession(res)
     setUser(res.user)
   }
 
@@ -131,38 +102,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: 'POST',
       body: { mfaToken, code },
     })
-    persistSession(res)
     setUser(res.user)
   }
 
   function updateUserName(name: string) {
-    setUser((prev) => {
-      if (!prev) return prev
-      const next = { ...prev, name }
-      localStorage.setItem('authUser', JSON.stringify(next))
-      return next
-    })
+    setUser((prev) => (prev ? { ...prev, name } : prev))
   }
 
   async function logout() {
-    const refreshToken = localStorage.getItem('refreshToken')
-    if (refreshToken) {
-      try {
-        await api('/auth/logout', { method: 'POST', body: { refreshToken } })
-      } catch {
-        // Best-effort — clear the local session regardless of whether the
-        // server round-trip succeeded.
-      }
+    try {
+      await api('/auth/logout', { method: 'POST' })
+    } catch {
+      // Best-effort — clear the local session regardless of whether the
+      // server round-trip succeeded.
     }
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('authUser')
     setUser(null)
   }
 
   return (
     <AuthContext.Provider
-      value={{ user, loginWithPassword, verifyMfa, confirmMfaEnrollment, logout, updateUserName }}
+      value={{ user, loading, loginWithPassword, verifyMfa, confirmMfaEnrollment, logout, updateUserName }}
     >
       {children}
     </AuthContext.Provider>

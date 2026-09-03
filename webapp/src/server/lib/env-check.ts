@@ -5,7 +5,7 @@
 // forever; RESEND_API_KEY falls back to a console.log no-op with no signal
 // at all). This surfaces a real misconfiguration immediately in production
 // instead of waiting for a user or a cron job to trip over it.
-const REQUIRED_IN_PRODUCTION = ["JWT_ACCESS_SECRET", "DATABASE_URL"];
+const REQUIRED_IN_PRODUCTION = ["JWT_ACCESS_SECRET", "DATABASE_URL", "PII_ENCRYPTION_KEY"];
 const WARN_IF_MISSING_IN_PRODUCTION = ["RESEND_API_KEY", "CRON_SECRET", "FRONTEND_URL"];
 
 if (process.env.NODE_ENV === "production") {

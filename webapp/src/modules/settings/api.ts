@@ -95,10 +95,7 @@ export function updateIntegration(
 // (e.g. Shift's downloadWfoTemplate()). Relative URL now that
 // frontend+backend are one Next.js app.
 export async function downloadBackup() {
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch('/api/v1/settings/backup', {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  const res = await fetch('/api/v1/settings/backup', { credentials: 'same-origin' })
   if (!res.ok) throw new ApiError('Failed to download backup', res.status)
 
   const disposition = res.headers.get('Content-Disposition') ?? ''

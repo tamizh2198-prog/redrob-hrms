@@ -94,14 +94,21 @@ function parseQuery<TQuery>(req: NextRequest, dto?: DtoClass<TQuery>): Promise<T
   return validateAgainstDto(raw, dto);
 }
 
-async function checkAuthorization<TDto, TQuery>(
+export async function checkAuthorization<TDto, TQuery>(
   req: NextRequest,
   options: WithRouteOptions<TDto, TQuery>,
 ): Promise<RouteUser | null> {
   if (options.public) return null;
 
+  // Cookie-first (the browser app's httpOnly `access_token` cookie — see
+  // session-cookies.ts), falling back to the Authorization header. The
+  // fallback is kept deliberately: dev-login (non-production only) hands
+  // out a raw bearer token for curl/Postman testing, and it lets an
+  // already-logged-in browser with a pre-migration localStorage token keep
+  // working until its next silent refresh naturally requires the cookie.
   const authHeader = req.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = req.cookies.get("access_token")?.value ?? headerToken;
   if (!token) throw new UnauthorizedError();
   const decoded = verifyAccessToken(token);
   if (!decoded) throw new UnauthorizedError();

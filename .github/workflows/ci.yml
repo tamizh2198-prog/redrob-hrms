@@ -31,6 +31,7 @@ jobs:
       DIRECT_URL: postgresql://redrob:redrob_dev_password@localhost:5432/redrob_hrms?schema=public
       JWT_ACCESS_SECRET: ci-test-secret
       CRON_SECRET: ci-test-secret
+      PII_ENCRYPTION_KEY: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

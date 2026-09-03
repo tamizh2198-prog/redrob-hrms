@@ -17,11 +17,15 @@ function isExemptFromProfileGate(role: string | undefined) {
 // specifically: unauthenticated -> LoginPage, authenticated -> redirect to
 // /my-profile (incomplete) or /employee (complete).
 export default function RootPage() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const router = useRouter()
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
+    // The session lives in an httpOnly cookie now — `loading` is true until
+    // the initial /auth/me check comes back, so `!user` isn't trustworthy
+    // as "logged out" until then.
+    if (loading) return
     if (!user) {
       setChecking(false)
       return
@@ -33,8 +37,9 @@ export default function RootPage() {
     getMyProfile()
       .then((res) => router.replace(res.isComplete ? "/employee" : "/my-profile"))
       .catch(() => router.replace("/employee"))
-  }, [user, router])
+  }, [loading, user, router])
 
+  if (loading) return null
   if (user) return null
   if (checking) return null
   return <LoginPage />

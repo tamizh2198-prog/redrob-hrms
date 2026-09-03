@@ -59,10 +59,7 @@ export async function exportAuditLogs(filters: AuditLogFilters = {}) {
     if (value !== undefined) url.searchParams.set(key, value)
   }
 
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch(url.toString(), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  const res = await fetch(url.toString(), { credentials: 'same-origin' })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }))
     throw new ApiError(body.message ?? 'Export failed', res.status)

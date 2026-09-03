@@ -109,14 +109,13 @@ export interface BulkWfoUploadResult {
 // this sends a real file as multipart form data. Relative URL now that
 // frontend+backend are one Next.js app.
 export async function bulkUploadWfoSchedule(file: File, dryRun: boolean) {
-  const token = localStorage.getItem('accessToken')
   const form = new FormData()
   form.append('file', file)
   const res = await fetch(
     `/api/v1/roster/hybrid-schedule/bulk-upload?dryRun=${dryRun}`,
     {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
       body: form,
     },
   )
@@ -177,10 +176,7 @@ export function listWfoWfhComments(id: string) {
 }
 
 export async function downloadWfoTemplate() {
-  const token = localStorage.getItem('accessToken')
-  const res = await fetch('/api/v1/roster/hybrid-schedule/template', {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  const res = await fetch('/api/v1/roster/hybrid-schedule/template', { credentials: 'same-origin' })
   if (!res.ok) throw new ApiError('Failed to download template', res.status)
 
   const blob = await res.blob()
