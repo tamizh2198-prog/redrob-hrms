@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import "./env-check";
 
 // Standard Next.js + Prisma singleton pattern: dev-mode hot-reload would
 // otherwise create a fresh PrismaClient (and a fresh connection pool) on

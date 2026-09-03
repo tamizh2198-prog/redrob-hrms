@@ -8,12 +8,24 @@ export interface ReportExportInput {
 
 export type ReportExportFormat = "csv" | "excel" | "pdf";
 
+// CSV/Excel formula injection: a cell whose text starts with =, +, -, @, or
+// a tab/CR is interpreted as a formula by Excel/Sheets when the file is
+// opened, not just displayed as text — e.g. a candidate "name" field of
+// `=HYPERLINK("http://evil","x")`. Prefixing a single quote neutralizes it
+// (spreadsheet apps treat a leading `'` as "force text") without changing
+// what's stored in the database. Only applied to string/JSON values —
+// numbers/booleans/dates are formatted separately below and never carry
+// arbitrary user text, so legitimate negative numbers are untouched.
+export function neutralizeFormula(str: string): string {
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+}
+
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return neutralizeFormula(value);
   if (typeof value === "number" || typeof value === "boolean") return `${value}`;
-  return JSON.stringify(value);
+  return neutralizeFormula(JSON.stringify(value));
 }
 
 // "minimum reasonable implementation... do not introduce unnecessary

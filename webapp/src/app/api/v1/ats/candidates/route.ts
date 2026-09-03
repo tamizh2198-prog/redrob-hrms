@@ -1,10 +1,11 @@
 import { withRoute } from "@/server/lib/route";
 import { prisma } from "@/server/lib/prisma";
+import { getClientIp } from "@/server/lib/client-ip";
 import { CreateCandidateDto } from "@/server/modules/ats/dto";
 import * as atsService from "@/server/modules/ats/service";
 
-export const POST = withRoute({ public: true, dto: CreateCandidateDto }, async ({ body }) => {
-  const result = await atsService.createCandidate(prisma, body);
+export const POST = withRoute({ public: true, dto: CreateCandidateDto }, async ({ req, body }) => {
+  const result = await atsService.createCandidate(prisma, body, getClientIp(req));
   return Response.json(result);
 });
 

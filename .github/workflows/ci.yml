@@ -7,11 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  backend:
+  webapp:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
+        working-directory: webapp
     services:
       postgres:
         image: postgres:16
@@ -28,34 +28,18 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://redrob:redrob_dev_password@localhost:5432/redrob_hrms?schema=public
+      DIRECT_URL: postgresql://redrob:redrob_dev_password@localhost:5432/redrob_hrms?schema=public
       JWT_ACCESS_SECRET: ci-test-secret
-      JWT_REFRESH_SECRET: ci-test-secret
+      CRON_SECRET: ci-test-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: webapp/package-lock.json
       - run: npm ci
       - run: npx prisma migrate deploy
       - run: npm run lint
       - run: npm test
-      - run: npm run test:e2e
-      - run: npm run build
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run lint
       - run: npm run build

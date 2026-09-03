@@ -2,8 +2,10 @@ import type { PrismaClient, Prisma, Role, CandidateStage } from "@prisma/client"
 import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
 import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
+import { getFrontendUrl } from "../../lib/frontend-url";
 import { signMagicLink, verifyMagicLink, type MagicLinkPayload } from "../../lib/auth";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
+import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
 import * as employeeService from "../employee/service";
 import * as onboardingService from "../onboarding/service";
 import type {
@@ -138,12 +140,22 @@ async function findDuplicate(prisma: PrismaClient, email: string, phone?: string
   });
 }
 
+const CANDIDATE_CREATE_RATE_LIMIT = { max: 10, windowMs: 60 * 60 * 1000 };
+
 // Public-facing (careers page apply form) and authenticated (manual
 // recruiter/referral entry) share this path — the route is public so it
-// never sees an actor either way.
-export async function createCandidate(prisma: PrismaClient, dto: CreateCandidateDto) {
+// never sees an actor either way. `clientIp` is best-effort (from
+// x-forwarded-for) — rate-limited on it regardless, since even an
+// unreliable key is better than none for a fully unauthenticated endpoint.
+export async function createCandidate(prisma: PrismaClient, dto: CreateCandidateDto, clientIp: string) {
+  await enforceRateLimit(prisma, `candidate-create:${clientIp}`, CANDIDATE_CREATE_RATE_LIMIT);
+  await recordRateLimitAttempt(prisma, `candidate-create:${clientIp}`);
+
   const requisition = await prisma.jobRequisition.findUnique({ where: { id: dto.requisitionId } });
   if (!requisition) throw new NotFoundError("Requisition not found");
+  if (requisition.status !== "PUBLISHED") {
+    throw new BadRequestError("This requisition is not currently accepting applications");
+  }
 
   const duplicate = await findDuplicate(prisma, dto.email, dto.phone);
 
@@ -331,7 +343,7 @@ export async function sendOffer(prisma: PrismaClient, offerId: string, templateI
   // response link is delivered by real email (not the notify() helper,
   // which only reaches existing Employee rows) — still also returned to
   // the caller below so HR can relay it manually if delivery fails.
-  const baseUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const baseUrl = getFrontendUrl();
   const responseUrl = `${baseUrl}/offers/respond?token=${responseLink}`;
 
   const templateVars = {
@@ -470,7 +482,7 @@ export async function respondOffer(prisma: PrismaClient, token: string, decision
     // offer-response screen, since the candidate may close the browser or
     // return to this link days later — the mailed copy is a durable
     // fallback and doubles as the "document collection" nudge.
-    const baseUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+    const baseUrl = getFrontendUrl();
     const preboardingUrl = `${baseUrl}/preboard?token=${preboardingLink}`;
     await sendEmail({
       to: offer.candidate.email,

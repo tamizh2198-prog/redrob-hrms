@@ -1,5 +1,5 @@
 import { CandidateStage } from "@prisma/client";
-import { IsBoolean, IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Min, MinLength } from "class-validator";
+import { IsBoolean, IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from "class-validator";
 
 export class CreateRequisitionDto {
   @IsOptional()
@@ -25,26 +25,34 @@ export class CreateRequisitionDto {
   budgetCtc?: number;
 }
 
+// Public, unauthenticated endpoint (anyone can apply) — every string field
+// needs a length bound so it can't be used to stuff arbitrarily large
+// payloads into the database.
 export class CreateCandidateDto {
   @IsUUID()
   requisitionId: string;
 
   @IsString()
+  @MaxLength(200)
   name: string;
 
   @IsEmail()
+  @MaxLength(200)
   email: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   phone?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   resumeRef?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   source?: string;
 }
 

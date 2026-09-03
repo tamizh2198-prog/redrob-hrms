@@ -16,11 +16,13 @@ import {
 } from "class-validator";
 import { BloodGroup, EmployeeStatus, EmploymentType, Gender, Role } from "@prisma/client";
 
+// companyId is deliberately NOT a settable field here — every HTTP-originated
+// create() always resolves it via getOrCreateDefaultCompanyId(), so a caller
+// can never point a new employee at an arbitrary company id. (Trusted
+// internal callers, e.g. the ATS offer-accept flow, call create() directly
+// with a plain object bypassing this DTO's class-validator whitelist, so
+// they're unaffected by this restriction.)
 export class CreateEmployeeDto {
-  @IsOptional()
-  @IsUUID()
-  companyId?: string;
-
   @IsString()
   firstName: string;
 

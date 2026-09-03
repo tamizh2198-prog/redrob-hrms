@@ -3,6 +3,7 @@ import { ChecklistOwnerRole, ChecklistStatus, ChecklistTaskStatus, ProbationChec
 import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
 import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
+import { getFrontendUrl } from "../../lib/frontend-url";
 import { signMagicLink, verifyMagicLink } from "../../lib/auth";
 import { assertCanAccessEmployeeData, type EmployeeDataRequester } from "../../lib/reporting-hierarchy";
 import { BadRequestError, NotFoundError } from "../../lib/errors";
@@ -237,7 +238,7 @@ export async function resendPreboardingLink(prisma: PrismaClient, employeeId: st
   }
 
   const token = issuePreboardingLink(employeeId);
-  const baseUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const baseUrl = getFrontendUrl();
   const preboardingUrl = `${baseUrl}/preboard?token=${token}`;
   const result = await sendEmail({
     to: recipient,

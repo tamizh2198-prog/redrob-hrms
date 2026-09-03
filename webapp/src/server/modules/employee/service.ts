@@ -2,11 +2,13 @@ import { validate } from "class-validator";
 import { plainToInstance } from "class-transformer";
 import { Prisma, Role, EmployeeStatus } from "@prisma/client";
 import type { Employee, PrismaClient } from "@prisma/client";
-import { hashPassword, verifyPassword } from "../../lib/auth";
+import { hashPassword, verifyPassword, revokeAllRefreshTokensForEmployee } from "../../lib/auth";
 import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
+import { getFrontendUrl } from "../../lib/frontend-url";
 import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
 import { getReportingHierarchyIds } from "../../lib/reporting-hierarchy";
+import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import {
   CreateEmployeeDto,
@@ -347,12 +349,21 @@ export async function bootstrapFirstSuperAdmin(
   prisma: PrismaClient,
   dto: { firstName: string; lastName: string; email: string; password: string },
 ): Promise<SafeEmployee> {
+  const companyId = await getOrCreateDefaultCompanyId(prisma);
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  // Company.bootstrappedAt is the real guard — it survives a pilot data
+  // reset (which wipes Employee to zero rows but never touches Company), so
+  // the public, unauthenticated bootstrap endpoint can't reopen just because
+  // someone later ran a reset. employee.count() is kept as defense in depth
+  // for any company row that predates this flag.
   const existingCount = await prisma.employee.count();
-  if (existingCount > 0) {
+  if (company?.bootstrappedAt || existingCount > 0) {
+    if (!company?.bootstrappedAt) {
+      await prisma.company.update({ where: { id: companyId }, data: { bootstrappedAt: new Date() } });
+    }
     throw new ForbiddenError("Setup already completed — an employee account already exists.");
   }
 
-  const companyId = await getOrCreateDefaultCompanyId(prisma);
   const passwordHash = await hashPassword(dto.password);
   const employee = await createEmployeeWithGeneratedCode(prisma, (employeeCode) => ({
     company: { connect: { id: companyId } },
@@ -364,12 +375,13 @@ export async function bootstrapFirstSuperAdmin(
     role: Role.SUPER_ADMIN,
     status: EmployeeStatus.ACTIVE,
   }));
+  await prisma.company.update({ where: { id: companyId }, data: { bootstrappedAt: new Date() } });
 
   return stripPasswordHash(employee);
 }
 
 export async function create(prisma: PrismaClient, dto: CreateEmployeeDto, actorId: string): Promise<SafeEmployee> {
-  const companyId = dto.companyId ?? (await getOrCreateDefaultCompanyId(prisma));
+  const companyId = await getOrCreateDefaultCompanyId(prisma);
   const status = dto.status ?? EmployeeStatus.ACTIVE_PROBATION;
 
   assertMandatoryFieldsForActive(dto, status);
@@ -409,7 +421,7 @@ async function sendInvitationEmail(
   rawToken: string,
   isResend: boolean,
 ): Promise<{ sent: boolean; invitationUrl: string }> {
-  const baseUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const baseUrl = getFrontendUrl();
   const invitationUrl = `${baseUrl}/activate-account?token=${rawToken}`;
   const result = await sendEmail({
     to: email,
@@ -540,6 +552,12 @@ export async function dismissEmployee(prisma: PrismaClient, id: string, actorId:
     prisma.employeeHistory.create({
       data: { employeeId: id, fieldChanged: "status", oldValue: employee.status, newValue: EmployeeStatus.TERMINATED, changedBy: actorId },
     }),
+    // A dismissed employee's existing refresh token / trusted device
+    // previously stayed valid for up to 30 more days — refreshSession() in
+    // auth/service.ts now also checks status on every refresh, but revoking
+    // here means it's dead immediately rather than on next refresh attempt.
+    prisma.refreshToken.updateMany({ where: { employeeId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
+    prisma.trustedDevice.deleteMany({ where: { employeeId: id } }),
   ]);
 
   await notify(prisma, {
@@ -792,7 +810,17 @@ async function listPrivilegedIds(prisma: PrismaClient): Promise<string[]> {
 // Always resolves with no return value regardless of whether the email
 // matched anyone — the caller returns the same generic response either
 // way, so this never leaks which emails exist in the system.
+const FORGOT_PASSWORD_RATE_LIMIT = { max: 5, windowMs: 60 * 60 * 1000 };
+
 export async function forgotPassword(prisma: PrismaClient, email: string): Promise<void> {
+  // Recorded on every call, not just matches — this is a public, unauthenticated
+  // entry point (no account needed to hit it) that fans out a notification to
+  // every privileged employee, so it's an email-bombing/spam vector on its own
+  // regardless of whether the address exists.
+  const rateLimitKey = `forgot-password:${email.trim().toLowerCase()}`;
+  await enforceRateLimit(prisma, rateLimitKey, FORGOT_PASSWORD_RATE_LIMIT);
+  await recordRateLimitAttempt(prisma, rateLimitKey);
+
   const employee = await prisma.employee.findFirst({
     where: { workEmail: { equals: email.trim(), mode: "insensitive" } },
   });
@@ -844,7 +872,7 @@ export async function resetPassword(
   const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_HOURS * 60 * 60 * 1000);
   await prisma.passwordResetToken.create({ data: { employeeId: targetId, tokenHash, expiresAt } });
 
-  const baseUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const baseUrl = getFrontendUrl();
   const resetUrl = `${baseUrl}/reset-password?token=${rawToken}`;
   const result = await sendEmail({
     to: target.workEmail,
@@ -876,6 +904,12 @@ export async function resetPassword(
 export async function resetMfa(prisma: PrismaClient, targetId: string, actorRole: Role | undefined): Promise<{ success: true }> {
   await assertCanResetCredentials(prisma, targetId, actorRole);
   await prisma.employee.update({ where: { id: targetId }, data: { mfaSecret: null, mfaEnabled: false } });
+  // A trusted device previously survived an MFA reset — it could keep
+  // skipping MFA for up to 30 more days, defeating the point of the reset
+  // (e.g. after a suspected compromise). Also kills any existing session so
+  // a possibly-compromised device is signed out, not just MFA-downgraded.
+  await revokeAllRefreshTokensForEmployee(prisma, targetId);
+  await prisma.trustedDevice.deleteMany({ where: { employeeId: targetId } });
   await notify(prisma, {
     recipientId: targetId,
     template: "auth.mfa-reset",
@@ -990,6 +1024,13 @@ export async function changeMyPassword(prisma: PrismaClient, employeeId: string,
 
   const passwordHash = await hashPassword(dto.newPassword);
   await prisma.employee.update({ where: { id: employeeId }, data: { passwordHash } });
+
+  // consumePasswordReset (the forgot-password flow) already revokes
+  // sessions on a password change — this in-session "change my password"
+  // path didn't, leaving an intruder who knows the old password (but not
+  // the new one) still fully signed in on every device.
+  await revokeAllRefreshTokensForEmployee(prisma, employeeId);
+  await prisma.trustedDevice.deleteMany({ where: { employeeId } });
 
   return { success: true };
 }

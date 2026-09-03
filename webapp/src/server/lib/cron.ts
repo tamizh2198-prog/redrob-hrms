@@ -1,5 +1,16 @@
+import { createHash, timingSafeEqual } from "crypto";
 import type { NextRequest } from "next/server";
 import { HttpError } from "./errors";
+
+// SHA-256 both sides first, then compare with timingSafeEqual — hashing
+// upfront means both buffers are always the same length (32 bytes), so this
+// never leaks the real secret's length via how quickly a mismatch is
+// rejected, on top of the timing-safe comparison itself.
+function constantTimeEqual(a: string, b: string): boolean {
+  const hashA = createHash("sha256").update(a).digest();
+  const hashB = createHash("sha256").update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
 
 // Replaces NestJS's @Cron(...) decorator + ScheduleModule.forRoot() — there
 // is no in-process scheduler in a Next.js deployment, so each job becomes an
@@ -12,7 +23,8 @@ function isAuthorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   const authHeader = req.headers.get("authorization");
-  return authHeader === `Bearer ${secret}`;
+  if (!authHeader) return false;
+  return constantTimeEqual(authHeader, `Bearer ${secret}`);
 }
 
 export function withCron(handler: () => Promise<Response>) {

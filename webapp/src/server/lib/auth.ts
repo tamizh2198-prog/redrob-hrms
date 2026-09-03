@@ -23,6 +23,7 @@ export function verifyPassword(plain: string, hash: string): Promise<boolean> {
 export interface JwtPayload {
   sub: string;
   role: string;
+  type: "access";
 }
 
 // Fail loudly if unset, rather than silently signing/verifying against an
@@ -33,15 +34,22 @@ function getAccessSecret(): string {
   return secret;
 }
 
-export function signAccessToken(payload: JwtPayload): string {
-  return jwt.sign(payload, getAccessSecret(), { expiresIn: "15m" });
+export function signAccessToken(payload: { sub: string; role: string }): string {
+  return jwt.sign({ ...payload, type: "access" }, getAccessSecret(), { expiresIn: "15m" });
 }
 
 // Returns null (rather than throwing) so callers can distinguish "no/invalid
 // token" from other failure modes, matching withRoute()'s public-vs-auth flow.
+//
+// Security: magic links (below) are signed with this same secret, so without
+// the `type: "access"` check a leaked/forwarded magic link (e.g. the 30-day
+// preboarding-portal link emailed to new joiners) would verify successfully
+// here and be accepted as a full access token on any route with no `roles:`
+// restriction — the two token kinds were otherwise indistinguishable.
 export function verifyAccessToken(token: string): { userId: string; role: string } | null {
   try {
     const decoded = jwt.verify(token, getAccessSecret()) as JwtPayload;
+    if (decoded.type !== "access") return null;
     return { userId: decoded.sub, role: decoded.role };
   } catch {
     return null;

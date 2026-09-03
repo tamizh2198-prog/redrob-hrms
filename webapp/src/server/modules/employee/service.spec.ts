@@ -104,7 +104,7 @@ function createMockPrisma() {
       update: jest.fn(),
       deleteMany: jest.fn(),
     },
-    company: { findFirst: jest.fn(), create: jest.fn() },
+    company: { findFirst: jest.fn(), create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     employeeInvitation: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn(), deleteMany: jest.fn() },
     ...dynamicModels,
     // deleteEmployee()'s grandchild cleanup.
@@ -112,6 +112,7 @@ function createMockPrisma() {
     clearanceItem: { deleteMany: jest.fn() },
     lwdAdjustment: { deleteMany: jest.fn() },
     assistantMessage: { deleteMany: jest.fn() },
+    rateLimitAttempt: { count: jest.fn().mockResolvedValue(0), create: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -197,6 +198,17 @@ describe("employee service", () => {
 
       expect(prisma.employee.create).toHaveBeenCalledTimes(2);
       expect(result.employeeCode).toBe("MNR-2026-0002");
+    });
+  });
+
+  describe("SECURITY (HRMS-14b): companyId is never client-controllable", () => {
+    it("always resolves the company via getOrCreateDefaultCompanyId, ignoring any companyId on the dto object", async () => {
+      prisma.employee.create.mockResolvedValue({ id: "emp-1", employeeCode: "MNR-2026-0001" });
+
+      await employeeService.create(db, { ...VALID_ACTIVE_FIELDS, companyId: "company-evil" } as never, "actor-1");
+
+      const createArgs = prisma.employee.create.mock.calls[0][0];
+      expect(createArgs.data.company.connect.id).toBe("company-1");
     });
   });
 
@@ -1052,6 +1064,50 @@ describe("employee service", () => {
       expect(JSON.stringify(result)).not.toContain("OldPassword1!");
       expect(JSON.stringify(result)).not.toContain("NewPassword2!");
     });
+
+    // HRMS-15: previously left every other signed-in session (and any
+    // trusted device) alone — an intruder who knew the old password stayed
+    // signed in everywhere after the real owner changed it.
+    it("SECURITY: revokes refresh tokens and clears trusted devices on password change", async () => {
+      const currentHash = await hashPassword("OldPassword1!");
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", passwordHash: currentHash });
+      prisma.employee.update.mockResolvedValue({ id: "emp-1" });
+
+      await employeeService.changeMyPassword(db, "emp-1", {
+        currentPassword: "OldPassword1!",
+        newPassword: "NewPassword2!",
+        confirmNewPassword: "NewPassword2!",
+      });
+
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { employeeId: "emp-1", revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { employeeId: "emp-1" } });
+    });
+  });
+
+  describe("resetMfa", () => {
+    // HRMS-15: an MFA reset previously left an already-trusted device able
+    // to skip MFA for up to 30 more days, and left existing sessions signed
+    // in — both defeat the point of resetting MFA (e.g. after a suspected
+    // compromise).
+    it("SECURITY: revokes refresh tokens and clears trusted devices on MFA reset", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", role: Role.EMPLOYEE });
+      prisma.employee.update.mockResolvedValue({ id: "emp-1", mfaEnabled: false });
+
+      await employeeService.resetMfa(db, "emp-1", Role.HR_ADMIN);
+
+      expect(prisma.employee.update).toHaveBeenCalledWith({
+        where: { id: "emp-1" },
+        data: { mfaSecret: null, mfaEnabled: false },
+      });
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { employeeId: "emp-1", revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { employeeId: "emp-1" } });
+    });
   });
 
   describe("employee dismissal/termination", () => {
@@ -1065,6 +1121,21 @@ describe("employee service", () => {
       expect(prisma.employeeInvitation.deleteMany).toHaveBeenCalledWith({ where: { employeeId: "emp-1", usedAt: null } });
       expect(result.status).toBe(EmployeeStatus.TERMINATED);
       expect(result.employeeCode).toBe("EMP-1");
+    });
+
+    // HRMS-01: a dismissed employee's still-valid refresh token/trusted
+    // device previously worked for up to 30 more days — this is the fix.
+    it("SECURITY: revokes refresh tokens and clears trusted devices on dismissal", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", status: EmployeeStatus.ACTIVE, employeeCode: "EMP-1" });
+      prisma.$transaction.mockResolvedValue([{ id: "emp-1", employeeCode: "EMP-1", status: EmployeeStatus.TERMINATED }]);
+
+      await employeeService.dismissEmployee(db, "emp-1", "actor-1");
+
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { employeeId: "emp-1", revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(prisma.trustedDevice.deleteMany).toHaveBeenCalledWith({ where: { employeeId: "emp-1" } });
     });
 
     it("rejects dismissing an already-terminated employee (idempotency guard)", async () => {
@@ -1261,6 +1332,85 @@ describe("employee service", () => {
       const result = await employeeService.getProfileCompletionForEmployee(db, "emp-3", { userId: "emp-3", role: Role.EMPLOYEE });
 
       expect(result.isComplete).toBe(true);
+    });
+  });
+
+  describe("forgotPassword rate limiting (HRMS-05)", () => {
+    it("rejects once the rate limit for this email is reached, before ever querying the employee", async () => {
+      prisma.rateLimitAttempt.count.mockResolvedValue(5);
+
+      await expect(employeeService.forgotPassword(db, "gaurav@example.com")).rejects.toThrow("Too many requests");
+      expect(prisma.employee.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("records an attempt on every call, matched or not — a public endpoint fanning out to all privileged staff is a spam vector on its own", async () => {
+      prisma.employee.findFirst.mockResolvedValue(null);
+
+      await employeeService.forgotPassword(db, "nobody@example.com");
+
+      expect(prisma.rateLimitAttempt.create).toHaveBeenCalledWith({ data: { key: "forgot-password:nobody@example.com" } });
+    });
+  });
+
+  describe("bootstrapFirstSuperAdmin (HRMS-13: window must not reopen after a data wipe)", () => {
+    it("creates the first Super Admin and marks the company bootstrapped", async () => {
+      prisma.company.findFirst.mockResolvedValue({ id: "company-1" });
+      prisma.company.findUnique.mockResolvedValue({ id: "company-1", bootstrappedAt: null });
+      prisma.employee.count.mockResolvedValue(0);
+      prisma.employee.findFirst.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({ id: "emp-1", role: Role.SUPER_ADMIN });
+
+      await employeeService.bootstrapFirstSuperAdmin(db, {
+        firstName: "Ada",
+        lastName: "Admin",
+        email: "ada@example.com",
+        password: "Password1!",
+      });
+
+      expect(prisma.company.update).toHaveBeenCalledWith({
+        where: { id: "company-1" },
+        data: { bootstrappedAt: expect.any(Date) },
+      });
+    });
+
+    // The actual bug: applyPilotDataReset wipes Employee to zero rows but
+    // never touches Company — employee.count()===0 alone would let the
+    // public, unauthenticated bootstrap endpoint reopen after every reset.
+    it("SECURITY: stays blocked once bootstrappedAt is set, even if employee.count() is back to 0", async () => {
+      prisma.company.findFirst.mockResolvedValue({ id: "company-1" });
+      prisma.company.findUnique.mockResolvedValue({ id: "company-1", bootstrappedAt: new Date("2026-01-01") });
+      prisma.employee.count.mockResolvedValue(0); // simulates the post-reset state
+
+      await expect(
+        employeeService.bootstrapFirstSuperAdmin(db, {
+          firstName: "Eve",
+          lastName: "Attacker",
+          email: "eve@example.com",
+          password: "Password1!",
+        }),
+      ).rejects.toThrow("Setup already completed");
+      expect(prisma.employee.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects when an employee already exists, even on a company row that predates the flag", async () => {
+      prisma.company.findFirst.mockResolvedValue({ id: "company-1" });
+      prisma.company.findUnique.mockResolvedValue({ id: "company-1", bootstrappedAt: null });
+      prisma.employee.count.mockResolvedValue(1);
+
+      await expect(
+        employeeService.bootstrapFirstSuperAdmin(db, {
+          firstName: "Eve",
+          lastName: "Attacker",
+          email: "eve@example.com",
+          password: "Password1!",
+        }),
+      ).rejects.toThrow("Setup already completed");
+      // Backfills the flag on this older row so future attempts are also
+      // blocked by bootstrappedAt directly, not just the count fallback.
+      expect(prisma.company.update).toHaveBeenCalledWith({
+        where: { id: "company-1" },
+        data: { bootstrappedAt: expect.any(Date) },
+      });
     });
   });
 });

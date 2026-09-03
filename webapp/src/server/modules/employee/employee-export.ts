@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { neutralizeFormula } from "../analytics/report-export.util";
 
 export interface ActiveEmployeeExportRow {
   employeeCode: string;
@@ -39,6 +40,9 @@ export async function buildActiveEmployeesWorkbook(rows: ActiveEmployeeExportRow
   for (const row of rows) {
     sheet.addRow({
       ...row,
+      firstName: neutralizeFormula(row.firstName),
+      lastName: neutralizeFormula(row.lastName),
+      phone: row.phone ? neutralizeFormula(row.phone) : row.phone,
       dateOfJoining: row.dateOfJoining ? row.dateOfJoining.toISOString().slice(0, 10) : null,
     });
   }

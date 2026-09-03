@@ -25,6 +25,9 @@ function createMockPrisma() {
       upsert: jest.fn(),
     },
     employeeHistory: { create: jest.fn() },
+    refreshToken: { updateMany: jest.fn() },
+    trustedDevice: { deleteMany: jest.fn() },
+    rateLimitAttempt: { count: jest.fn().mockResolvedValue(0), create: jest.fn() },
     $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
   };
 }

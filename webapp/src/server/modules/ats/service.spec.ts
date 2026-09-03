@@ -37,6 +37,10 @@ function createMockPrisma() {
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
+    rateLimitAttempt: {
+      count: jest.fn().mockResolvedValue(0),
+      create: jest.fn(),
+    },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
 }
@@ -99,28 +103,60 @@ describe("ats service", () => {
 
   describe("Business Rule: duplicate candidates are flagged, not silently created", () => {
     it("still creates the candidate but records the duplicate link", async () => {
-      prisma.jobRequisition.findUnique.mockResolvedValue({ id: "req-1", hiringManagerId: "mgr-1" });
+      prisma.jobRequisition.findUnique.mockResolvedValue({ id: "req-1", hiringManagerId: "mgr-1", status: "PUBLISHED" });
       prisma.candidate.findFirst.mockResolvedValue({ id: "existing-candidate" });
       prisma.candidate.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve({ id: "new-candidate", ...data }),
       );
 
-      const result = await atsService.createCandidate(db, { requisitionId: "req-1", name: "Jane Doe", email: "jane@example.com" } as never);
+      const result = await atsService.createCandidate(
+        db,
+        { requisitionId: "req-1", name: "Jane Doe", email: "jane@example.com" } as never,
+        "203.0.113.1",
+      );
 
       expect(result.duplicateOfId).toBe("existing-candidate");
       expect(prisma.candidate.create).toHaveBeenCalled();
     });
 
     it("leaves duplicateOfId unset when no prior candidate matches", async () => {
-      prisma.jobRequisition.findUnique.mockResolvedValue({ id: "req-1", hiringManagerId: "mgr-1" });
+      prisma.jobRequisition.findUnique.mockResolvedValue({ id: "req-1", hiringManagerId: "mgr-1", status: "PUBLISHED" });
       prisma.candidate.findFirst.mockResolvedValue(null);
       prisma.candidate.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve({ id: "new-candidate", ...data }),
       );
 
-      const result = await atsService.createCandidate(db, { requisitionId: "req-1", name: "John Smith", email: "john@example.com" } as never);
+      const result = await atsService.createCandidate(
+        db,
+        { requisitionId: "req-1", name: "John Smith", email: "john@example.com" } as never,
+        "203.0.113.1",
+      );
 
       expect(result.duplicateOfId).toBeUndefined();
+    });
+
+    it("rejects applying to a requisition that isn't published", async () => {
+      prisma.jobRequisition.findUnique.mockResolvedValue({ id: "req-1", hiringManagerId: "mgr-1", status: "CLOSED" });
+
+      await expect(
+        atsService.createCandidate(
+          db,
+          { requisitionId: "req-1", name: "Jane Doe", email: "jane@example.com" } as never,
+          "203.0.113.1",
+        ),
+      ).rejects.toThrow("not currently accepting applications");
+    });
+
+    it("rejects once the rate limit for this IP is reached", async () => {
+      prisma.rateLimitAttempt.count.mockResolvedValue(10);
+
+      await expect(
+        atsService.createCandidate(
+          db,
+          { requisitionId: "req-1", name: "Jane Doe", email: "jane@example.com" } as never,
+          "203.0.113.1",
+        ),
+      ).rejects.toThrow("Too many requests");
     });
   });
 

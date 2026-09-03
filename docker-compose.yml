@@ -1,13 +1,17 @@
+# Local development only — not used by CI or production (production runs on
+# Vercel + Supabase Postgres, see README.md). Bound to localhost only, and
+# the password is overridable via a POSTGRES_PASSWORD env var if you don't
+# want the shared dev default on your machine.
 services:
   postgres:
     image: postgres:16
     restart: unless-stopped
     environment:
       POSTGRES_USER: redrob
-      POSTGRES_PASSWORD: redrob_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-redrob_dev_password}
       POSTGRES_DB: redrob_hrms
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

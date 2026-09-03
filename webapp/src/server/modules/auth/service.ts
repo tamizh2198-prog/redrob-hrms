@@ -6,12 +6,15 @@ import {
   isTrustedDevice,
   issueSession,
   issueTrustedDevice,
+  rotateRefreshToken,
+  signAccessToken,
   signMagicLink,
   toUserView,
   verifyMagicLink,
   verifyMfaCode,
   verifyPassword,
 } from "../../lib/auth";
+import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
 import { NotFoundError, UnauthorizedError } from "../../lib/errors";
 import type { LoginDto, MfaCodeDto } from "./dto";
 
@@ -28,7 +31,14 @@ function assertNotTerminated(employee: { status: EmployeeStatus }): void {
   }
 }
 
+const LOGIN_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000 };
+const MFA_RATE_LIMIT = { max: 5, windowMs: 10 * 60 * 1000 };
+
 export async function login(prisma: PrismaClient, dto: LoginDto) {
+  const email = dto.email.trim().toLowerCase();
+  const rateLimitKey = `login:${email}`;
+  await enforceRateLimit(prisma, rateLimitKey, LOGIN_RATE_LIMIT);
+
   // Case-insensitive: workEmail is normalized to lowercase on every write,
   // but this also has to tolerate rows saved before that normalization
   // existed — matching case-insensitively here means neither side has to
@@ -37,11 +47,13 @@ export async function login(prisma: PrismaClient, dto: LoginDto) {
     where: { workEmail: { equals: dto.email.trim(), mode: "insensitive" } },
   });
   if (!employee?.passwordHash) {
+    await recordRateLimitAttempt(prisma, rateLimitKey);
     throw new UnauthorizedError("Invalid email or password");
   }
 
   const passwordMatches = await verifyPassword(dto.password, employee.passwordHash);
   if (!passwordMatches) {
+    await recordRateLimitAttempt(prisma, rateLimitKey);
     throw new UnauthorizedError("Invalid email or password");
   }
 
@@ -73,11 +85,15 @@ export async function login(prisma: PrismaClient, dto: LoginDto) {
 
 export async function verifyMfa(prisma: PrismaClient, dto: MfaCodeDto) {
   const { sub: employeeId } = verifyMagicLink(dto.mfaToken, MFA_VERIFY_PURPOSE);
+  const rateLimitKey = `mfa:${employeeId}`;
+  await enforceRateLimit(prisma, rateLimitKey, MFA_RATE_LIMIT);
+
   const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
   if (!employee || !employee.mfaEnabled || !employee.mfaSecret) {
     throw new UnauthorizedError("MFA is not set up for this account");
   }
   if (!verifyMfaCode(dto.code, employee.mfaSecret)) {
+    await recordRateLimitAttempt(prisma, rateLimitKey);
     throw new UnauthorizedError("Invalid MFA code");
   }
 
@@ -116,4 +132,21 @@ export async function devLogin(prisma: PrismaClient, employeeCode: string) {
 
   const { accessToken, refreshToken } = await issueSession(prisma, employee);
   return { accessToken, refreshToken, user: toUserView(employee) };
+}
+
+// Previously lived inline in the route handler with no employee.status
+// check at all — a dismissed (TERMINATED) or archived employee's still-valid
+// refresh token could mint fresh access tokens for the rest of its 30-day
+// life. Moved into the service layer so this guard is unit-testable and
+// consistent with the rest of this module.
+export async function refreshSession(prisma: PrismaClient, rawToken: string) {
+  const { employeeId, token } = await rotateRefreshToken(prisma, rawToken);
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) throw new UnauthorizedError("Account no longer exists");
+  if (employee.status === EmployeeStatus.TERMINATED || employee.status === EmployeeStatus.ARCHIVED) {
+    throw new UnauthorizedError("This account no longer has access");
+  }
+
+  const accessToken = signAccessToken({ sub: employee.id, role: employee.role });
+  return { accessToken, refreshToken: token };
 }

@@ -477,6 +477,11 @@ export async function markSettlementPaid(prisma: PrismaClient, resignationId: st
     prisma.employeeHistory.create({
       data: { employeeId: employee.id, fieldChanged: "status", oldValue: employee.status, newValue: "ARCHIVED", changedBy: actorId },
     }),
+    // Same session-revocation gap as dismissEmployee — ARCHIVED is at least
+    // as terminal as TERMINATED, so an existing refresh token/trusted
+    // device shouldn't outlive it either.
+    prisma.refreshToken.updateMany({ where: { employeeId: employee.id, revokedAt: null }, data: { revokedAt: new Date() } }),
+    prisma.trustedDevice.deleteMany({ where: { employeeId: employee.id } }),
   ]);
 
   return { status: "ARCHIVED" };

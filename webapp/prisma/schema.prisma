@@ -87,6 +87,12 @@ enum ChangeRequestStatus {
 model Company {
   id   String @id @default(uuid())
   name String
+  // Set once the first Super Admin is created via the public, unauthenticated
+  // bootstrap endpoint — a persistent anchor independent of Employee row
+  // count, since Company itself is never deleted by applyPilotDataReset
+  // (unlike Employee, which the reset wipes to zero, which would otherwise
+  // reopen that same public endpoint to anyone).
+  bootstrappedAt DateTime?
 
   employees    Employee[]
   departments  Department[]
@@ -397,6 +403,19 @@ model TrustedDevice {
   lastUsedAt DateTime @default(now())
 
   @@index([employeeId])
+}
+
+// Generic DB-backed rate limiter — no Redis/Upstash in this stack, so a
+// simple "count rows newer than the window" check against Postgres does the
+// job for login/MFA/password-reset/candidate-creation throttling. `key`
+// namespaces by use (e.g. "login:<email>", "mfa:<employeeId>",
+// "candidate-create:<ip>").
+model RateLimitAttempt {
+  id        String   @id @default(uuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }
 
 model EmployeeDocument {
