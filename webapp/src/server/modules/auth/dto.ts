@@ -29,11 +29,6 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
-export class DevLoginDto {
-  @IsString()
-  employeeCode: string;
-}
-
 export class ActivateAccountDto {
   @IsString()
   token: string;

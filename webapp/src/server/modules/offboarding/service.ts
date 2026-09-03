@@ -1,9 +1,11 @@
 import type { PrismaClient, Prisma, Role, ClearanceItemCategory, Employee, Resignation } from "@prisma/client";
+import { Role as RoleEnum } from "@prisma/client";
 import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
 import { assertCanAccessEmployeeData, type EmployeeDataRequester } from "../../lib/reporting-hierarchy";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import * as assetsService from "../assets/service";
+import { ACTIVE_STATUSES } from "../employee/service";
 import { renderRelievingLetterPdf, type RelievingLetterData } from "./relieving-letter-pdf";
 import type {
   AdjustLwdDto,
@@ -47,6 +49,20 @@ function isPrivileged(role?: Role): boolean {
 // LWD-adjustment or clearance sign-off authority.
 function isHrStaff(role?: Role): boolean {
   return isPrivileged(role) || role === "HR_ASSOCIATE";
+}
+
+// HRMS-19 fix: offboarding notifications used to be addressed to the
+// literal string "hr-admin", which is not an employee id — dispatch() would
+// look it up, find nothing, and silently no-op, so HR was never actually
+// notified of a resignation, its acceptance, or a settlement reaching
+// PENDING_APPROVAL. Resolves the real recipient set at dispatch time instead
+// so the notification module has an actual employee to deliver to.
+async function getHrAdminRecipientIds(prisma: PrismaClient): Promise<string[]> {
+  const hrAdmins = await prisma.employee.findMany({
+    where: { role: RoleEnum.HR_ADMIN, status: { in: ACTIVE_STATUSES } },
+    select: { id: true },
+  });
+  return hrAdmins.map((e) => e.id);
 }
 
 // The company's actual Separation Clearance Checklist: items verified by the
@@ -124,7 +140,9 @@ export async function submitResignation(prisma: PrismaClient, dto: SubmitResigna
     }),
   ]);
 
-  const notifyTargets = [employee.reportingManagerId, "hr-admin"].filter((id): id is string => !!id);
+  const notifyTargets = [employee.reportingManagerId, ...(await getHrAdminRecipientIds(prisma))].filter(
+    (id): id is string => !!id,
+  );
   await Promise.all(
     notifyTargets.map((recipientId) =>
       notify(prisma, {
@@ -169,7 +187,9 @@ export async function acceptResignation(prisma: PrismaClient, resignationId: str
   const { employee } = resignation;
   const lwd = resignation.lastWorkingDay.toISOString().slice(0, 10);
 
-  const notifyTargets = [employee.reportingManagerId, "hr-admin"].filter((id): id is string => !!id);
+  const notifyTargets = [employee.reportingManagerId, ...(await getHrAdminRecipientIds(prisma))].filter(
+    (id): id is string => !!id,
+  );
   await Promise.all(
     notifyTargets.map((recipientId) =>
       notify(prisma, {
@@ -430,12 +450,17 @@ export async function computeSettlement(prisma: PrismaClient, resignationId: str
     },
   });
 
-  await notify(prisma, {
-    recipientId: "hr-admin",
-    template: "offboarding.settlement-computed",
-    body: `The final settlement for resignation ${resignationId} has been computed (net payable: ${netPayable}) and is awaiting approval.`,
-    data: { resignationId, netPayable },
-  });
+  const settlementNotifyTargets = await getHrAdminRecipientIds(prisma);
+  await Promise.all(
+    settlementNotifyTargets.map((recipientId) =>
+      notify(prisma, {
+        recipientId,
+        template: "offboarding.settlement-computed",
+        body: `The final settlement for resignation ${resignationId} has been computed (net payable: ${netPayable}) and is awaiting approval.`,
+        data: { resignationId, netPayable },
+      }),
+    ),
+  );
 
   return settlement;
 }

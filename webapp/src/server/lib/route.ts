@@ -102,10 +102,10 @@ export async function checkAuthorization<TDto, TQuery>(
 
   // Cookie-first (the browser app's httpOnly `access_token` cookie — see
   // session-cookies.ts), falling back to the Authorization header. The
-  // fallback is kept deliberately: dev-login (non-production only) hands
-  // out a raw bearer token for curl/Postman testing, and it lets an
-  // already-logged-in browser with a pre-migration localStorage token keep
-  // working until its next silent refresh naturally requires the cookie.
+  // fallback is kept deliberately: it lets an already-logged-in browser
+  // with a pre-migration localStorage token keep working until its next
+  // silent refresh naturally requires the cookie, and it supports bearer
+  // tokens issued to legitimate non-browser API clients.
   const authHeader = req.headers.get("authorization");
   const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   const token = req.cookies.get("access_token")?.value ?? headerToken;

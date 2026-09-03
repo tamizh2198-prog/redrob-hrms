@@ -32,6 +32,11 @@ jobs:
       JWT_ACCESS_SECRET: ci-test-secret
       CRON_SECRET: ci-test-secret
       PII_ENCRYPTION_KEY: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+      # HRMS-17b: FRONTEND_URL is now required (see env-check.ts /
+      # frontend-url.ts) — getFrontendUrl() throws instead of silently
+      # falling back to localhost, so link-generation code paths
+      # (invitation/reset/offer emails) need a value here too.
+      FRONTEND_URL: https://ci.redrob.test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

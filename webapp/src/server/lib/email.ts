@@ -19,8 +19,17 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   const from = process.env.EMAIL_FROM ?? "no-reply@redrob.local";
 
   if (!apiKey) {
-    // Dev-only fallback: log the full body so a local run without an API key
-    // configured can still recover the invitation link from the console.
+    // HRMS-17b: this fallback is a genuine dev convenience (recover an
+    // invitation/reset link from the console when no API key is
+    // configured locally) but is gated on NODE_ENV rather than merely on
+    // the key's absence — RESEND_API_KEY is only a WARN_IF_MISSING var
+    // (see env-check.ts), so a misconfigured production deploy missing it
+    // must not start writing full invitation and reset links, a live
+    // credential, to the production server log.
+    if (process.env.NODE_ENV === "production") {
+      console.error(`RESEND_API_KEY is not set — email to ${input.to} ("${input.subject}") was not sent.`);
+      return { sent: false };
+    }
     const attachmentNote = input.attachments?.length ? ` (with ${input.attachments.length} attachment(s))` : "";
     console.log(`[email not configured] Would send to ${input.to}${attachmentNote}: "${input.subject}"\n${input.text}`);
     return { sent: false };

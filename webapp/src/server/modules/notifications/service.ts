@@ -78,8 +78,17 @@ export async function dispatch(prisma: PrismaClient, payload: NotificationPayloa
   const employee = await prisma.employee.findUnique({ where: { id: payload.recipientId } });
   // Some call sites still pass a placeholder like "hr-admin" when no real
   // agent/approver is configured yet — there's no employee to notify, so
-  // this is a deliberate no-op rather than a thrown error.
-  if (!employee) return;
+  // this is a no-op rather than a thrown error (a bad recipient shouldn't
+  // block whatever mutation triggered the notification). HRMS-19: this used
+  // to be silent, which is how three offboarding notifications went to HR
+  // without anyone noticing — now it's at least visible in logs so a
+  // dropped notification isn't indistinguishable from a delivered one.
+  if (!employee) {
+    console.warn(
+      `notify: recipientId "${payload.recipientId}" does not resolve to an employee — dropping "${payload.template}" notification.`,
+    );
+    return;
+  }
 
   const category = eventCategoryOf(payload.template);
   const preference = await prisma.notificationPreference.findUnique({

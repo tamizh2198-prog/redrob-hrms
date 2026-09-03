@@ -24,17 +24,32 @@ export interface EmployeeDataRequester {
   role?: Role;
 }
 
+// HRMS-21 fix: this used to check only HR_ADMIN/SUPER_ADMIN here, while
+// employee/service.ts's own isPrivilegedRole granted the same set plus
+// HR_ASSOCIATE — the same role saw unmasked PII through one path and a
+// ForbiddenError through another. HR_ASSOCIATE's schema comment says the
+// role "mirrors HR_ADMIN's module access everywhere except it has zero
+// approve/reject/decide/audit/sign-off authority," and every call site of
+// assertCanAccessEmployeeData below is a read (roster, goals, review,
+// resignation, onboarding progress) rather than a decision — so that
+// comment resolves the divergence in favor of including HR_ASSOCIATE here
+// too. Exported so this is the one place "privileged" is defined; other
+// modules (e.g. employee/service.ts) import this instead of re-deriving it.
+export function isPrivilegedRole(role?: Role): boolean {
+  return role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "HR_ASSOCIATE";
+}
+
 // Section 6 Access Control Rule: "a Manager can only fetch records where
 // employee.reporting_manager_id = self, recursively for indirect reports."
 // Shared by every module whose endpoints take a target employeeId — throws
 // unless the caller is that employee, that employee's manager (direct or
-// indirect), or HR_ADMIN/SUPER_ADMIN.
+// indirect), or a privileged role (HR_ADMIN/HR_ASSOCIATE/SUPER_ADMIN).
 export async function assertCanAccessEmployeeData(
   prisma: PrismaClient,
   targetEmployeeId: string,
   requester: EmployeeDataRequester,
 ): Promise<void> {
-  if (requester.role === "HR_ADMIN" || requester.role === "SUPER_ADMIN") return;
+  if (isPrivilegedRole(requester.role)) return;
   if (requester.userId === targetEmployeeId) return;
   if (requester.role === "MANAGER" && requester.userId) {
     const reports = await getReportingHierarchyIds(prisma, requester.userId);

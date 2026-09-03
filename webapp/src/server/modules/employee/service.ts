@@ -7,7 +7,7 @@ import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
 import { getFrontendUrl } from "../../lib/frontend-url";
 import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
-import { getReportingHierarchyIds } from "../../lib/reporting-hierarchy";
+import { getReportingHierarchyIds, isPrivilegedRole } from "../../lib/reporting-hierarchy";
 import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
 import { encryptPiiNullable, decryptPiiNullable } from "../../lib/pii-crypto";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
@@ -175,13 +175,6 @@ function maskValue(value: string | null): string | null {
   if (!value) return value;
   const visible = value.slice(-4);
   return `****${visible}`;
-}
-
-// Every call site of this in the file is general access/data-entry, never
-// an approve/reject decision, so HR_ASSOCIATE (mirrors HR_ADMIN except for
-// decision authority) is safely included directly here.
-function isPrivilegedRole(role?: Role): boolean {
-  return role === Role.HR_ADMIN || role === Role.SUPER_ADMIN || role === Role.HR_ASSOCIATE;
 }
 
 // Reassigning any of these on an existing employee is Super Admin-only — an

@@ -137,6 +137,16 @@ export async function updateIntegration(prisma: PrismaClient, type: string, dto:
   });
 }
 
+// Fields excluded from the backup export despite the "keep everything"
+// policy below. passwordHash stays in (a bcrypt hash is useless without an
+// enormous offline effort, and restorability is the whole point of a
+// backup), but mfaSecret is not a hash — it is the live TOTP shared secret
+// itself, so anyone with this file could generate valid MFA codes for every
+// Super Admin/HR Admin indefinitely. A restored account just re-enrolls MFA.
+const EXPORT_FIELD_EXCLUSIONS: Partial<Record<string, string[]>> = {
+  Employee: ["mfaSecret"],
+};
+
 // Pilot-launch basic backup: an application-level export (every row of every
 // table, keyed by model name), not a native pg_dump — this avoids depending
 // on a pg_dump binary matching the server's exact Postgres version, at the
@@ -146,8 +156,10 @@ export async function updateIntegration(prisma: PrismaClient, type: string, dto:
 // of silently missing from every future backup. Deliberately keeps
 // passwordHash and every other field intact — the whole point of a backup is
 // complete restorability, not display, so the normal "never leak
-// passwordHash" rule doesn't apply here. The caller (Super Admin only) is
-// responsible for storing the downloaded file securely.
+// passwordHash" rule doesn't apply here — except the fields in
+// EXPORT_FIELD_EXCLUSIONS above, which are live credentials rather than
+// hashes. The caller (Super Admin only) is responsible for storing the
+// downloaded file securely.
 export async function exportBackup(prisma: PrismaClient): Promise<{ createdAt: string; data: Record<string, unknown[]> }> {
   const modelNames = Prisma.dmmf.datamodel.models.map((m) => m.name);
   const data: Record<string, unknown[]> = {};
@@ -155,7 +167,15 @@ export async function exportBackup(prisma: PrismaClient): Promise<{ createdAt: s
     const accessor = modelName.charAt(0).toLowerCase() + modelName.slice(1);
     const delegate = (prisma as unknown as Record<string, { findMany?: () => Promise<unknown[]> }>)[accessor];
     if (typeof delegate?.findMany !== "function") continue;
-    data[modelName] = await delegate.findMany();
+    const rows = await delegate.findMany();
+    const excludedFields = EXPORT_FIELD_EXCLUSIONS[modelName];
+    data[modelName] = excludedFields
+      ? rows.map((row) => {
+          const copy = { ...(row as Record<string, unknown>) };
+          for (const field of excludedFields) delete copy[field];
+          return copy;
+        })
+      : rows;
   }
   return { createdAt: new Date().toISOString(), data };
 }

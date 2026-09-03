@@ -4,7 +4,7 @@ import * as offboardingService from "./service";
 
 function createMockPrisma() {
   return {
-    employee: { findUnique: jest.fn(), update: jest.fn() },
+    employee: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
     resignation: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -109,6 +109,76 @@ describe("offboarding service", () => {
           "HR_ASSOCIATE" as never,
         ),
       ).resolves.toBeDefined();
+    });
+  });
+
+  describe("HRMS-19: HR is notified via real employee ids, not the dead 'hr-admin' placeholder", () => {
+    it("resolves HR_ADMIN employees and notifies each of them on submission, alongside the reporting manager", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-2", reportingManagerId: "mgr-1" });
+      prisma.employee.findMany.mockResolvedValue([{ id: "hr-1" }, { id: "hr-2" }]);
+      prisma.resignation.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "res-1", ...data }),
+      );
+      const { notify } = jest.requireMock("../../lib/notify");
+
+      await offboardingService.submitResignation(
+        db,
+        { employeeId: "emp-2", noticePeriodDays: 30, personalEmail: "x@example.com" } as never,
+        "emp-2",
+        "EMPLOYEE" as never,
+      );
+
+      expect(notify).not.toHaveBeenCalledWith(db, expect.objectContaining({ recipientId: "hr-admin" }));
+      expect(notify).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ recipientId: "mgr-1", template: "offboarding.resignation-submitted" }),
+      );
+      expect(notify).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ recipientId: "hr-1", template: "offboarding.resignation-submitted" }),
+      );
+      expect(notify).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ recipientId: "hr-2", template: "offboarding.resignation-submitted" }),
+      );
+    });
+
+    it("notifies real HR_ADMIN employees when a resignation is accepted", async () => {
+      prisma.resignation.findUnique.mockResolvedValue({
+        id: "res-1",
+        status: "SUBMITTED",
+        lastWorkingDay: new Date("2027-01-31"),
+        employee: { id: "emp-1", firstName: "Gaurav", lastName: "Bisht", workEmail: "gaurav@work.example", reportingManagerId: "mgr-1" },
+      });
+      prisma.resignation.update.mockResolvedValue({ id: "res-1", status: "CLEARANCE_IN_PROGRESS" });
+      prisma.employee.findMany.mockResolvedValue([{ id: "hr-1" }]);
+      const { notify } = jest.requireMock("../../lib/notify");
+
+      await offboardingService.acceptResignation(db, "res-1", "hr-1");
+
+      expect(notify).not.toHaveBeenCalledWith(db, expect.objectContaining({ recipientId: "hr-admin" }));
+      expect(notify).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ recipientId: "hr-1", template: "offboarding.resignation-accepted" }),
+      );
+    });
+
+    it("does not notify anyone with the literal placeholder when no HR_ADMIN exists yet", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-2", reportingManagerId: null });
+      prisma.employee.findMany.mockResolvedValue([]);
+      prisma.resignation.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "res-1", ...data }),
+      );
+      const { notify } = jest.requireMock("../../lib/notify");
+
+      await offboardingService.submitResignation(
+        db,
+        { employeeId: "emp-2", noticePeriodDays: 30, personalEmail: "x@example.com" } as never,
+        "emp-2",
+        "EMPLOYEE" as never,
+      );
+
+      expect(notify).not.toHaveBeenCalledWith(db, expect.objectContaining({ recipientId: "hr-admin" }));
     });
   });
 
@@ -373,6 +443,28 @@ describe("offboarding service", () => {
       expect(result.noticeRecovery).toBe(20000);
       expect(result.assetRecovery).toBe(15000);
       expect(result.netPayable).toBe(15000);
+    });
+
+    it("notifies real HR_ADMIN employees, not the dead 'hr-admin' placeholder, once a settlement is computed", async () => {
+      const submittedDate = new Date("2027-01-01T00:00:00.000Z");
+      const lastWorkingDay = new Date("2027-01-31T00:00:00.000Z");
+      prisma.resignation.findUnique.mockResolvedValue({ id: "res-1", employeeId: "emp-1", submittedDate, noticePeriodDays: 30, lastWorkingDay });
+      assetsService.getRecoverableAssetCost.mockResolvedValue(0);
+      prisma.finalSettlement.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) => Promise.resolve(create));
+      prisma.employee.findMany.mockResolvedValue([{ id: "hr-1" }, { id: "hr-2" }]);
+      const { notify } = jest.requireMock("../../lib/notify");
+
+      await offboardingService.computeSettlement(db, "res-1", { perDayPayRate: 2000, pendingSalary: 50000 } as never);
+
+      expect(notify).not.toHaveBeenCalledWith(db, expect.objectContaining({ recipientId: "hr-admin" }));
+      expect(notify).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ recipientId: "hr-1", template: "offboarding.settlement-computed" }),
+      );
+      expect(notify).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ recipientId: "hr-2", template: "offboarding.settlement-computed" }),
+      );
     });
 
     it("applies zero notice recovery when the employee served the full notice period", async () => {

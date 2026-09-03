@@ -15,7 +15,7 @@ import {
   verifyPassword,
 } from "../../lib/auth";
 import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
-import { NotFoundError, UnauthorizedError } from "../../lib/errors";
+import { UnauthorizedError } from "../../lib/errors";
 import type { LoginDto, MfaCodeDto } from "./dto";
 
 const MFA_VERIFY_PURPOSE = "mfa-verify";
@@ -117,21 +117,6 @@ export async function confirmMfaEnrollment(prisma: PrismaClient, dto: MfaCodeDto
   const { accessToken, refreshToken } = await issueSession(prisma, employee);
   const deviceToken = await issueTrustedDevice(prisma, employee.id);
   return { status: "OK" as const, accessToken, refreshToken, deviceToken, user: toUserView(employee) };
-}
-
-export async function devLogin(prisma: PrismaClient, employeeCode: string) {
-  if (process.env.NODE_ENV === "production") {
-    throw new NotFoundError();
-  }
-
-  const employee = await prisma.employee.findUnique({ where: { employeeCode } });
-  if (!employee) {
-    throw new NotFoundError("No employee with that employee code");
-  }
-  assertNotTerminated(employee);
-
-  const { accessToken, refreshToken } = await issueSession(prisma, employee);
-  return { accessToken, refreshToken, user: toUserView(employee) };
 }
 
 // Previously lived inline in the route handler with no employee.status
