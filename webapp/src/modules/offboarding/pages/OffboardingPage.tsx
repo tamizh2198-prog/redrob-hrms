@@ -12,6 +12,8 @@ import { canAccessHrOperationalModules } from '@/shared/auth/role'
 import { ApiError } from '@/lib/api'
 import {
   submitResignation,
+  acceptResignation,
+  rejectResignation,
   listResignations,
   getResignation,
   adjustLwd,
@@ -20,7 +22,8 @@ import {
   computeSettlement,
   approveSettlement,
   markSettlementPaid,
-  generateLetters,
+  previewRelievingLetter,
+  sendRelievingLetter,
   type Resignation,
   type FinalSettlement,
 } from '../api'
@@ -30,8 +33,10 @@ export function OffboardingPage() {
   const isHrAdmin = canAccessHrOperationalModules(user?.role)
 
   const [noticePeriodDays, setNoticePeriodDays] = useState('30')
+  const [personalEmail, setPersonalEmail] = useState('')
   const [lookupId, setLookupId] = useState('')
   const [active, setActive] = useState<Resignation | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const [allResignations, setAllResignations] = useState<Resignation[]>([])
 
@@ -53,13 +58,16 @@ export function OffboardingPage() {
   // LWD, compute/approve settlement, mark paid) are meant to happen exactly
   // once per resignation.
   const [submittingResignation, setSubmittingResignation] = useState(false)
+  const [accepting, setAccepting] = useState(false)
+  const [rejecting, setRejecting] = useState(false)
   const [adjustingLwd, setAdjustingLwd] = useState(false)
   const [submittingExitInterview, setSubmittingExitInterview] = useState(false)
   const [signingOffId, setSigningOffId] = useState<string | null>(null)
   const [computingSettlement, setComputingSettlement] = useState(false)
   const [approvingSettlement, setApprovingSettlement] = useState(false)
   const [markingPaid, setMarkingPaid] = useState(false)
-  const [generatingLetters, setGeneratingLetters] = useState(false)
+  const [previewingLetter, setPreviewingLetter] = useState(false)
+  const [sendingLetter, setSendingLetter] = useState(false)
 
   function loadActive(id: string) {
     getResignation(id)
@@ -75,18 +83,54 @@ export function OffboardingPage() {
   }
 
   async function handleSubmitResignation() {
+    if (!personalEmail) return
     setError(null)
     setMessage(null)
     setSubmittingResignation(true)
     try {
-      const r = await submitResignation({ noticePeriodDays: Number(noticePeriodDays) })
+      const r = await submitResignation({ noticePeriodDays: Number(noticePeriodDays), personalEmail })
       setActive(r)
-      setMessage(`Resignation submitted — last working day ${r.lastWorkingDay.slice(0, 10)}.`)
+      setMessage(`Resignation submitted, pending acceptance — last working day ${r.lastWorkingDay.slice(0, 10)}.`)
       if (isHrAdmin) refreshAllResignations()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to submit resignation')
     } finally {
       setSubmittingResignation(false)
+    }
+  }
+
+  async function handleAccept() {
+    if (!active || accepting) return
+    setError(null)
+    setMessage(null)
+    setAccepting(true)
+    try {
+      await acceptResignation(active.id)
+      setMessage('Resignation accepted — the separation clearance checklist is now active.')
+      loadActive(active.id)
+      if (isHrAdmin) refreshAllResignations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to accept resignation')
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  async function handleReject() {
+    if (!active || rejecting) return
+    setError(null)
+    setMessage(null)
+    setRejecting(true)
+    try {
+      await rejectResignation(active.id, rejectReason)
+      setMessage('Resignation rejected.')
+      setRejectReason('')
+      loadActive(active.id)
+      if (isHrAdmin) refreshAllResignations()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to reject resignation')
+    } finally {
+      setRejecting(false)
     }
   }
 
@@ -191,18 +235,32 @@ export function OffboardingPage() {
     }
   }
 
-  async function handleGenerateLetters() {
-    if (!active || generatingLetters) return
+  async function handlePreviewLetter() {
+    if (!active || previewingLetter) return
     setError(null)
-    setGeneratingLetters(true)
+    setPreviewingLetter(true)
     try {
-      await generateLetters(active.id, closingRemarks || undefined)
-      setMessage('Relieving and experience letters generated.')
+      await previewRelievingLetter(active.id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load the letter preview')
+    } finally {
+      setPreviewingLetter(false)
+    }
+  }
+
+  async function handleSendLetter() {
+    if (!active || sendingLetter) return
+    setError(null)
+    setMessage(null)
+    setSendingLetter(true)
+    try {
+      await sendRelievingLetter(active.id, closingRemarks || undefined)
+      setMessage('Relieving and experience letter emailed to the employee’s personal email.')
       loadActive(active.id)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to generate letters')
+      setError(err instanceof ApiError ? err.message : 'Failed to send the letter')
     } finally {
-      setGeneratingLetters(false)
+      setSendingLetter(false)
     }
   }
 
@@ -233,7 +291,16 @@ export function OffboardingPage() {
                   className="w-32"
                 />
               </div>
-              <Button variant="outline" disabled={submittingResignation} onClick={handleSubmitResignation}>
+              <div className="flex flex-col gap-1">
+                <Label>Personal Email (required — the relieving/experience letter goes here)</Label>
+                <Input
+                  type="email"
+                  value={personalEmail}
+                  onChange={(e) => setPersonalEmail(e.target.value)}
+                  className="w-64"
+                />
+              </div>
+              <Button variant="outline" disabled={submittingResignation || !personalEmail} onClick={handleSubmitResignation}>
                 {submittingResignation ? 'Submitting…' : 'Submit Resignation'}
               </Button>
             </div>
@@ -259,9 +326,28 @@ export function OffboardingPage() {
               <p>Submitted: {active.submittedDate.slice(0, 10)}</p>
               <p>Notice period: {active.noticePeriodDays} days</p>
               <p>Last working day: {active.lastWorkingDay.slice(0, 10)}</p>
-              {active.relievingLetterRef && <p>Relieving letter: {active.relievingLetterRef}</p>}
-              {active.experienceLetterRef && <p>Experience letter: {active.experienceLetterRef}</p>}
 
+              {isHrAdmin && active.status === 'SUBMITTED' && (
+                <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+                  <p className="font-medium">This resignation is awaiting a decision.</p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Button size="sm" variant="success" disabled={accepting || rejecting} onClick={handleAccept}>
+                      {accepting ? 'Accepting…' : 'Accept'}
+                    </Button>
+                    <Input
+                      placeholder="Reason for rejecting (optional)"
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      className="w-64"
+                    />
+                    <Button size="sm" variant="destructive" disabled={accepting || rejecting} onClick={handleReject}>
+                      {rejecting ? 'Rejecting…' : 'Reject'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {active.status !== 'SUBMITTED' && active.status !== 'REJECTED' && (
               <div className="mt-3 border-t pt-3">
                 <p className="mb-1 font-medium">Separation Clearance Checklist — verified by Lead/POC</p>
                 <ul className="flex flex-col gap-2">
@@ -303,6 +389,7 @@ export function OffboardingPage() {
                   ))}
                 </ul>
               </div>
+              )}
 
               <div className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3">
                 <div className="flex flex-col gap-1">
@@ -428,29 +515,42 @@ export function OffboardingPage() {
                   </div>
                 )}
 
-                <div className="mt-3 flex flex-col gap-2 border-t pt-3">
-                  <Label>Closing Remarks (HR only)</Label>
-                  <Textarea
-                    placeholder="Closing remarks"
-                    value={closingRemarks}
-                    onChange={(e) => setClosingRemarks(e.target.value)}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={generatingLetters}
-                    onClick={handleGenerateLetters}
-                    className="self-start"
-                  >
-                    {generatingLetters ? 'Generating…' : 'Generate Relieving & Experience Letters'}
-                  </Button>
-                  {active.certificateReleasedBy && (
+                {active.status === 'CLEARED' && (
+                  <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Relieving &amp; Experience Letter</Label>
+                      <Badge variant={active.letterStatus === 'SENT' ? 'default' : 'outline'}>
+                        {active.letterStatus.replaceAll('_', ' ')}
+                      </Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      Certificate released by {active.certificateReleasedBy}
-                      {active.closingRemarks ? ` — ${active.closingRemarks}` : ''}
+                      Auto-generated once the separation checklist was fully signed off, using the employee&apos;s
+                      data. Verify it looks right before sending — it goes to their personal email, not their work
+                      account.
                     </p>
-                  )}
-                </div>
+                    <Textarea
+                      placeholder="Closing remarks (optional)"
+                      value={closingRemarks}
+                      onChange={(e) => setClosingRemarks(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" disabled={previewingLetter} onClick={handlePreviewLetter}>
+                        {previewingLetter ? 'Loading…' : 'Preview Letter'}
+                      </Button>
+                      {active.letterStatus === 'PENDING_VERIFICATION' && (
+                        <Button size="sm" variant="success" disabled={sendingLetter} onClick={handleSendLetter}>
+                          {sendingLetter ? 'Sending…' : 'Verify & Send to Personal Email'}
+                        </Button>
+                      )}
+                    </div>
+                    {active.certificateReleasedBy && (
+                      <p className="text-xs text-muted-foreground">
+                        Sent by {active.certificateReleasedBy}
+                        {active.closingRemarks ? ` — ${active.closingRemarks}` : ''}
+                      </p>
+                    )}
+                  </div>
+                )}
                 </CardContent>
               </Card>
             )}

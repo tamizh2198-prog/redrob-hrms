@@ -388,3 +388,15 @@ export class ChangePasswordDto {
   @IsString()
   confirmNewPassword: string;
 }
+
+export class PlaceOnPipDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class StartCurePeriodDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}

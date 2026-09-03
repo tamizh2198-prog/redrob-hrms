@@ -34,6 +34,9 @@ import {
   type ProfileCompletion,
 } from '../api'
 import { DismissEmployeeDialog } from '../components/DismissEmployeeDialog'
+import { ConfirmEmployeeDialog } from '../components/ConfirmEmployeeDialog'
+import { PlaceOnPipDialog } from '../components/PlaceOnPipDialog'
+import { StartCurePeriodDialog } from '../components/StartCurePeriodDialog'
 import { DeleteEmployeeDialog } from '../components/DeleteEmployeeDialog'
 import {
   listGrantsForEmployee,
@@ -319,6 +322,27 @@ export function EmployeeDetailPage() {
                   {resettingMfa ? 'Resetting…' : 'Reset MFA'}
                 </Button>
               </>
+            )}
+            {isSuperAdmin && employee.status === 'ACTIVE_PROBATION' && (
+              <ConfirmEmployeeDialog
+                employeeId={employee.id}
+                employeeName={`${employee.firstName} ${employee.lastName}`}
+                onConfirmed={refresh}
+              />
+            )}
+            {isSuperAdmin && !['TERMINATED', 'ARCHIVED', 'PIP'].includes(employee.status) && (
+              <PlaceOnPipDialog
+                employeeId={employee.id}
+                employeeName={`${employee.firstName} ${employee.lastName}`}
+                onDone={refresh}
+              />
+            )}
+            {isSuperAdmin && !['TERMINATED', 'ARCHIVED', 'CURE_PERIOD'].includes(employee.status) && (
+              <StartCurePeriodDialog
+                employeeId={employee.id}
+                employeeName={`${employee.firstName} ${employee.lastName}`}
+                onDone={refresh}
+              />
             )}
             {isSuperAdmin && employee.status !== 'TERMINATED' && (
               <DismissEmployeeDialog

@@ -42,6 +42,13 @@ function createMockPrisma() {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    newJoinerTracker: {
+      createMany: jest.fn().mockResolvedValue({ count: 3 }),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
 }
@@ -427,6 +434,13 @@ describe("onboarding service", () => {
       const result = await onboardingService.activateEmployee(db, "emp-1", "hr-1");
       expect(result.status).toBe("ACTIVE_PROBATION");
       expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.newJoinerTracker.createMany).toHaveBeenCalledWith({
+        data: [
+          { employeeId: "emp-1", item: "JOINING_KIT" },
+          { employeeId: "emp-1", item: "ID_CARD" },
+          { employeeId: "emp-1", item: "CONFIRMATION_HAMPER" },
+        ],
+      });
     });
 
     it("this task: also closes out the employee's checklist, so it stops appearing in listActiveChecklists() and a second click can't hit 'not in Preboarding status'", async () => {
@@ -555,6 +569,26 @@ describe("onboarding service", () => {
 
       expect(result.emailSent).toBe(false);
       expect(result.preboardingUrl).toContain("/preboard?token=");
+    });
+  });
+
+  describe("New Joiner Tracker", () => {
+    it("rejects completing a tracker item that isn't assigned yet", async () => {
+      prisma.newJoinerTracker.findUnique.mockResolvedValue({ id: "trk-1", status: "PENDING" });
+      await expect(onboardingService.completeTrackerItem(db, "trk-1", "hr-1")).rejects.toThrow(
+        "must be assigned before it can be marked complete",
+      );
+    });
+
+    it("marks an assigned tracker item complete", async () => {
+      prisma.newJoinerTracker.findUnique.mockResolvedValue({ id: "trk-1", status: "ASSIGNED" });
+      prisma.newJoinerTracker.update.mockResolvedValue({ id: "trk-1", status: "COMPLETED" });
+
+      const result = await onboardingService.completeTrackerItem(db, "trk-1", "hr-1");
+      expect(result.status).toBe("COMPLETED");
+      expect(prisma.newJoinerTracker.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "trk-1" }, data: expect.objectContaining({ status: "COMPLETED", completedBy: "hr-1" }) }),
+      );
     });
   });
 });

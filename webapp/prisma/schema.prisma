@@ -67,6 +67,10 @@ enum EmployeeStatus {
   ACTIVE_PROBATION
   ON_LEAVE
   INACTIVE
+  // Employee is still actively working under these two — not terminal,
+  // unlike TERMINATED/ARCHIVED. Counted in ACTIVE_STATUSES for that reason.
+  PIP
+  CURE_PERIOD
   TERMINATED
   // Section 7.10 Business Rule: set only once Full & Final settlement is
   // marked paid — a minimal historical record kept for rehire-eligibility
@@ -278,6 +282,7 @@ model Employee {
   onboardingChecklist          OnboardingChecklist?
   preboardingSubmissions       PreboardingSubmission[]
   probationFeedback            ProbationFeedback[]
+  newJoinerTrackers            NewJoinerTracker[]
   learningRequests             LearningRequest[]
 
   goals              Goal[]
@@ -881,6 +886,38 @@ model ProbationFeedback {
   @@unique([employeeId, checkpoint])
 }
 
+// New Joiner Tracker — items with no natural home in OnboardingChecklist
+// (which is force-closed at Day-1 activation, before any of these are due).
+// Joining Kit / ID Card are swept in on a day-offset from dateOfJoining;
+// Confirmation Hamper has no fixed offset (probation length varies) and is
+// instead flipped by the dedicated "Confirm Employee" action. One row per
+// (employee, item), pre-created at Day-1 activation alongside
+// ProbationFeedback — same shape, same idempotency idiom.
+enum NewJoinerTrackerItem {
+  JOINING_KIT
+  ID_CARD
+  CONFIRMATION_HAMPER
+}
+
+enum NewJoinerTrackerStatus {
+  PENDING
+  ASSIGNED
+  COMPLETED
+}
+
+model NewJoinerTracker {
+  id          String                 @id @default(uuid())
+  employeeId  String
+  employee    Employee               @relation(fields: [employeeId], references: [id])
+  item        NewJoinerTrackerItem
+  status      NewJoinerTrackerStatus @default(PENDING)
+  assignedAt  DateTime?
+  completedAt DateTime?
+  completedBy String?
+
+  @@unique([employeeId, item])
+}
+
 // ---------------------------------------------------------------------------
 // Learning: CTC-tiered course reimbursement, manager then Super Admin
 // approval, reimbursed only after a completion certificate is submitted.
@@ -1157,10 +1194,17 @@ model AssetRequest {
 
 enum ResignationStatus {
   SUBMITTED
+  REJECTED
   CLEARANCE_IN_PROGRESS
   CLEARED
   SETTLED
   ARCHIVED
+}
+
+enum ResignationLetterStatus {
+  NOT_READY
+  PENDING_VERIFICATION
+  SENT
 }
 
 // Matches the two sections of the company's actual Separation Clearance
@@ -1195,6 +1239,17 @@ model Resignation {
   relievingLetterRef    String?
   experienceLetterRef   String?
   lettersGeneratedAt    DateTime?
+  // Snapshot of the merge fields (employee name, designation, LWD, etc.) at
+  // the moment the separation checklist completed — frozen so a later edit
+  // to the employee's record can't silently change an already-generated
+  // letter. The actual PDF bytes are rendered on demand from this, not
+  // stored. NOT_READY -> PENDING_VERIFICATION (checklist just completed) ->
+  // SENT (Super Admin verified and it was emailed to personalEmail).
+  letterStatus          ResignationLetterStatus @default(NOT_READY)
+  letterDataSnapshot    Json?
+  // Idempotency guard for the LWD-day sweep that nudges the Super Admin to
+  // review/send the letter — same idiom as ProbationFeedback.reminderSentAt.
+  lwdNotificationSentAt DateTime?
   // "To be filled by Human Resources only" section of the Separation
   // Clearance Checklist — captured when the letters/certificate are released.
   closingRemarks        String?

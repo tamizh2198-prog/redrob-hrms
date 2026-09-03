@@ -26,15 +26,19 @@ import {
   completeTask,
   resendPreboardingLink,
   listProbationFeedback,
+  listNewJoinerTrackers,
+  completeTrackerItem,
   ONBOARDING_PHASES,
   ONBOARDING_PHASE_LABELS,
   MANDATORY_FIELD_LABELS,
+  NEW_JOINER_TRACKER_ITEM_LABELS,
   type ChecklistWithEmployee,
   type OnboardingTemplate,
   type ChecklistOwnerRole,
   type OnboardingPhase,
   type ChecklistTask,
   type ProbationFeedbackWithEmployee,
+  type NewJoinerTracker,
 } from '../api'
 
 const OWNER_ROLES: ChecklistOwnerRole[] = ['HR', 'IT', 'MANAGER', 'NEW_HIRE']
@@ -62,6 +66,7 @@ export function OnboardingPage() {
   const [departments, setDepartments] = useState<ReferenceOption[]>([])
   const [people, setPeople] = useState<ManagerOption[]>([])
   const [feedback, setFeedback] = useState<ProbationFeedbackWithEmployee[]>([])
+  const [trackers, setTrackers] = useState<NewJoinerTracker[]>([])
 
   const [templateName, setTemplateName] = useState('')
   const [templateDepartmentId, setTemplateDepartmentId] = useState('')
@@ -101,6 +106,7 @@ export function OnboardingPage() {
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null)
   const [activatingId, setActivatingId] = useState<string | null>(null)
   const [sendingLinkId, setSendingLinkId] = useState<string | null>(null)
+  const [completingTrackerId, setCompletingTrackerId] = useState<string | null>(null)
 
   useEffect(() => {
     getReferenceData().then((r) => {
@@ -116,6 +122,21 @@ export function OnboardingPage() {
       listActiveChecklists().then(setChecklists).catch(() => setChecklists([]))
       listTemplates().then(setTemplates).catch(() => setTemplates([]))
       listProbationFeedback().then(setFeedback).catch(() => setFeedback([]))
+      listNewJoinerTrackers().then(setTrackers).catch(() => setTrackers([]))
+    }
+  }
+
+  async function handleCompleteTrackerItem(id: string) {
+    if (completingTrackerId) return
+    setError(null)
+    setCompletingTrackerId(id)
+    try {
+      await completeTrackerItem(id)
+      refresh()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to mark this item complete')
+    } finally {
+      setCompletingTrackerId(null)
     }
   }
 
@@ -553,6 +574,44 @@ export function OnboardingPage() {
             </p>
           )}
         </div>
+        </CardContent>
+      </Card>
+      )}
+
+      {isHrAdmin && (
+      <Card>
+        <CardHeader>
+          <CardTitle>New Joiner Trackers</CardTitle>
+        </CardHeader>
+        <CardContent>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Joining Kit and ID Card are auto-assigned 30 days after joining; Confirmation Hamper is
+          assigned once the employee completes probation.
+        </p>
+        <ul className="flex flex-col gap-2 text-sm">
+          {trackers.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2">
+              <span className="font-medium">
+                {t.employee.firstName} {t.employee.lastName} ({t.employee.employeeCode})
+              </span>
+              <span className="text-muted-foreground">{NEW_JOINER_TRACKER_ITEM_LABELS[t.item]}</span>
+              <div className="flex items-center gap-2">
+                <Badge variant={t.status === 'ASSIGNED' ? 'default' : 'outline'}>{t.status}</Badge>
+                {t.status === 'ASSIGNED' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={completingTrackerId !== null}
+                    onClick={() => handleCompleteTrackerItem(t.id)}
+                  >
+                    {completingTrackerId === t.id ? 'Marking…' : 'Mark Complete'}
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+          {trackers.length === 0 && <p className="text-muted-foreground">Nothing pending right now.</p>}
+        </ul>
         </CardContent>
       </Card>
       )}

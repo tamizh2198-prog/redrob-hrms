@@ -172,3 +172,30 @@ export function submitProbationFeedback(
 export function listProbationFeedback() {
   return api<ProbationFeedbackWithEmployee[]>('/onboarding/probation-feedback')
 }
+
+export type NewJoinerTrackerItem = 'JOINING_KIT' | 'ID_CARD' | 'CONFIRMATION_HAMPER'
+export type NewJoinerTrackerStatus = 'PENDING' | 'ASSIGNED' | 'COMPLETED'
+
+export const NEW_JOINER_TRACKER_ITEM_LABELS: Record<NewJoinerTrackerItem, string> = {
+  JOINING_KIT: 'Joining Kit',
+  ID_CARD: 'ID Card',
+  CONFIRMATION_HAMPER: 'Confirmation Hamper',
+}
+
+export interface NewJoinerTracker {
+  id: string
+  employeeId: string
+  employee: { id: string; firstName: string; lastName: string; employeeCode: string }
+  item: NewJoinerTrackerItem
+  status: NewJoinerTrackerStatus
+  assignedAt: string | null
+  completedAt: string | null
+}
+
+export function listNewJoinerTrackers() {
+  return api<NewJoinerTracker[]>('/onboarding/new-joiner-trackers')
+}
+
+export function completeTrackerItem(id: string) {
+  return api<NewJoinerTracker>(`/onboarding/new-joiner-trackers/${id}/complete`, { method: 'POST' })
+}

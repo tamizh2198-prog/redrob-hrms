@@ -1,13 +1,16 @@
-import type { PrismaClient, Prisma, Role, ClearanceItemCategory } from "@prisma/client";
+import type { PrismaClient, Prisma, Role, ClearanceItemCategory, Employee, Resignation } from "@prisma/client";
 import { notify } from "../../lib/notify";
+import { sendEmail } from "../../lib/email";
 import { assertCanAccessEmployeeData, type EmployeeDataRequester } from "../../lib/reporting-hierarchy";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import * as assetsService from "../assets/service";
+import { renderRelievingLetterPdf, type RelievingLetterData } from "./relieving-letter-pdf";
 import type {
   AdjustLwdDto,
   ComputeSettlementDto,
-  GenerateLettersDto,
   MarkSettlementPaidDto,
+  RejectResignationDto,
+  SendRelievingLetterDto,
   SignoffClearanceDto,
   SubmitExitInterviewDto,
   SubmitResignationDto,
@@ -90,7 +93,10 @@ export const CLEARANCE_ITEMS: { key: string; label: string; category: ClearanceI
 ];
 
 // Key Feature: "auto-computed last working day (LWD)" and "Multi-department
-// clearance checklist ... auto-generated."
+// clearance checklist ... auto-generated." The checklist itself is now
+// created on acceptResignation, not here — a submitted-but-not-yet-accepted
+// resignation shouldn't already have a live clearance checklist (see
+// acceptResignation below).
 export async function submitResignation(prisma: PrismaClient, dto: SubmitResignationDto, actorId: string, actorRole?: Role) {
   const employeeId = dto.employeeId ?? actorId;
   if (employeeId !== actorId && !isHrStaff(actorRole)) {
@@ -103,12 +109,55 @@ export async function submitResignation(prisma: PrismaClient, dto: SubmitResigna
   const submittedDate = startOfDay(new Date());
   const lastWorkingDay = addDays(submittedDate, dto.noticePeriodDays);
 
-  const resignation = await prisma.resignation.create({
+  // The relieving/experience letter is sent to this address after
+  // separation, once work-account access is gone — captured (or refreshed)
+  // at resignation time since it's the last reliable moment to ask.
+  const [, resignation] = await prisma.$transaction([
+    prisma.employee.update({ where: { id: employeeId }, data: { personalEmail: dto.personalEmail } }),
+    prisma.resignation.create({
+      data: {
+        employeeId,
+        submittedDate,
+        noticePeriodDays: dto.noticePeriodDays,
+        lastWorkingDay,
+      },
+    }),
+  ]);
+
+  const notifyTargets = [employee.reportingManagerId, "hr-admin"].filter((id): id is string => !!id);
+  await Promise.all(
+    notifyTargets.map((recipientId) =>
+      notify(prisma, {
+        recipientId,
+        template: "offboarding.resignation-submitted",
+        body: `${employee.firstName} ${employee.lastName} submitted their resignation, pending acceptance. Last working day: ${lastWorkingDay.toISOString().slice(0, 10)}.`,
+        data: { resignationId: resignation.id, employeeId },
+      }),
+    ),
+  );
+
+  return resignation;
+}
+
+// Fills the gap where a resignation previously started clearance
+// automatically with no human decision point. Only a SUBMITTED resignation
+// can be accepted — creates the clearance checklist (moved here from
+// submitResignation) and notifies the employee for real (email, not just
+// in-app) with the accepted LWD, since they're still actively employed and
+// workEmail is reliable at this point.
+export async function acceptResignation(prisma: PrismaClient, resignationId: string, actorId: string) {
+  const resignation = await prisma.resignation.findUnique({
+    where: { id: resignationId },
+    include: { employee: true },
+  });
+  if (!resignation) throw new NotFoundError("Resignation not found");
+  if (resignation.status !== "SUBMITTED") {
+    throw new BadRequestError("Only a submitted resignation awaiting a decision can be accepted");
+  }
+
+  const updated = await prisma.resignation.update({
+    where: { id: resignationId },
     data: {
-      employeeId,
-      submittedDate,
-      noticePeriodDays: dto.noticePeriodDays,
-      lastWorkingDay,
       status: "CLEARANCE_IN_PROGRESS",
       clearanceItems: {
         create: CLEARANCE_ITEMS.map(({ key, label, category }) => ({ key, label, category })),
@@ -117,19 +166,60 @@ export async function submitResignation(prisma: PrismaClient, dto: SubmitResigna
     include: { clearanceItems: true },
   });
 
+  const { employee } = resignation;
+  const lwd = resignation.lastWorkingDay.toISOString().slice(0, 10);
+
   const notifyTargets = [employee.reportingManagerId, "hr-admin"].filter((id): id is string => !!id);
   await Promise.all(
     notifyTargets.map((recipientId) =>
       notify(prisma, {
         recipientId,
-        template: "offboarding.resignation-submitted",
-        body: `${employee.firstName} ${employee.lastName} submitted their resignation. Last working day: ${lastWorkingDay.toISOString().slice(0, 10)}.`,
-        data: { resignationId: resignation.id, employeeId },
+        template: "offboarding.resignation-accepted",
+        body: `${employee.firstName} ${employee.lastName}'s resignation was accepted. Last working day: ${lwd}.`,
+        data: { resignationId, employeeId: employee.id },
       }),
     ),
   );
+  await notify(prisma, {
+    recipientId: employee.id,
+    template: "offboarding.resignation-accepted",
+    body: `Your resignation has been accepted. Your last working day is ${lwd}.`,
+    data: { resignationId, acceptedBy: actorId },
+  });
+  if (employee.workEmail) {
+    await sendEmail({
+      to: employee.workEmail,
+      subject: "Your resignation has been accepted",
+      text: [
+        `Hi ${employee.firstName},`,
+        "",
+        `Your resignation has been accepted. Your last working day is ${lwd}.`,
+        "",
+        "Please complete the separation clearance checklist before your last working day.",
+      ].join("\n"),
+    });
+  }
 
-  return resignation;
+  return updated;
+}
+
+export async function rejectResignation(prisma: PrismaClient, resignationId: string, dto: RejectResignationDto, actorId: string) {
+  const resignation = await prisma.resignation.findUnique({ where: { id: resignationId } });
+  if (!resignation) throw new NotFoundError("Resignation not found");
+  if (resignation.status !== "SUBMITTED") {
+    throw new BadRequestError("Only a submitted resignation awaiting a decision can be rejected");
+  }
+
+  const updated = await prisma.resignation.update({ where: { id: resignationId }, data: { status: "REJECTED" } });
+
+  await notify(prisma, {
+    recipientId: resignation.employeeId,
+    template: "offboarding.resignation-rejected",
+    body: `Your resignation was not accepted.${dto.reason ? ` Reason: "${dto.reason}"` : ""}`,
+    data: { resignationId, rejectedBy: actorId },
+  });
+
+  return updated;
 }
 
 export async function getResignation(prisma: PrismaClient, resignationId: string, requester: EmployeeDataRequester) {
@@ -197,7 +287,11 @@ export async function getClearanceStatus(prisma: PrismaClient, resignationId: st
 export async function signoffClearance(prisma: PrismaClient, itemId: string, dto: SignoffClearanceDto, actorId: string, actorRole?: Role) {
   const item = await prisma.clearanceItem.findUnique({
     where: { id: itemId },
-    include: { resignation: { include: { employee: true } } },
+    include: {
+      resignation: {
+        include: { employee: { include: { department: true, designation: true, location: true } } },
+      },
+    },
   });
   if (!item) throw new NotFoundError("Clearance item not found");
   if (item.status === "SIGNED_OFF") {
@@ -230,10 +324,47 @@ export async function signoffClearance(prisma: PrismaClient, itemId: string, dto
     where: { resignationId: item.resignationId, status: "PENDING" },
   });
   if (remaining === 0) {
-    await prisma.resignation.update({ where: { id: item.resignationId }, data: { status: "CLEARED" } });
+    // "HRMS should create a relieving & experience letter for the employee
+    // ... wherever bracket was mentioned" — snapshot the merge fields now,
+    // frozen against later edits to the employee's record, and make it
+    // available for Super Admin review (letterStatus). The PDF itself is
+    // rendered on demand from this snapshot, not stored.
+    const snapshot = buildLetterSnapshot(item.resignation.employee, item.resignation);
+    await prisma.resignation.update({
+      where: { id: item.resignationId },
+      data: {
+        status: "CLEARED",
+        letterStatus: "PENDING_VERIFICATION",
+        letterDataSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+      },
+    });
   }
 
   return updated;
+}
+
+type EmployeeWithLetterRelations = Employee & {
+  department: { name: string } | null;
+  designation: { name: string } | null;
+  location: { name: string } | null;
+};
+
+function formatDate(date: Date | null): string {
+  return date ? date.toISOString().slice(0, 10) : "—";
+}
+
+function buildLetterSnapshot(employee: EmployeeWithLetterRelations, resignation: Resignation): RelievingLetterData {
+  return {
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+    employeeCode: employee.employeeCode,
+    dateOfJoining: formatDate(employee.dateOfJoining),
+    lastWorkingDay: formatDate(resignation.lastWorkingDay),
+    designation: employee.designation?.name ?? "—",
+    location: employee.location?.name ?? "—",
+    department: employee.department?.name ?? "—",
+    gender: employee.gender,
+    generatedDate: formatDate(new Date()),
+  };
 }
 
 export async function submitExitInterview(prisma: PrismaClient, resignationId: string, dto: SubmitExitInterviewDto, actorId: string, actorRole?: Role) {
@@ -351,25 +482,51 @@ export async function markSettlementPaid(prisma: PrismaClient, resignationId: st
   return { status: "ARCHIVED" };
 }
 
-// Acceptance Criteria: "Relieving letter generation is blocked until all
-// clearance items are signed off." Also captures the Separation Clearance
-// Checklist's "To be filled by Human Resources only" section — who
-// released it and any closing remarks.
-export async function generateLetters(prisma: PrismaClient, resignationId: string, dto: GenerateLettersDto, actorId: string) {
+// Renders the PDF from the snapshot signoffClearance already froze when the
+// checklist completed — no state change, Super Admin-only preview before
+// deciding to send.
+export async function previewRelievingLetter(prisma: PrismaClient, resignationId: string): Promise<Buffer> {
   const resignation = await prisma.resignation.findUnique({ where: { id: resignationId } });
   if (!resignation) throw new NotFoundError("Resignation not found");
-
-  const items = await prisma.clearanceItem.findMany({ where: { resignationId } });
-  const allSignedOff = items.length === CLEARANCE_ITEMS.length && items.every((i) => i.status === "SIGNED_OFF");
-  if (!allSignedOff) {
-    throw new BadRequestError("The relieving letter cannot be generated until every item on the separation clearance checklist is signed off");
+  if (!resignation.letterDataSnapshot) {
+    throw new BadRequestError("The letter hasn't been generated yet — it's created once the separation clearance checklist is fully signed off");
   }
+  return renderRelievingLetterPdf(resignation.letterDataSnapshot as unknown as RelievingLetterData);
+}
+
+// "Post verification of the super admin, then it will be sent automatically
+// to that user's personal mail" — renders the same frozen snapshot Super
+// Admin just previewed and emails it as a real PDF attachment.
+export async function sendRelievingLetter(prisma: PrismaClient, resignationId: string, dto: SendRelievingLetterDto, actorId: string) {
+  const resignation = await prisma.resignation.findUnique({ where: { id: resignationId }, include: { employee: true } });
+  if (!resignation) throw new NotFoundError("Resignation not found");
+  if (resignation.letterStatus !== "PENDING_VERIFICATION") {
+    throw new BadRequestError("This letter is not awaiting verification — it may already be sent, or not generated yet");
+  }
+  const { employee } = resignation;
+  if (!employee.personalEmail) {
+    throw new BadRequestError("This employee has no personal email on file to send the letter to");
+  }
+
+  const pdf = await renderRelievingLetterPdf(resignation.letterDataSnapshot as unknown as RelievingLetterData);
+
+  await sendEmail({
+    to: employee.personalEmail,
+    subject: "Your Relieving & Experience Letter",
+    text: [
+      `Hi ${employee.firstName},`,
+      "",
+      "Please find attached your relieving and experience letter.",
+      "",
+      "We wish you all the best for your future endeavours.",
+    ].join("\n"),
+    attachments: [{ filename: `relieving-letter-${resignationId}.pdf`, content: pdf.toString("base64") }],
+  });
 
   const updated = await prisma.resignation.update({
     where: { id: resignationId },
     data: {
-      relievingLetterRef: `relieving-letter-${resignationId}.pdf`,
-      experienceLetterRef: `experience-letter-${resignationId}.pdf`,
+      letterStatus: "SENT",
       lettersGeneratedAt: new Date(),
       certificateReleasedBy: actorId,
       closingRemarks: dto.closingRemarks,
@@ -378,8 +535,8 @@ export async function generateLetters(prisma: PrismaClient, resignationId: strin
 
   await notify(prisma, {
     recipientId: resignation.employeeId,
-    template: "offboarding.relieving-letter-generated",
-    body: "Your relieving letter and experience letter have been generated and are ready for download.",
+    template: "offboarding.relieving-letter-sent",
+    body: "Your relieving letter and experience letter have been emailed to your personal email address.",
     data: { resignationId },
   });
 

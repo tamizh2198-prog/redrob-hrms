@@ -446,6 +446,16 @@ export async function activateEmployee(prisma: PrismaClient, employeeId: string,
         checkpoint,
       })),
     }),
+    // Same pre-create idiom, for the New Joiner Tracker (Joining Kit, ID
+    // Card, Confirmation Hamper) — none of these are due yet at Day-1
+    // activation, but the rows exist now so the sweep/confirm-employee
+    // action have something to flip later.
+    prisma.newJoinerTracker.createMany({
+      data: (["JOINING_KIT", "ID_CARD", "CONFIRMATION_HAMPER"] as const).map((item) => ({
+        employeeId,
+        item,
+      })),
+    }),
   ]);
 
   await notify(prisma, {
@@ -524,4 +534,29 @@ export async function listActiveChecklists(prisma: PrismaClient) {
       missingMandatoryFields: await getMissingMandatoryFields(prisma, c.employeeId),
     })),
   );
+}
+
+// New Joiner Tracker — HR-facing view of every employee's Joining Kit / ID
+// Card / Confirmation Hamper status. Not gated by OnboardingChecklist.status
+// (unlike listActiveChecklists) since these items are typically still
+// relevant well after the checklist itself is force-closed at activation.
+export function listNewJoinerTrackers(prisma: PrismaClient) {
+  return prisma.newJoinerTracker.findMany({
+    where: { status: { not: "COMPLETED" } },
+    include: { employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } } },
+    orderBy: { employeeId: "asc" },
+  });
+}
+
+export async function completeTrackerItem(prisma: PrismaClient, itemId: string, actorId: string) {
+  const item = await prisma.newJoinerTracker.findUnique({ where: { id: itemId } });
+  if (!item) throw new NotFoundError("Tracker item not found");
+  if (item.status !== "ASSIGNED") {
+    throw new BadRequestError("This item must be assigned before it can be marked complete");
+  }
+
+  return prisma.newJoinerTracker.update({
+    where: { id: itemId },
+    data: { status: "COMPLETED", completedAt: new Date(), completedBy: actorId },
+  });
 }

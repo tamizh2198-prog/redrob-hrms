@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsBoolean, IsDateString, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Min } from "class-validator";
+import { IsBoolean, IsDateString, IsEmail, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Min } from "class-validator";
 
 export class SubmitResignationDto {
   // Self-service is the common case; HR can submit on an employee's behalf.
@@ -12,6 +12,16 @@ export class SubmitResignationDto {
   @IsInt()
   @Min(0)
   noticePeriodDays: number;
+
+  // Mandatory — the relieving/experience letter is sent here after
+  // separation, once the employee has lost access to their work account.
+  @IsEmail()
+  personalEmail: string;
+}
+
+export class RejectResignationDto {
+  @IsString()
+  reason: string;
 }
 
 export class AdjustLwdDto {
@@ -57,7 +67,7 @@ export class MarkSettlementPaidDto {
   rehireEligible?: boolean;
 }
 
-export class GenerateLettersDto {
+export class SendRelievingLetterDto {
   @IsOptional()
   @IsString()
   closingRemarks?: string;

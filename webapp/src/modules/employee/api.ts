@@ -429,6 +429,18 @@ export function dismissEmployee(id: string) {
   return api<Employee>(`/employees/${id}/dismiss`, { method: 'POST' })
 }
 
+export function confirmEmployee(id: string) {
+  return api<Employee>(`/employees/${id}/confirm`, { method: 'POST' })
+}
+
+export function placeOnPip(id: string, reason?: string) {
+  return api<Employee>(`/employees/${id}/pip`, { method: 'POST', body: { reason } })
+}
+
+export function startCurePeriod(id: string, reason?: string) {
+  return api<Employee>(`/employees/${id}/cure-period`, { method: 'POST', body: { reason } })
+}
+
 // This task: Super Admin-only permanent removal, for test/development
 // cleanup only — separate from and does not replace dismissEmployee above.
 export function deleteEmployee(id: string) {

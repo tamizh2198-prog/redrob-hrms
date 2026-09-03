@@ -1,9 +1,10 @@
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 
-export type ResignationStatus = 'SUBMITTED' | 'CLEARANCE_IN_PROGRESS' | 'CLEARED' | 'SETTLED' | 'ARCHIVED'
+export type ResignationStatus = 'SUBMITTED' | 'REJECTED' | 'CLEARANCE_IN_PROGRESS' | 'CLEARED' | 'SETTLED' | 'ARCHIVED'
 export type ClearanceItemCategory = 'LEAD_VERIFICATION' | 'EMPLOYEE_DECLARATION'
 export type ClearanceStatus = 'PENDING' | 'SIGNED_OFF'
 export type SettlementStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PAID'
+export type ResignationLetterStatus = 'NOT_READY' | 'PENDING_VERIFICATION' | 'SENT'
 
 export interface ClearanceItem {
   id: string
@@ -41,6 +42,7 @@ export interface Resignation {
   relievingLetterRef: string | null
   experienceLetterRef: string | null
   lettersGeneratedAt: string | null
+  letterStatus: ResignationLetterStatus
   closingRemarks: string | null
   certificateReleasedBy: string | null
   clearanceItems?: ClearanceItem[]
@@ -63,8 +65,16 @@ export interface FinalSettlement {
   paidAt: string | null
 }
 
-export function submitResignation(data: { employeeId?: string; noticePeriodDays: number }) {
+export function submitResignation(data: { employeeId?: string; noticePeriodDays: number; personalEmail: string }) {
   return api<Resignation>('/offboarding/resign', { method: 'POST', body: data })
+}
+
+export function acceptResignation(id: string) {
+  return api<Resignation>(`/offboarding/${id}/accept`, { method: 'POST' })
+}
+
+export function rejectResignation(id: string, reason: string) {
+  return api<Resignation>(`/offboarding/${id}/reject`, { method: 'POST', body: { reason } })
 }
 
 export function listResignations() {
@@ -114,8 +124,26 @@ export function markSettlementPaid(id: string, rehireEligible?: boolean) {
   })
 }
 
-export function generateLetters(id: string, closingRemarks?: string) {
-  return api<Resignation>(`/offboarding/${id}/generate-letters`, {
+// Opens the PDF in a new tab rather than force-downloading it — same
+// authenticated-blob pattern as downloadActiveEmployees() in the employee
+// module, since a plain <a href> can't carry the Bearer token.
+export async function previewRelievingLetter(id: string) {
+  const token = localStorage.getItem('accessToken')
+  const res = await fetch(`/api/v1/offboarding/${id}/letters/preview`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: 'Failed to load the letter preview' }))
+    throw new ApiError(body.message, res.status)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+export function sendRelievingLetter(id: string, closingRemarks?: string) {
+  return api<Resignation>(`/offboarding/${id}/letters/send`, {
     method: 'POST',
     body: { closingRemarks },
   })

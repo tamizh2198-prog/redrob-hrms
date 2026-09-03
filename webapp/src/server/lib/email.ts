@@ -2,6 +2,7 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   text: string;
+  attachments?: { filename: string; content: string /* base64 */ }[];
 }
 
 export interface SendEmailResult {
@@ -20,7 +21,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   if (!apiKey) {
     // Dev-only fallback: log the full body so a local run without an API key
     // configured can still recover the invitation link from the console.
-    console.log(`[email not configured] Would send to ${input.to}: "${input.subject}"\n${input.text}`);
+    const attachmentNote = input.attachments?.length ? ` (with ${input.attachments.length} attachment(s))` : "";
+    console.log(`[email not configured] Would send to ${input.to}${attachmentNote}: "${input.subject}"\n${input.text}`);
     return { sent: false };
   }
 
@@ -31,7 +33,13 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from, to: input.to, subject: input.subject, text: input.text }),
+      body: JSON.stringify({
+        from,
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+        ...(input.attachments ? { attachments: input.attachments } : {}),
+      }),
       signal: AbortSignal.timeout(10_000),
     });
 

@@ -48,7 +48,14 @@ export const SELF_SERVICE_FIELDS = [
   "emergencyContactPhone",
 ] as const satisfies readonly (keyof UpdateEmployeeDto)[];
 
-export const ACTIVE_STATUSES: EmployeeStatus[] = [EmployeeStatus.ACTIVE, EmployeeStatus.ACTIVE_PROBATION];
+// PIP/CURE_PERIOD are non-terminal — the employee is still working, so they
+// count as active for payroll/analytics queries keyed on this constant.
+export const ACTIVE_STATUSES: EmployeeStatus[] = [
+  EmployeeStatus.ACTIVE,
+  EmployeeStatus.ACTIVE_PROBATION,
+  EmployeeStatus.PIP,
+  EmployeeStatus.CURE_PERIOD,
+];
 
 const SENSITIVE_FIELDS = ["pan", "aadhaar", "bankAccountNumber"] as const;
 
@@ -84,6 +91,7 @@ const EMPLOYEE_OWNED_MODELS = [
   "onboardingChecklist",
   "preboardingSubmission",
   "probationFeedback",
+  "newJoinerTracker",
   "learningRequest",
   "assetAssignment",
   "assetRequest",
@@ -529,6 +537,9 @@ export async function dismissEmployee(prisma: PrismaClient, id: string, actorId:
   const [updated] = await prisma.$transaction([
     prisma.employee.update({ where: { id }, data: { status: EmployeeStatus.TERMINATED } }),
     prisma.employeeInvitation.deleteMany({ where: { employeeId: id, usedAt: null } }),
+    prisma.employeeHistory.create({
+      data: { employeeId: id, fieldChanged: "status", oldValue: employee.status, newValue: EmployeeStatus.TERMINATED, changedBy: actorId },
+    }),
   ]);
 
   await notify(prisma, {
@@ -536,6 +547,93 @@ export async function dismissEmployee(prisma: PrismaClient, id: string, actorId:
     template: "employee.terminated",
     body: "Your employment has been marked as terminated.",
     data: { terminatedBy: actorId },
+  });
+
+  return stripPasswordHash(updated);
+}
+
+// Ends probation — the only code path that can ever move ACTIVE_PROBATION ->
+// ACTIVE (previously only possible via a generic, unaudited field edit).
+// Also flips this employee's Confirmation Hamper tracker item to ASSIGNED —
+// that item has no fixed day-offset (probation length varies), so it's
+// driven by this event rather than the day-offset sweep that handles
+// Joining Kit / ID Card.
+export async function confirmEmployee(prisma: PrismaClient, id: string, actorId: string): Promise<SafeEmployee> {
+  const employee = await prisma.employee.findUnique({ where: { id } });
+  if (!employee) throw new NotFoundError("Employee not found");
+  if (employee.status !== EmployeeStatus.ACTIVE_PROBATION) {
+    throw new BadRequestError("Only an employee currently in probation can be confirmed");
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.employee.update({ where: { id }, data: { status: EmployeeStatus.ACTIVE } }),
+    prisma.employeeHistory.create({
+      data: { employeeId: id, fieldChanged: "status", oldValue: employee.status, newValue: EmployeeStatus.ACTIVE, changedBy: actorId },
+    }),
+    prisma.newJoinerTracker.updateMany({
+      where: { employeeId: id, item: "CONFIRMATION_HAMPER", status: "PENDING" },
+      data: { status: "ASSIGNED", assignedAt: new Date() },
+    }),
+  ]);
+
+  await notify(prisma, {
+    recipientId: id,
+    template: "employee.confirmed",
+    body: "Congratulations — you've successfully completed your probation and are now a confirmed employee.",
+    data: { confirmedBy: actorId },
+  });
+
+  return stripPasswordHash(updated);
+}
+
+// placeOnPip / startCurePeriod: same shape as confirmEmployee — a
+// dedicated, audited Super-Admin action rather than a generic status edit,
+// since these carry real consequences beyond a plain field write. Neither
+// is terminal (see ACTIVE_STATUSES above), so no invitation cleanup like
+// dismissEmployee.
+export async function placeOnPip(prisma: PrismaClient, id: string, actorId: string, reason?: string): Promise<SafeEmployee> {
+  const employee = await prisma.employee.findUnique({ where: { id } });
+  if (!employee) throw new NotFoundError("Employee not found");
+  if (employee.status === EmployeeStatus.TERMINATED || employee.status === EmployeeStatus.ARCHIVED) {
+    throw new BadRequestError("This employee is no longer active");
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.employee.update({ where: { id }, data: { status: EmployeeStatus.PIP } }),
+    prisma.employeeHistory.create({
+      data: { employeeId: id, fieldChanged: "status", oldValue: employee.status, newValue: EmployeeStatus.PIP, changedBy: actorId },
+    }),
+  ]);
+
+  await notify(prisma, {
+    recipientId: id,
+    template: "employee.pip-started",
+    body: `You have been placed on a Performance Improvement Plan (PIP).${reason ? ` Reason: "${reason}"` : ""}`,
+    data: { startedBy: actorId, reason },
+  });
+
+  return stripPasswordHash(updated);
+}
+
+export async function startCurePeriod(prisma: PrismaClient, id: string, actorId: string, reason?: string): Promise<SafeEmployee> {
+  const employee = await prisma.employee.findUnique({ where: { id } });
+  if (!employee) throw new NotFoundError("Employee not found");
+  if (employee.status === EmployeeStatus.TERMINATED || employee.status === EmployeeStatus.ARCHIVED) {
+    throw new BadRequestError("This employee is no longer active");
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.employee.update({ where: { id }, data: { status: EmployeeStatus.CURE_PERIOD } }),
+    prisma.employeeHistory.create({
+      data: { employeeId: id, fieldChanged: "status", oldValue: employee.status, newValue: EmployeeStatus.CURE_PERIOD, changedBy: actorId },
+    }),
+  ]);
+
+  await notify(prisma, {
+    recipientId: id,
+    template: "employee.cure-period-started",
+    body: `You have been placed under a Cure Period.${reason ? ` Reason: "${reason}"` : ""}`,
+    data: { startedBy: actorId, reason },
   });
 
   return stripPasswordHash(updated);

@@ -30,6 +30,7 @@ const EMPLOYEE_OWNED_MODEL_NAMES = [
   "onboardingChecklist",
   "preboardingSubmission",
   "probationFeedback",
+  "newJoinerTracker",
   "learningRequest",
   "assetAssignment",
   "assetRequest",
@@ -504,7 +505,13 @@ describe("employee service", () => {
       const buffer = await employeeService.exportActiveEmployees(db);
 
       expect(prisma.employee.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { status: { in: [EmployeeStatus.ACTIVE, EmployeeStatus.ACTIVE_PROBATION] } } }),
+        expect.objectContaining({
+          where: {
+            status: {
+              in: [EmployeeStatus.ACTIVE, EmployeeStatus.ACTIVE_PROBATION, EmployeeStatus.PIP, EmployeeStatus.CURE_PERIOD],
+            },
+          },
+        }),
       );
       expect(Buffer.isBuffer(buffer)).toBe(true);
       expect(buffer.length).toBeGreaterThan(0);
