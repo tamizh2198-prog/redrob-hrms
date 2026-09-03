@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { COMPANY_LOGO_PNG_BASE64, COO_SIGNATURE_PNG_BASE64 } from "./relieving-letter-assets";
+import { COMPANY_LOGO_PNG_BASE64, COO_SIGNATURE_PNG_BASE64, COMPANY_STAMP_PNG_BASE64 } from "./relieving-letter-assets";
 
 // Mirrors "Relieving & Experience Letter.docx" (the company's actual
 // letterhead template) field-for-field, including its logo and the COO's
@@ -89,9 +89,16 @@ export function renderRelievingLetterPdf(data: RelievingLetterData): Promise<Buf
     doc.text(`We wish ${object} all the best for ${possessive} future endeavours.`);
     doc.moveDown(2.5);
 
-    doc.text("For Mckinley & Rice Creativity Pvt. Ltd.");
-    doc.text("Director");
-    doc.moveDown(1.5);
+    // The template's "For Mckinley & Rice Creativity Pvt. Ltd. / Director"
+    // authorization stamp is itself a graphic (a stylized, slightly-rotated
+    // rendering), not plain typed text — HRMS-23 follow-up: rendering this
+    // as plain Helvetica text was the "sealed stamp is missing" mismatch.
+    const stampBuffer = Buffer.from(COMPANY_STAMP_PNG_BASE64, "base64");
+    const stampWidth = 220;
+    const stampHeight = stampWidth * (599 / 2048); // source PNG's own pixel aspect ratio
+    const stampTop = doc.y;
+    doc.image(stampBuffer, doc.page.margins.left, stampTop, { width: stampWidth });
+    doc.y = stampTop + stampHeight + 6;
 
     doc.font("Helvetica-Bold");
     doc.text("With Regards,");

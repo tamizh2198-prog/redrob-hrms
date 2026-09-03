@@ -46,7 +46,7 @@ export function OffboardingPage() {
   const { user } = useAuth()
   const isHrAdmin = canAccessHrOperationalModules(user?.role)
 
-  const [noticePeriodDays, setNoticePeriodDays] = useState('30')
+  const [noticePeriodDays, setNoticePeriodDays] = useState('45')
   const [personalEmail, setPersonalEmail] = useState('')
   const [lookupId, setLookupId] = useState('')
   const [active, setActive] = useState<Resignation | null>(null)

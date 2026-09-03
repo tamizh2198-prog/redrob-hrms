@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import * as employeeService from "./service";
 import { hashInvitationToken } from "./invitation-token";
 import { hashPassword } from "../../lib/auth";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import { notify } from "../../lib/notify";
 import { sendEmail } from "../../lib/email";
 import { encryptPii, decryptPii, isEncryptedPiiValue } from "../../lib/pii-crypto";
@@ -200,6 +200,30 @@ describe("employee service", () => {
       expect(prisma.employee.create).toHaveBeenCalledTimes(2);
       expect(result.employeeCode).toBe("MNR-2026-0002");
     });
+
+    it("uses a caller-supplied employeeCode as-is (bulk import from another platform) instead of generating one", async () => {
+      prisma.employee.create.mockResolvedValue({ id: "emp-1", employeeCode: "LEGACY-042" });
+
+      await employeeService.create(db, { ...VALID_ACTIVE_FIELDS, employeeCode: "LEGACY-042" } as never, "actor-1");
+
+      expect(prisma.employee.findFirst).not.toHaveBeenCalled();
+      const createArgs = prisma.employee.create.mock.calls[0][0];
+      expect(createArgs.data.employeeCode).toBe("LEGACY-042");
+    });
+
+    it("rejects a caller-supplied employeeCode that's already taken, with a friendly conflict error", async () => {
+      const conflictError = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "6.0.0",
+        meta: { target: ["employeeCode"] },
+      });
+      prisma.employee.create.mockRejectedValueOnce(conflictError);
+
+      await expect(
+        employeeService.create(db, { ...VALID_ACTIVE_FIELDS, employeeCode: "LEGACY-042" } as never, "actor-1"),
+      ).rejects.toThrow(ConflictError);
+      expect(prisma.employee.create).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("SECURITY (HRMS-14b): companyId is never client-controllable", () => {
@@ -262,7 +286,7 @@ describe("employee service", () => {
       await expect(
         employeeService.update(db, "emp-1", { departmentId: "dept-2" } as never, { userId: "hr-1", role: Role.HR_ADMIN }),
       ).rejects.toThrow(
-        "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, status, or role",
+        "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, status, role, or employee code",
       );
       expect(prisma.employee.update).not.toHaveBeenCalled();
     });
@@ -295,6 +319,59 @@ describe("employee service", () => {
         employeeService.update(db, "emp-1", { departmentId: "dept-2" } as never, { userId: "sa-1", role: Role.SUPER_ADMIN }),
       ).resolves.toBeDefined();
       expect(prisma.employee.update).toHaveBeenCalled();
+    });
+
+    it("rejects an HR Admin trying to change an employee's employeeCode", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.INACTIVE });
+
+      await expect(
+        employeeService.update(db, "emp-1", { employeeCode: "MNR-2026-9999" } as never, { userId: "hr-1", role: Role.HR_ADMIN }),
+      ).rejects.toThrow("Only a Super Admin can change");
+      expect(prisma.employee.update).not.toHaveBeenCalled();
+    });
+
+    it("lets a Super Admin correct an employee's employeeCode", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.ACTIVE, employeeCode: "MNR-2026-0001" });
+      prisma.employee.update.mockResolvedValue({ id: "emp-1", employeeCode: "MNR-2026-0099" });
+
+      await employeeService.update(db, "emp-1", { employeeCode: "MNR-2026-0099" } as never, { userId: "sa-1", role: Role.SUPER_ADMIN });
+
+      expect(prisma.employee.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ employeeCode: "MNR-2026-0099" }) }),
+      );
+    });
+
+    it("surfaces a friendly conflict error when a Super Admin reassigns an employeeCode already in use", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.ACTIVE, employeeCode: "MNR-2026-0001" });
+      const conflictError = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "6.0.0",
+        meta: { target: ["employeeCode"] },
+      });
+      prisma.employee.update.mockRejectedValueOnce(conflictError);
+
+      await expect(
+        employeeService.update(db, "emp-1", { employeeCode: "MNR-2026-0002" } as never, { userId: "sa-1", role: Role.SUPER_ADMIN }),
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it("doesn't mislabel an unrelated unique-constraint collision (e.g. workEmail) as an employeeCode conflict", async () => {
+      prisma.employee.findUnique.mockResolvedValueOnce({ id: "emp-1", status: EmployeeStatus.ACTIVE, employeeCode: "MNR-2026-0001" });
+      const conflictError = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "6.0.0",
+        meta: { target: ["workEmail"] },
+      });
+      prisma.employee.update.mockRejectedValueOnce(conflictError);
+
+      await expect(
+        employeeService.update(
+          db,
+          "emp-1",
+          { employeeCode: "MNR-2026-0002", workEmail: "taken@example.com" } as never,
+          { userId: "sa-1", role: Role.SUPER_ADMIN },
+        ),
+      ).rejects.toThrow(Prisma.PrismaClientKnownRequestError);
     });
 
     it("still lets an HR Admin change unrelated fields like CTC", async () => {

@@ -442,7 +442,12 @@ export function EmployeeDetailPage() {
             : 'Read-only system/employment fields — only a Super Admin can change these.'}
         </p>
         <div className="grid grid-cols-2 gap-4">
-          <ReadOnlyField label="Employee code" value={employee.employeeCode} />
+          <Field
+            label="Employee code"
+            value={form.employeeCode}
+            editable={isSuperAdmin}
+            onChange={(v) => setForm((f) => ({ ...f, employeeCode: v }))}
+          />
           {isSuperAdmin && !isSelf ? (
             <div className="flex flex-col gap-1">
               <Label>Role</Label>

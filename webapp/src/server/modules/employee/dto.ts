@@ -23,6 +23,14 @@ import { BloodGroup, EmployeeStatus, EmploymentType, Gender, Role } from "@prism
 // with a plain object bypassing this DTO's class-validator whitelist, so
 // they're unaffected by this restriction.)
 export class CreateEmployeeDto {
+  // Omitted for a manually-created employee (system generates one). A bulk
+  // import from another platform supplies this to preserve the source
+  // system's code instead of minting a new one.
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  employeeCode?: string;
+
   @IsString()
   firstName: string;
 
@@ -121,6 +129,13 @@ export class CreateEmployeeDto {
 // manually (no @nestjs/mapped-types here) — same fields, all optional,
 // minus companyId.
 export class UpdateEmployeeDto {
+  // Super Admin only (see SUPER_ADMIN_ONLY_FIELDS in service.ts) — corrects
+  // an immutable code, e.g. after a bulk import carried one over incorrectly.
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  employeeCode?: string;
+
   @IsOptional()
   @IsString()
   firstName?: string;

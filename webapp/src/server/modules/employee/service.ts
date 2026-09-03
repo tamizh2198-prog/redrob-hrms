@@ -10,7 +10,7 @@ import { getOrCreateDefaultCompanyId } from "../../lib/default-company";
 import { getReportingHierarchyIds, isPrivilegedRole } from "../../lib/reporting-hierarchy";
 import { enforceRateLimit, recordRateLimitAttempt } from "../../lib/rate-limit";
 import { encryptPiiNullable, decryptPiiNullable } from "../../lib/pii-crypto";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors";
 import {
   CreateEmployeeDto,
   UpdateEmployeeDto,
@@ -190,7 +190,18 @@ const SUPER_ADMIN_ONLY_FIELDS = [
   "dateOfJoining",
   "status",
   "role",
+  "employeeCode",
 ] as const satisfies readonly (keyof UpdateEmployeeDto)[];
+
+// toCreateData()/update() write employeeCode alongside other unique columns
+// (workEmail) in the same call — a bare P2002 code doesn't say which column
+// collided, so meta.target is checked before blaming the wrong field in the
+// error message.
+function isUniqueConstraintOn(err: unknown, field: string): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") return false;
+  const target = err.meta?.target;
+  return Array.isArray(target) ? target.includes(field) : target === field;
+}
 
 function stripPasswordHash(employee: Employee): SafeEmployee {
   const safe: Partial<Employee> = { ...employee };
@@ -408,9 +419,23 @@ export async function create(prisma: PrismaClient, dto: CreateEmployeeDto, actor
   assertMandatoryFieldsForActive(dto, status);
   await assertNoCircularManager(prisma, null, dto.reportingManagerId);
 
-  const employee = await createEmployeeWithGeneratedCode(prisma, (employeeCode) =>
-    toCreateData(dto, companyId, employeeCode, status),
-  );
+  // A bulk import from another platform supplies its own employeeCode to
+  // preserve it; otherwise one is minted automatically as before.
+  let employee: Employee;
+  if (dto.employeeCode) {
+    try {
+      employee = await prisma.employee.create({ data: toCreateData(dto, companyId, dto.employeeCode, status) });
+    } catch (err) {
+      if (isUniqueConstraintOn(err, "employeeCode")) {
+        throw new ConflictError(`Employee code "${dto.employeeCode}" is already in use`);
+      }
+      throw err;
+    }
+  } else {
+    employee = await createEmployeeWithGeneratedCode(prisma, (employeeCode) =>
+      toCreateData(dto, companyId, employeeCode, status),
+    );
+  }
 
   await notify(prisma, {
     recipientId: employee.id,
@@ -1239,6 +1264,7 @@ function diffForHistory(
     "employmentType",
     "status",
     "role",
+    "employeeCode",
   ] as const;
 
   for (const field of trackedFields) {
@@ -1314,11 +1340,11 @@ export async function update(prisma: PrismaClient, id: string, dto: UpdateEmploy
     return createChangeRequestsFromDto(prisma, id, dto);
   }
 
-  // These 9 fields are Super Admin-only.
+  // These 10 fields are Super Admin-only.
   const superAdminOnlyFieldsTouched = SUPER_ADMIN_ONLY_FIELDS.some((field) => dto[field] !== undefined);
   if (superAdminOnlyFieldsTouched && requester.role !== Role.SUPER_ADMIN) {
     throw new ForbiddenError(
-      "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, status, or role",
+      "Only a Super Admin can change reporting manager, department, designation, grade, location, employment type, date of joining, status, role, or employee code",
     );
   }
 
@@ -1335,37 +1361,46 @@ export async function update(prisma: PrismaClient, id: string, dto: UpdateEmploy
 
   const historyData = diffForHistory(employee, dto, requester.userId);
 
-  const updated = await prisma.employee.update({
-    where: { id },
-    data: {
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      dob: dto.dob ? new Date(dto.dob) : undefined,
-      gender: dto.gender,
-      personalEmail: dto.personalEmail,
-      workEmail: dto.workEmail ? normalizeEmail(dto.workEmail) : dto.workEmail,
-      phone: dto.phone,
-      departmentId: dto.departmentId,
-      designationId: dto.designationId,
-      gradeId: dto.gradeId,
-      locationId: dto.locationId,
-      reportingManagerId: dto.reportingManagerId,
-      dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : undefined,
-      employmentType: dto.employmentType,
-      status: dto.status,
-      role: dto.role,
-      ...encryptSensitiveInput({
-        pan: dto.pan,
-        aadhaar: dto.aadhaar,
-        bankAccountNumber: dto.bankAccountNumber,
-        ifscCode: dto.ifscCode,
-      }),
-      bloodGroup: dto.bloodGroup,
-      emergencyContactName: dto.emergencyContactName,
-      emergencyContactPhone: dto.emergencyContactPhone,
-      ctcLpa: dto.ctcLpa,
-    },
-  });
+  let updated: Employee;
+  try {
+    updated = await prisma.employee.update({
+      where: { id },
+      data: {
+        employeeCode: dto.employeeCode,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        dob: dto.dob ? new Date(dto.dob) : undefined,
+        gender: dto.gender,
+        personalEmail: dto.personalEmail,
+        workEmail: dto.workEmail ? normalizeEmail(dto.workEmail) : dto.workEmail,
+        phone: dto.phone,
+        departmentId: dto.departmentId,
+        designationId: dto.designationId,
+        gradeId: dto.gradeId,
+        locationId: dto.locationId,
+        reportingManagerId: dto.reportingManagerId,
+        dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : undefined,
+        employmentType: dto.employmentType,
+        status: dto.status,
+        role: dto.role,
+        ...encryptSensitiveInput({
+          pan: dto.pan,
+          aadhaar: dto.aadhaar,
+          bankAccountNumber: dto.bankAccountNumber,
+          ifscCode: dto.ifscCode,
+        }),
+        bloodGroup: dto.bloodGroup,
+        emergencyContactName: dto.emergencyContactName,
+        emergencyContactPhone: dto.emergencyContactPhone,
+        ctcLpa: dto.ctcLpa,
+      },
+    });
+  } catch (err) {
+    if (dto.employeeCode !== undefined && isUniqueConstraintOn(err, "employeeCode")) {
+      throw new ConflictError(`Employee code "${dto.employeeCode}" is already in use`);
+    }
+    throw err;
+  }
 
   if (historyData.length > 0) {
     await prisma.employeeHistory.createMany({ data: historyData });

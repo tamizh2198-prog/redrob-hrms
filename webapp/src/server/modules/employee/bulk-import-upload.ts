@@ -5,6 +5,7 @@ import type { CreateEmployeeDto } from "./dto";
 // header text is human-friendly, key is the exact DTO property the parsed
 // value is assigned to.
 const COLUMNS: Array<{ header: string; key: keyof CreateEmployeeDto }> = [
+  { header: "Employee Code", key: "employeeCode" },
   { header: "First Name", key: "firstName" },
   { header: "Last Name", key: "lastName" },
   { header: "DOB (YYYY-MM-DD)", key: "dob" },
@@ -36,8 +37,9 @@ function normalizeHeader(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
-// employeeCode is deliberately absent from COLUMNS — it's system-generated
-// and immutable, never accepted from an upload.
+// Employee Code is optional in the sheet: fill it in to preserve the code
+// from a source system being migrated (bulkImport()/create() then use it
+// as-is instead of generating one); leave the column blank to auto-generate.
 export async function parseEmployeeImportWorkbook(buffer: Buffer): Promise<Partial<CreateEmployeeDto>[]> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as never);
@@ -84,6 +86,7 @@ export async function buildEmployeeImportTemplate(): Promise<Buffer> {
     width: Math.max(header.length + 2, 14),
   }));
   sheet.addRow({
+    employeeCode: "EMP-1001",
     firstName: "Jane",
     lastName: "Doe",
     dob: "1992-05-01",
@@ -114,7 +117,11 @@ export async function buildEmployeeImportTemplate(): Promise<Buffer> {
       field: "Department/Designation/Grade/Location/Reporting Manager ID",
       values: "Internal record id, not a name — look these up from the Employee Directory. Leave blank if unknown.",
     },
-    { field: "Employee Code", values: "Do not include — system-generated automatically (MNR-<year>-<seq>)." },
+    {
+      field: "Employee Code",
+      values:
+        "Optional — enter the code from your source system to keep it unchanged. Leave blank to auto-generate (MNR-<year>-<seq>). Must be unique across all employees.",
+    },
   ]);
 
   const buffer = await workbook.xlsx.writeBuffer();
