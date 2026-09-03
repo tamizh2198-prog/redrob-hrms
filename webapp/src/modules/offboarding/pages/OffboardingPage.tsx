@@ -24,9 +24,23 @@ import {
   markSettlementPaid,
   previewRelievingLetter,
   sendRelievingLetter,
+  updateRelievingLetter,
   type Resignation,
   type FinalSettlement,
+  type RelievingLetterData,
 } from '../api'
+
+type EditableLetterFields = Omit<RelievingLetterData, 'employeeCode' | 'gender'>
+
+const LETTER_FIELD_LABELS: Record<keyof EditableLetterFields, string> = {
+  employeeName: 'Employee name',
+  dateOfJoining: 'Date of joining',
+  lastWorkingDay: 'Last working day',
+  designation: 'Designation',
+  location: 'Location',
+  department: 'Department',
+  generatedDate: 'Letter date',
+}
 
 export function OffboardingPage() {
   const { user } = useAuth()
@@ -68,6 +82,9 @@ export function OffboardingPage() {
   const [markingPaid, setMarkingPaid] = useState(false)
   const [previewingLetter, setPreviewingLetter] = useState(false)
   const [sendingLetter, setSendingLetter] = useState(false)
+  const [editingLetter, setEditingLetter] = useState(false)
+  const [letterForm, setLetterForm] = useState<EditableLetterFields | null>(null)
+  const [savingLetter, setSavingLetter] = useState(false)
 
   function loadActive(id: string) {
     getResignation(id)
@@ -261,6 +278,31 @@ export function OffboardingPage() {
       setError(err instanceof ApiError ? err.message : 'Failed to send the letter')
     } finally {
       setSendingLetter(false)
+    }
+  }
+
+  function startEditingLetter() {
+    if (!active?.letterDataSnapshot) return
+    const { employeeName, dateOfJoining, lastWorkingDay, designation, location, department, generatedDate } =
+      active.letterDataSnapshot
+    setLetterForm({ employeeName, dateOfJoining, lastWorkingDay, designation, location, department, generatedDate })
+    setEditingLetter(true)
+  }
+
+  async function handleSaveLetter() {
+    if (!active || !letterForm || savingLetter) return
+    setError(null)
+    setMessage(null)
+    setSavingLetter(true)
+    try {
+      await updateRelievingLetter(active.id, letterForm)
+      setMessage('Letter updated. Preview it again to confirm before sending.')
+      setEditingLetter(false)
+      loadActive(active.id)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update the letter')
+    } finally {
+      setSavingLetter(false)
     }
   }
 
@@ -528,17 +570,49 @@ export function OffboardingPage() {
                       data. Verify it looks right before sending — it goes to their personal email, not their work
                       account.
                     </p>
-                    <Textarea
-                      placeholder="Closing remarks (optional)"
-                      value={closingRemarks}
-                      onChange={(e) => setClosingRemarks(e.target.value)}
-                    />
+                    {editingLetter && letterForm ? (
+                      <div className="flex flex-col gap-2 rounded-md border p-3">
+                        {(Object.keys(LETTER_FIELD_LABELS) as (keyof EditableLetterFields)[]).map((field) => (
+                          <div key={field} className="flex flex-col gap-1">
+                            <Label className="text-xs">{LETTER_FIELD_LABELS[field]}</Label>
+                            <Input
+                              value={letterForm[field]}
+                              onChange={(e) => setLetterForm((f) => (f ? { ...f, [field]: e.target.value } : f))}
+                            />
+                          </div>
+                        ))}
+                        <div className="flex gap-2 pt-1">
+                          <Button size="sm" disabled={savingLetter} onClick={handleSaveLetter}>
+                            {savingLetter ? 'Saving…' : 'Save Changes'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={savingLetter}
+                            onClick={() => setEditingLetter(false)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Textarea
+                        placeholder="Closing remarks (optional)"
+                        value={closingRemarks}
+                        onChange={(e) => setClosingRemarks(e.target.value)}
+                      />
+                    )}
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" disabled={previewingLetter} onClick={handlePreviewLetter}>
                         {previewingLetter ? 'Loading…' : 'Preview Letter'}
                       </Button>
+                      {active.letterStatus === 'PENDING_VERIFICATION' && !editingLetter && (
+                        <Button size="sm" variant="outline" onClick={startEditingLetter}>
+                          Edit Letter
+                        </Button>
+                      )}
                       {active.letterStatus === 'PENDING_VERIFICATION' && (
-                        <Button size="sm" variant="success" disabled={sendingLetter} onClick={handleSendLetter}>
+                        <Button size="sm" variant="success" disabled={sendingLetter || editingLetter} onClick={handleSendLetter}>
                           {sendingLetter ? 'Sending…' : 'Verify & Send to Personal Email'}
                         </Button>
                       )}

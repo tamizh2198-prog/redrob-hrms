@@ -282,7 +282,10 @@ export function ShiftPage() {
           <ul className="flex flex-col gap-2 text-sm">
             {myWfoWfh.map((r) => (
               <li key={r.id} className="flex items-center justify-between rounded-md bg-muted px-2 py-1">
-                <span>{wfoWfhRequestLabel(r)}</span>
+                <span>
+                  {wfoWfhRequestLabel(r)}
+                  {r.approverName && <span className="text-muted-foreground"> — Manager: {r.approverName}</span>}
+                </span>
                 <Badge
                   variant={
                     r.status === 'APPROVED' ? 'default' : r.status === 'REJECTED' ? 'destructive' : 'outline'
@@ -313,6 +316,7 @@ export function ShiftPage() {
                     </div>
                     <div className="text-muted-foreground">{wfoWfhRequestLabel(r)}</div>
                     <div className="text-muted-foreground">Reason: {r.reason}</div>
+                    {r.approverName && <div className="text-muted-foreground">Manager: {r.approverName}</div>}
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -374,6 +378,7 @@ export function ShiftPage() {
                     {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
                   </span>
                   <span className="text-muted-foreground">{wfoWfhRequestLabel(r)}</span>
+                  {r.approverName && <span className="text-muted-foreground">Manager: {r.approverName}</span>}
                 </span>
                 <Badge variant="outline">Manager review pending</Badge>
               </li>
@@ -401,7 +406,9 @@ export function ShiftPage() {
                     </div>
                     <div className="text-muted-foreground">{wfoWfhRequestLabel(r)}</div>
                     <div className="text-muted-foreground">Reason: {r.reason}</div>
-                    <div className="text-muted-foreground">Manager already approved this request.</div>
+                    <div className="text-muted-foreground">
+                      Manager{r.approverName ? ` (${r.approverName})` : ""} already approved this request.
+                    </div>
                   </div>
                   {canApprove && (
                     <div className="flex gap-2">
@@ -436,6 +443,7 @@ export function ShiftPage() {
                       {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : r.employeeId}
                     </div>
                     <div className="text-muted-foreground">{wfoWfhRequestLabel(r)}</div>
+                    {r.approverName && <div className="text-muted-foreground">Manager: {r.approverName}</div>}
                   </div>
                   <Badge
                     variant={

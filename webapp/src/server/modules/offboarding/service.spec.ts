@@ -423,6 +423,70 @@ describe("offboarding service", () => {
     });
   });
 
+  describe("Relieving letter: Super Admin can correct the snapshot before sending", () => {
+    it("rejects editing before the checklist has produced a snapshot", async () => {
+      prisma.resignation.findUnique.mockResolvedValue({ id: "res-1", letterDataSnapshot: null });
+      await expect(
+        offboardingService.updateRelievingLetterSnapshot(db, "res-1", { designation: "Staff Engineer" } as never),
+      ).rejects.toThrow("hasn't been generated yet");
+      expect(prisma.resignation.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects editing a letter that has already been sent", async () => {
+      prisma.resignation.findUnique.mockResolvedValue({
+        id: "res-1",
+        letterStatus: "SENT",
+        letterDataSnapshot: { employeeName: "Gaurav Bisht" },
+      });
+      await expect(
+        offboardingService.updateRelievingLetterSnapshot(db, "res-1", { designation: "Staff Engineer" } as never),
+      ).rejects.toThrow("already been sent");
+      expect(prisma.resignation.update).not.toHaveBeenCalled();
+    });
+
+    it("merges only the provided fields into the existing snapshot, leaving the rest untouched", async () => {
+      const snapshot = {
+        employeeName: "Gaurav Bisht",
+        employeeCode: "MNR-2026-0001",
+        dateOfJoining: "—",
+        lastWorkingDay: "2026-09-30",
+        designation: "Software Engineer",
+        location: "Bangalore",
+        department: "Engineering",
+        gender: "MALE",
+        generatedDate: "2026-09-03",
+      };
+      prisma.resignation.findUnique.mockResolvedValue({
+        id: "res-1",
+        letterStatus: "PENDING_VERIFICATION",
+        letterDataSnapshot: snapshot,
+      });
+      prisma.resignation.update.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "res-1", ...data }),
+      );
+
+      const result = await offboardingService.updateRelievingLetterSnapshot(db, "res-1", {
+        dateOfJoining: "2024-03-01",
+        designation: "Senior Software Engineer",
+        // UpdateRelievingLetterDto has no employeeCode/gender fields, so
+        // class-validator's whitelist already strips these before this
+        // function ever sees them — the `as never` cast bypasses that to
+        // prove the merge logic itself is also safe in depth, not solely
+        // reliant on the DTO layer.
+        employeeCode: "SNEAKY-CODE",
+        gender: "FEMALE",
+      } as never);
+
+      expect(result).toEqual({
+        ...snapshot,
+        dateOfJoining: "2024-03-01",
+        designation: "Senior Software Engineer",
+      });
+      expect(result.employeeCode).toBe("MNR-2026-0001");
+      expect(result.gender).toBe("MALE");
+    });
+  });
+
   describe("Acceptance Criteria: F&F correctly nets notice shortfall and unreturned-asset recovery with no manual re-entry", () => {
     it("pulls asset cost automatically and nets it against notice shortfall (no leave encashment — Leave module removed)", async () => {
       // Notice period was 30 days but the employee actually left 10 days

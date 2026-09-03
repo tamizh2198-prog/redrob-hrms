@@ -508,6 +508,7 @@ export async function inviteEmployee(
     grade: dto.gradeId ? { connect: { id: dto.gradeId } } : undefined,
     employmentType: dto.employmentType,
     ctcLpa: dto.ctcLpa,
+    dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : undefined,
   }));
 
   const { rawToken, expiresAt } = await createInvitationToken(prisma, employee.id);

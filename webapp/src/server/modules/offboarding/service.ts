@@ -16,6 +16,7 @@ import type {
   SignoffClearanceDto,
   SubmitExitInterviewDto,
   SubmitResignationDto,
+  UpdateRelievingLetterDto,
 } from "./dto";
 
 // Normalizes to UTC midnight, not local midnight — date-only ISO strings
@@ -522,6 +523,41 @@ export async function previewRelievingLetter(prisma: PrismaClient, resignationId
     throw new BadRequestError("The letter hasn't been generated yet — it's created once the separation clearance checklist is fully signed off");
   }
   return renderRelievingLetterPdf(resignation.letterDataSnapshot as unknown as RelievingLetterData);
+}
+
+// Super Admin can correct the auto-generated snapshot before sending — a
+// blank "—" for a field never filled in on the employee's record, a stale
+// department name, a designation that needs a manual fix. Deliberately
+// blocked once the letter is SENT: that copy already reached the employee's
+// personal inbox, so editing the snapshot afterward would silently diverge
+// from what they actually received rather than correct anything.
+export async function updateRelievingLetterSnapshot(prisma: PrismaClient, resignationId: string, dto: UpdateRelievingLetterDto) {
+  const resignation = await prisma.resignation.findUnique({ where: { id: resignationId } });
+  if (!resignation) throw new NotFoundError("Resignation not found");
+  if (!resignation.letterDataSnapshot) {
+    throw new BadRequestError("The letter hasn't been generated yet — it's created once the separation clearance checklist is fully signed off");
+  }
+  if (resignation.letterStatus !== "PENDING_VERIFICATION") {
+    throw new BadRequestError("This letter has already been sent and can no longer be edited");
+  }
+
+  const currentSnapshot = resignation.letterDataSnapshot as unknown as RelievingLetterData;
+  const updatedSnapshot: RelievingLetterData = {
+    ...currentSnapshot,
+    ...(dto.employeeName !== undefined && { employeeName: dto.employeeName }),
+    ...(dto.dateOfJoining !== undefined && { dateOfJoining: dto.dateOfJoining }),
+    ...(dto.lastWorkingDay !== undefined && { lastWorkingDay: dto.lastWorkingDay }),
+    ...(dto.designation !== undefined && { designation: dto.designation }),
+    ...(dto.location !== undefined && { location: dto.location }),
+    ...(dto.department !== undefined && { department: dto.department }),
+    ...(dto.generatedDate !== undefined && { generatedDate: dto.generatedDate }),
+  };
+
+  const updated = await prisma.resignation.update({
+    where: { id: resignationId },
+    data: { letterDataSnapshot: updatedSnapshot as unknown as Prisma.InputJsonValue },
+  });
+  return updated.letterDataSnapshot as unknown as RelievingLetterData;
 }
 
 // "Post verification of the super admin, then it will be sent automatically

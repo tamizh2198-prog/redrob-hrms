@@ -1,11 +1,15 @@
 import PDFDocument from "pdfkit";
+import { COMPANY_LOGO_PNG_BASE64, COO_SIGNATURE_PNG_BASE64 } from "./relieving-letter-assets";
 
-// Mirrors "Relieving & Experience Letter.pdf" (the company's actual
-// letterhead template) field-for-field. The source template's own grammar is
-// inconsistent (a stray leftover "e" fragment, a hardcoded "her"/"she"
-// regardless of the employee's actual gender) — this renders the intended
-// structure with pronouns correctly derived from the employee's gender on
-// file instead of reproducing those artifacts literally.
+// Mirrors "Relieving & Experience Letter.docx" (the company's actual
+// letterhead template) field-for-field, including its logo and the COO's
+// actual signature (HRMS-23: these were previously rendered as plain text —
+// "McKinley Rice" and "Kartikey Handa" — instead of the real images the
+// template embeds). The source template's own grammar is inconsistent (a
+// stray leftover "e" fragment, a hardcoded "her"/"she" regardless of the
+// employee's actual gender) — this renders the intended structure with
+// pronouns correctly derived from the employee's gender on file instead of
+// reproducing those artifacts literally.
 export interface RelievingLetterData {
   employeeName: string;
   employeeCode: string;
@@ -34,8 +38,10 @@ export function renderRelievingLetterPdf(data: RelievingLetterData): Promise<Buf
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.font("Helvetica-Bold").fontSize(16).text("McKinley Rice", { align: "right" });
-    doc.moveDown(0.3);
+    const logoBuffer = Buffer.from(COMPANY_LOGO_PNG_BASE64, "base64");
+    const logoWidth = 140;
+    doc.image(logoBuffer, doc.page.width - doc.page.margins.right - logoWidth, doc.y, { width: logoWidth });
+    doc.moveDown(2.2);
     doc
       .moveTo(doc.page.margins.left, doc.y)
       .lineTo(doc.page.width - doc.page.margins.right, doc.y)
@@ -89,7 +95,15 @@ export function renderRelievingLetterPdf(data: RelievingLetterData): Promise<Buf
 
     doc.font("Helvetica-Bold");
     doc.text("With Regards,");
-    doc.moveDown(0.5);
+    doc.moveDown(0.3);
+
+    const signatureBuffer = Buffer.from(COO_SIGNATURE_PNG_BASE64, "base64");
+    const signatureWidth = 110;
+    const signatureHeight = signatureWidth * (180 / 312); // source PNG's own pixel aspect ratio
+    const signatureTop = doc.y;
+    doc.image(signatureBuffer, doc.page.margins.left, signatureTop, { width: signatureWidth });
+    doc.y = signatureTop + signatureHeight + 6; // clear the image before the next text line
+
     doc.text("Kartikey Handa");
     doc.text("Chief Operating and Growth Officer (COO)");
 

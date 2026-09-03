@@ -28,6 +28,21 @@ export interface LwdAdjustment {
   adjustedAt: string
 }
 
+// Mirrors RelievingLetterData server-side — every field the letter template
+// prints. employeeCode is excluded from the editable fields below (see
+// updateRelievingLetter): it's the one immutable identifier on the letter.
+export interface RelievingLetterData {
+  employeeName: string
+  employeeCode: string
+  dateOfJoining: string
+  lastWorkingDay: string
+  designation: string
+  location: string
+  department: string
+  gender: 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY' | null
+  generatedDate: string
+}
+
 export interface Resignation {
   id: string
   employeeId: string
@@ -43,6 +58,10 @@ export interface Resignation {
   experienceLetterRef: string | null
   lettersGeneratedAt: string | null
   letterStatus: ResignationLetterStatus
+  // Auto-generated once the clearance checklist is fully signed off; null
+  // until then. Editable by Super Admin (see updateRelievingLetter) while
+  // still PENDING_VERIFICATION.
+  letterDataSnapshot: RelievingLetterData | null
   closingRemarks: string | null
   certificateReleasedBy: string | null
   clearanceItems?: ClearanceItem[]
@@ -144,4 +163,11 @@ export function sendRelievingLetter(id: string, closingRemarks?: string) {
     method: 'POST',
     body: { closingRemarks },
   })
+}
+
+// Super Admin-only correction pass on the auto-generated letter fields,
+// before sending — every field except employeeCode is editable. Only
+// accepted while the letter is still PENDING_VERIFICATION.
+export function updateRelievingLetter(id: string, data: Partial<Omit<RelievingLetterData, 'employeeCode' | 'gender'>>) {
+  return api<RelievingLetterData>(`/offboarding/${id}/letters`, { method: 'PATCH', body: data })
 }

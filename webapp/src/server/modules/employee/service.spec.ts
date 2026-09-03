@@ -658,6 +658,20 @@ describe("employee service", () => {
       expect(createArg.data.ctcLpa).toBe(12);
     });
 
+    it("accepts dateOfJoining at invite time so it's never null for a relieving letter generated later", async () => {
+      prisma.employee.findUnique.mockResolvedValue(null);
+      prisma.employee.create.mockResolvedValue({ id: "emp-1", employeeCode: "MNR-2026-0001" });
+
+      await employeeService.inviteEmployee(
+        db,
+        { email: "jane@co.com", firstName: "Jane", lastName: "Doe", dateOfJoining: "2026-01-15" } as never,
+        "actor-1",
+      );
+
+      const createArg = prisma.employee.create.mock.calls[0][0];
+      expect(createArg.data.dateOfJoining).toEqual(new Date("2026-01-15"));
+    });
+
     it("never accepts a role field from the caller (server-controlled, defaults to EMPLOYEE)", async () => {
       prisma.employee.findUnique.mockResolvedValue(null);
       prisma.employee.create.mockResolvedValue({ id: "emp-1" });

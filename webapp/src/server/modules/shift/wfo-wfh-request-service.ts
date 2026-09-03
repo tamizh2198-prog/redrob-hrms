@@ -51,6 +51,30 @@ function stripPasswordHash<T extends { employee?: Record<string, unknown> | null
   return { ...request, employee: safeEmployee };
 }
 
+// approverId is a loose string, not a Prisma relation (see the schema
+// comment), so it can't be resolved via `include` — this attaches a display
+// name for it manually. approverId is set once at submission (the
+// requester's manager, or an HR Admin fallback) and never cleared, so it
+// names "whoever this request was/is routed to" for the manager stage
+// throughout the request's lifecycle, which is what every view — the
+// requester's own list, the manager's queues, and Super Admin/HR's
+// visibility views — needs to show as "Manager".
+async function attachApproverNames<T extends { approverId: string | null }>(
+  prisma: PrismaClient,
+  requests: T[],
+): Promise<(T & { approverName: string | null })[]> {
+  const approverIds = [...new Set(requests.map((r) => r.approverId).filter((id): id is string => !!id))];
+  if (approverIds.length === 0) {
+    return requests.map((r) => ({ ...r, approverName: null }));
+  }
+  const approvers = await prisma.employee.findMany({
+    where: { id: { in: approverIds } },
+    select: { id: true, firstName: true, lastName: true },
+  });
+  const nameById = new Map(approvers.map((a) => [a.id, `${a.firstName} ${a.lastName}`]));
+  return requests.map((r) => ({ ...r, approverName: r.approverId ? (nameById.get(r.approverId) ?? null) : null }));
+}
+
 function rosterSwapOps(
   prisma: PrismaClient,
   request: {
@@ -251,8 +275,9 @@ async function decideFinalStage(
   return { status: dto.approve ? "APPROVED" : "REJECTED" };
 }
 
-export function listMine(prisma: PrismaClient, employeeId: string) {
-  return prisma.wfoWfhChangeRequest.findMany({ where: { employeeId }, orderBy: { createdAt: "desc" } });
+export async function listMine(prisma: PrismaClient, employeeId: string) {
+  const requests = await prisma.wfoWfhChangeRequest.findMany({ where: { employeeId }, orderBy: { createdAt: "desc" } });
+  return attachApproverNames(prisma, requests);
 }
 
 export async function listPendingForApprover(prisma: PrismaClient, approverId: string) {
@@ -261,7 +286,7 @@ export async function listPendingForApprover(prisma: PrismaClient, approverId: s
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return attachApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 // Manager-stage requests aren't actionable by Super Admin/HR Admin yet, but
@@ -272,7 +297,7 @@ export async function listPendingManagerStageForVisibility(prisma: PrismaClient)
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return attachApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 export async function listPendingFinalApproval(prisma: PrismaClient) {
@@ -281,7 +306,7 @@ export async function listPendingFinalApproval(prisma: PrismaClient) {
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return attachApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 export async function listAll(prisma: PrismaClient, status?: "PENDING_MANAGER" | "PENDING_FINAL_APPROVAL" | "APPROVED" | "REJECTED") {
@@ -290,7 +315,7 @@ export async function listAll(prisma: PrismaClient, status?: "PENDING_MANAGER" |
     include: { employee: true },
     orderBy: { createdAt: "desc" },
   });
-  return requests.map((r) => stripPasswordHash(r));
+  return attachApproverNames(prisma, requests.map((r) => stripPasswordHash(r)));
 }
 
 export async function addComment(prisma: PrismaClient, requestId: string, authorId: string, body: string) {

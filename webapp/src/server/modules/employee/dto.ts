@@ -293,6 +293,10 @@ export class InviteEmployeeDto {
   @IsNumber()
   @IsPositive()
   ctcLpa?: number;
+
+  @IsOptional()
+  @IsDateString()
+  dateOfJoining?: string;
 }
 
 export class UpdateMyProfileDto {

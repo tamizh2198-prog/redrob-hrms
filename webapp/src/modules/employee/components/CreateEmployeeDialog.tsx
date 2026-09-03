@@ -41,6 +41,7 @@ const EMPTY_FORM = {
   employmentType: '' as EmploymentType | '',
   role: 'EMPLOYEE' as Role,
   ctcLpa: '',
+  dateOfJoining: '',
 }
 
 // Mirrors the EmploymentType schema enum — not master data (unlike
@@ -135,6 +136,7 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
         employmentType: form.employmentType || undefined,
         role: form.role,
         ctcLpa: form.ctcLpa ? Number(form.ctcLpa) : undefined,
+        dateOfJoining: form.dateOfJoining || undefined,
       })
       setMessage(
         result.emailSent
@@ -335,6 +337,14 @@ export function CreateEmployeeDialog({ onCreated }: { onCreated: () => void }) {
               value={form.ctcLpa}
               onChange={(e) => update('ctcLpa', e.target.value)}
               placeholder="e.g. 12"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Date of joining</Label>
+            <Input
+              type="date"
+              value={form.dateOfJoining}
+              onChange={(e) => update('dateOfJoining', e.target.value)}
             />
           </div>
 

@@ -34,6 +34,7 @@ export interface WfoWfhRequest {
   reason: string
   status: 'PENDING_MANAGER' | 'PENDING_FINAL_APPROVAL' | 'APPROVED' | 'REJECTED'
   approverId: string | null
+  approverName: string | null
   managerApproverId: string | null
   managerDecidedAt: string | null
   finalApproverId: string | null

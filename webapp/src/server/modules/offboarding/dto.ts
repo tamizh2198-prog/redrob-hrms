@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsBoolean, IsDateString, IsEmail, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Min } from "class-validator";
+import { IsBoolean, IsDateString, IsEmail, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min } from "class-validator";
 
 export class SubmitResignationDto {
   // Self-service is the common case; HR can submit on an employee's behalf.
@@ -71,4 +71,50 @@ export class SendRelievingLetterDto {
   @IsOptional()
   @IsString()
   closingRemarks?: string;
+}
+
+// Every field the letter template actually prints, except employeeCode —
+// that's the one immutable identifier on the letter, never something a
+// typo/override should touch. The auto-generated snapshot (from whatever
+// was on the employee's record when the clearance checklist completed) is
+// often right, but not always: a blank "—" for a field that was never
+// filled in, a department name that changed since, a designation that needs
+// a manual correction — Super Admin can fix any of these before sending.
+export class UpdateRelievingLetterDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  employeeName?: string;
+
+  // Not @IsDateString(): the snapshot legitimately holds "—" for a field
+  // that was never filled in, not always a real ISO date.
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  dateOfJoining?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  lastWorkingDay?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  designation?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  department?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  generatedDate?: string;
 }

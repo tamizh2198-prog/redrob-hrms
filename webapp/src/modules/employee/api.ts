@@ -307,6 +307,7 @@ export function inviteEmployee(data: {
   employmentType?: EmploymentType
   role?: Role
   ctcLpa?: number
+  dateOfJoining?: string
 }) {
   return api<InviteEmployeeResult>('/employees/invite', { method: 'POST', body: data })
 }
