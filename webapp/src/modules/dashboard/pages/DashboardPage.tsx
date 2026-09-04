@@ -518,10 +518,16 @@ function SuperAdminDashboard({ userName }: { userName: string }) {
   function headcount(status: string) {
     return hrDashboard?.headcountByStatus.find((h) => h.status === status)?.count ?? 0
   }
-  const totalEmployees = hrDashboard?.headcountByStatus.reduce((sum, h) => sum + h.count, 0) ?? 0
-  const activeEmployees = headcount('ACTIVE') + headcount('ACTIVE_PROBATION')
-  const invitedEmployees = headcount('INVITED')
-  const terminatedEmployees = headcount('TERMINATED')
+  // dashboard is null until the fetch above resolves — showing "0" in that
+  // window reads as "this company has no employees" rather than "loading",
+  // which is misleading for the one KPI an admin checks first.
+  const dashboardLoading = dashboard === null
+  const totalEmployees = dashboardLoading
+    ? '…'
+    : (hrDashboard?.headcountByStatus.reduce((sum, h) => sum + h.count, 0) ?? 0)
+  const activeEmployees = dashboardLoading ? '…' : headcount('ACTIVE') + headcount('ACTIVE_PROBATION')
+  const invitedEmployees = dashboardLoading ? '…' : headcount('INVITED')
+  const terminatedEmployees = dashboardLoading ? '…' : headcount('TERMINATED')
 
   return (
     <div className="flex flex-col gap-6 p-6">

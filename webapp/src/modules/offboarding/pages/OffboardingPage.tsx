@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -98,6 +98,13 @@ export function OffboardingPage() {
   function refreshAllResignations() {
     listResignations().then(setAllResignations).catch(() => setAllResignations([]))
   }
+
+  // Previously only ever loaded after a manual "Refresh" click or a
+  // mutation (accept/reject/submit) — an HR Admin landing on the page for
+  // the first time saw "No resignations yet" until they clicked Refresh.
+  useEffect(() => {
+    if (isHrAdmin) refreshAllResignations()
+  }, [isHrAdmin])
 
   async function handleSubmitResignation() {
     if (!personalEmail) return

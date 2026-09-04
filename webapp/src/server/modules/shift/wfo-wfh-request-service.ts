@@ -188,7 +188,7 @@ export async function decide(prisma: PrismaClient, requestId: string, actorId: s
   if (!request) throw new NotFoundError("WFO/WFH request not found");
 
   if (request.status === "PENDING_MANAGER") {
-    return decideManagerStage(prisma, request, actorId, dto, actorRole);
+    return decideManagerStage(prisma, request, actorId, dto);
   }
   if (request.status === "PENDING_FINAL_APPROVAL") {
     return decideFinalStage(prisma, request, actorId, dto, actorRole);
@@ -201,11 +201,16 @@ async function decideManagerStage(
   request: { id: string; employeeId: string; approverId: string | null; requestedWorkMode: WorkMode; originalDate: Date },
   actorId: string,
   dto: WfoWfhDecisionDto,
-  actorRole?: Role,
 ) {
+  // Manager-stage sign-off is scoped to the employee's actual manager
+  // (approverId) — HR Admin/Super Admin get visibility into these requests
+  // (see the pending-manager-stage list) but cannot decide one themselves
+  // unless they are literally the assigned approver (either the real
+  // reportingManager, or the HR-admin fallback submit() uses when the
+  // employee has no manager on file).
   const isAssignedApprover = request.approverId === actorId;
-  if (!isAssignedApprover && !isPrivileged(actorRole)) {
-    throw new ForbiddenError("Only the assigned manager or an HR Admin/Super Admin can decide this request");
+  if (!isAssignedApprover) {
+    throw new ForbiddenError("Only the employee's assigned manager can decide this request");
   }
 
   if (!dto.approve) {

@@ -44,7 +44,7 @@ describe("notifications service", () => {
       expect(prisma.notificationLog.createMany).not.toHaveBeenCalled();
     });
 
-    it("creates an in-app notification and simulated logs for the other default-enabled channels on a non-critical template", async () => {
+    it("creates an in-app notification, sends a real email, and simulates SLACK/SMS on a non-critical template", async () => {
       prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: "emp1@co.com" });
       prisma.notificationPreference.findUnique.mockResolvedValue(null);
 
@@ -67,7 +67,24 @@ describe("notifications service", () => {
           ]),
         }),
       );
-      // Non-critical template — EMAIL stays simulated, no real send attempted.
+      // EMAIL is now real for every category when enabled, not just the 3
+      // critical templates — only SLACK/SMS remain simulated (no integration
+      // exists yet).
+      expect(jest.requireMock("../../lib/email").sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "emp1@co.com" }),
+      );
+    });
+
+    it("does not send an email for a non-critical template when the employee disabled EMAIL", async () => {
+      prisma.employee.findUnique.mockResolvedValue({ id: "emp-1", companyId: "company-1", workEmail: "emp1@co.com" });
+      prisma.notificationPreference.findUnique.mockResolvedValue({ channelsEnabled: ["IN_APP"] });
+
+      await notificationsService.dispatch(db, {
+        recipientId: "emp-1",
+        template: "leave.decision-made",
+        body: "Your leave application was approved.",
+      });
+
       expect(jest.requireMock("../../lib/email").sendEmail).not.toHaveBeenCalled();
     });
 

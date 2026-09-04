@@ -256,6 +256,13 @@ export function EmployeePage() {
               </TableCell>
             </TableRow>
           ))}
+          {loading && employees.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={5} className="text-center text-muted-foreground">
+                Loading…
+              </TableCell>
+            </TableRow>
+          )}
           {!loading && employees.length === 0 && (
             <TableRow>
               <TableCell colSpan={5} className="text-center text-muted-foreground">
@@ -269,7 +276,9 @@ export function EmployeePage() {
       {!isSelfView && (
         <div className="flex items-center justify-between text-sm">
           <span>
-            Page {page} of {Math.max(1, Math.ceil(total / pageSize))} ({total} total)
+            {loading && employees.length === 0
+              ? 'Loading…'
+              : `Page ${page} of ${Math.max(1, Math.ceil(total / pageSize))} (${total} total)`}
           </span>
           <div className="flex gap-2">
             <Button

@@ -190,8 +190,9 @@ export function NotificationsPage() {
           </CardHeader>
           <CardContent className="text-sm">
           <p className="mb-3 text-muted-foreground">
-            In-app delivery is always on. Email/Slack/SMS are simulated in this build (no
-            mailer/SMS/Slack integration is wired up yet), but your preference is still recorded.
+            In-app delivery is always on. Email is delivered to your work email address when
+            enabled. Slack/SMS are simulated in this build (no Slack/SMS integration is wired up
+            yet), but your preference is still recorded.
           </p>
           <ul className="flex flex-col gap-2">
             {preferences.map((row) => (

@@ -66,14 +66,14 @@ export interface NotificationPayload {
 
 // The real implementation behind the shared notify() entry point every
 // other module calls (see ../../lib/notify.ts). Persists a real in-app
-// Notification row for the IN_APP channel. EMAIL is real for the three
+// Notification row for the IN_APP channel. EMAIL is real for every category
+// (via the same Resend-backed sendEmail() the invitation/activation/offer
+// flows already use) whenever the recipient has it enabled — the three
 // CRITICAL_TEMPLATE_PREFIXES (Section 7.16: "security/compliance-critical
-// events always deliver via email regardless of preference") via the same
-// Resend-backed sendEmail() the invitation/activation/offer flows already
-// use; every other category's EMAIL, plus SLACK/SMS entirely, are still
-// simulated via a NotificationLog entry, since no Slack/SMS SDK exists in
-// this stack and non-critical email isn't wired up yet — one channel's
-// failure never blocks another.
+// events always deliver via email regardless of preference") additionally
+// force EMAIL on even if the recipient disabled it. SLACK/SMS are still
+// simulated via a NotificationLog entry — no Slack/SMS integration exists in
+// this stack yet. One channel's failure never blocks another.
 export async function dispatch(prisma: PrismaClient, payload: NotificationPayload): Promise<void> {
   const employee = await prisma.employee.findUnique({ where: { id: payload.recipientId } });
   // Some call sites still pass a placeholder like "hr-admin" when no real
@@ -118,7 +118,7 @@ export async function dispatch(prisma: PrismaClient, payload: NotificationPayloa
   if (otherChannels.length) {
     const logs = await Promise.all(
       otherChannels.map(async (channel) => {
-        if (channel === NotificationChannel.EMAIL && critical) {
+        if (channel === NotificationChannel.EMAIL) {
           if (!employee.workEmail) {
             return {
               employeeId: employee.id,

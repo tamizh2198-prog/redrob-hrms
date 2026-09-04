@@ -87,29 +87,33 @@ export function renderRelievingLetterPdf(data: RelievingLetterData): Promise<Buf
     doc.moveDown(1);
 
     doc.text(`We wish ${object} all the best for ${possessive} future endeavours.`);
-    doc.moveDown(2.5);
+    doc.moveDown(1.8);
 
-    // The template's "For Mckinley & Rice Creativity Pvt. Ltd. / Director"
-    // authorization stamp is itself a graphic (a stylized, slightly-rotated
-    // rendering), not plain typed text — HRMS-23 follow-up: rendering this
-    // as plain Helvetica text was the "sealed stamp is missing" mismatch.
+    // In the template, the COO's ink signature is stamped directly over the
+    // "For Mckinley & Rice Creativity Pvt. Ltd. / Director" authorization
+    // seal — both graphics, heavily overlapping — and that whole block sits
+    // BEFORE "With Regards,", not after it. HRMS-23 follow-up: an earlier
+    // pass got the seal rendering right but placed the block after "With
+    // Regards," and stacked the two images with a gap instead of overlapping
+    // them, which is what "mismatching" referred to.
     const stampBuffer = Buffer.from(COMPANY_STAMP_PNG_BASE64, "base64");
     const stampWidth = 220;
     const stampHeight = stampWidth * (599 / 2048); // source PNG's own pixel aspect ratio
-    const stampTop = doc.y;
-    doc.image(stampBuffer, doc.page.margins.left, stampTop, { width: stampWidth });
-    doc.y = stampTop + stampHeight + 6;
+    const blockTop = doc.y;
+    doc.image(stampBuffer, doc.page.margins.left, blockTop, { width: stampWidth });
 
-    doc.font("Helvetica-Bold");
-    doc.text("With Regards,");
-    doc.moveDown(0.3);
-
+    // Signature drawn last so it paints on top of (in front of) the seal —
+    // offset up and slightly left to match the template's overlap.
     const signatureBuffer = Buffer.from(COO_SIGNATURE_PNG_BASE64, "base64");
     const signatureWidth = 110;
     const signatureHeight = signatureWidth * (180 / 312); // source PNG's own pixel aspect ratio
-    const signatureTop = doc.y;
-    doc.image(signatureBuffer, doc.page.margins.left, signatureTop, { width: signatureWidth });
-    doc.y = signatureTop + signatureHeight + 6; // clear the image before the next text line
+    doc.image(signatureBuffer, doc.page.margins.left - 14, blockTop + 4, { width: signatureWidth });
+
+    doc.y = blockTop + Math.max(stampHeight, signatureHeight + 4) + 6;
+
+    doc.font("Helvetica-Bold");
+    doc.text("With Regards,");
+    doc.moveDown(1);
 
     doc.text("Kartikey Handa");
     doc.text("Chief Operating and Growth Officer (COO)");
